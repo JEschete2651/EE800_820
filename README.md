@@ -1,4 +1,4 @@
-# EE800/820: FPGA-Based Signal Detection and Tracking System
+# EE800/820: FPGA-Based Signal Detection and Tracking
 
 An educational platform for hands-on learning of RF signal processing using FPGA technology.
 
