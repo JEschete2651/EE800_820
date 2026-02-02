@@ -1,0 +1,105 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{setspace}
+\usepackage{graphicx}
+
+% Remove page numbers from cover page
+\pagenumbering{gobble}
+
+\begin{document}
+	
+	% ============================================
+	% COVER PAGE
+	% ============================================
+	\begin{center}
+		\vspace*{2in}
+		
+		{\Large\textbf{Research Proposal}}
+		
+		\vspace{1in}
+		
+		\textbf{Jude Eschete}\\
+		\texttt{JEschete@stevens.edu}
+		
+		\vspace{2in}
+		
+		\textit{I pledge to adhere to the Stevens Graduate Student Code of Academic Integrity, and I have discussed the proposal with my Project Advisor.}
+		
+		\vspace{1in}
+		
+		\rule{3in}{0.4pt}\\
+		Signature \hspace{2in} Date
+		
+	\end{center}
+	
+	\newpage
+	
+	% ============================================
+	% PROPOSAL BODY (2 pages)
+	% ============================================
+	\pagenumbering{arabic}
+	
+	% Project Title - Font size 24
+	{\fontsize{24}{28}\selectfont\textbf{FPGA-Based Signal Processing System}}
+	
+	\vspace{0.5em}
+	
+	% Student and Advisor names - Font size 10
+	\noindent\textbf{Student:} Jude Eschete\\
+	\textbf{Project Advisor:} Dr. Bernard Yett
+	
+	\vspace{1em}
+	
+	% Section 1: Introduction
+	\section{Introduction}
+	
+	% TODO: Provide background and motivation for your FPGA-based radar system project.
+	% Consider discussing:
+	%   - Relevance of FPGA technology in modern radar signal processing
+	%   - Advantages over traditional software-based approaches (latency, parallelism, real-time performance)
+	%   - Connection to your work in RF signal processing
+	
+	% Section 2: Problem Description
+	\section{Problem Description}
+	
+	% TODO: Define the specific technical problem you are addressing.
+	% Consider including:
+	%   - Computational challenges of real-time radar signal processing
+	%   - Specific algorithms or processing stages you plan to implement on FPGA
+	%   - Performance requirements (throughput, latency, resource constraints)
+	%   - Limitations of existing approaches that your work aims to overcome
+	
+	% Section 3: Expected Contributions
+	\section{Expected Contributions}
+	
+	% TODO: Describe your project deliverables and outcomes here.
+	% Consider including:
+	%   - FPGA implementation of specific radar processing algorithms
+	%   - Performance benchmarks comparing FPGA vs. software implementations
+	%   - Documentation of design methodology and tradeoffs
+	%   - Any novel techniques or optimizations you plan to develop
+	%   - What constitutes success for this project
+	
+	% Section 4: Project Timeline
+	\section{Project Timeline}
+	
+	\begin{tabular}{|l|l|}
+		\hline
+		\textbf{Date Range} & \textbf{Milestone} \\
+		\hline
+		Feb 10 - Feb 28 & Literature review and requirements finalization \\
+		\hline
+		Mar 1 - Mar 21 & Algorithm design and simulation in MATLAB/Python \\
+		\hline
+		Mar 22 - Apr 11 & FPGA implementation (RTL design, synthesis) \\
+		\hline
+		Apr 12 - Apr 25 & Testing, verification, and performance benchmarking \\
+		\hline
+		Apr 26 - May 9 & Final report writing and presentation preparation \\
+		\hline
+		May 10 - May 16 & Final submission and defense \\
+		\hline
+	\end{tabular}
+	
+\end{document}
