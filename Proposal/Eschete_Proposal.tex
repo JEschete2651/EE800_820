@@ -3,10 +3,8 @@
 \usepackage{titlesec}
 \usepackage{setspace}
 \usepackage{graphicx}
-
 % Remove page numbers from cover page
 \pagenumbering{gobble}
-
 \begin{document}
 	
 	% ============================================
@@ -42,7 +40,7 @@
 	
 	% Project Title - Font size 24
 	\begin{center}
-		{\fontsize{24}{28}\selectfont\textbf{FPGA-Based Signal Processing \\ System}}
+		{\fontsize{24}{28}\selectfont\textbf{An Educational Framework for \\ AI-Driven Signal Processing}}
 	\end{center}
 	\vspace{0.5em}
 	
@@ -55,32 +53,23 @@
 	% Section 1: Introduction
 	\section{Introduction}
 	
-	% TODO: Provide background and motivation for your FPGA-based radar system project.
-	% Consider discussing:
-	%   - Relevance of FPGA technology in modern radar signal processing
-	%   - Advantages over traditional software-based approaches (latency, parallelism, real-time performance)
-	%   - Connection to your work in RF signal processing
+	Field-Programmable Gate Arrays, radio-frequency communication systems, microcontroller-based embedded platforms, and machine learning each represent core pillars of modern electrical engineering education. However, university curricula frequently treat these disciplines in isolation. Students may complete a digital design course that introduces HDL synthesis on an FPGA, a separate communications course covering modulation and RF signal theory, an embedded systems course focused on microcontroller peripherals and firmware development, and a machine learning course built around static datasets, yet rarely encounter a structured experience that requires them to integrate these domains into a cohesive working system. This gap leaves graduates underprepared for the multidisciplinary demands of industries such as defense, telecommunications, and aerospace, where systems routinely require real-time RF data acquisition, hardware-accelerated processing, and intelligent decision-making within a single pipeline.
+	
+	This project addresses that gap by developing a structured, progressive educational guide built around the design and implementation of an AI-driven RF signal processing system on FPGA. The target audience is senior undergraduate and master's-level electrical engineering students who have foundational exposure to digital design, signals and systems, embedded programming, and introductory machine learning but lack experience synthesizing these skills into an integrated system. Rather than presenting these topics as independent modules, the guide sequences them so that each stage builds on the previous one, culminating in a complete pipeline where students collect RF data from real hardware, process it on reconfigurable logic, and apply machine learning models to classify or characterize the received signals.
 	
 	% Section 2: Problem Description
 	\section{Problem Description}
 	
-	% TODO: Define the specific technical problem you are addressing.
-	% Consider including:
-	%   - Computational challenges of real-time radar signal processing
-	%   - Specific algorithms or processing stages you plan to implement on FPGA
-	%   - Performance requirements (throughput, latency, resource constraints)
-	%   - Limitations of existing approaches that your work aims to overcome
+	The system under development is a benchtop signal processing platform composed of three subsystems. Multiple STM32 Nucleo-L476RG microcontrollers, each paired with a low-power radio module such as a LoRa transceiver, serve as cooperative beacon targets that transmit known signals at configurable intervals and parameters. A separate receiver station captures these transmissions and feeds the incoming RF data to a Digilent Nexys A7-100T FPGA, which performs detection, identification, and prioritization of the received signals in real time. Processed signal data is then collected and used to train and evaluate machine learning models for tasks such as signal classification, emitter identification, or anomaly detection. As students progress through the guide, they scale the system from a single beacon and basic signal detection to multiple simultaneous targets, increasing the processing demands placed on the FPGA and the complexity of the classification task at each stage.
+	
+	This architecture presents several concrete engineering challenges that the guide must address. The FPGA must ingest data from multiple asynchronous RF sources, each transmitting independently, requiring careful clock domain management and buffering strategies. As the number of active beacons grows, the processing pipeline must classify and prioritize incoming signals under real-time throughput and latency constraints while remaining within the logic, memory, and timing resources available on the Artix-7 fabric. Bridging the microcontroller and FPGA domains introduces additional complexity in interface design, protocol selection, and synchronization between heterogeneous hardware. On the AI side, students must design a data collection pipeline that captures labeled signal features from the FPGA, select and train appropriate models, and evaluate classification performance against real-world RF data rather than curated academic datasets.
 	
 	% Section 3: Expected Contributions
 	\section{Expected Contributions}
 	
-	% TODO: Describe your project deliverables and outcomes here.
-	% Consider including:
-	%   - FPGA implementation of specific radar processing algorithms
-	%   - Performance benchmarks comparing FPGA vs. software implementations
-	%   - Documentation of design methodology and tradeoffs
-	%   - Any novel techniques or optimizations you plan to develop
-	%   - What constitutes success for this project
+	The principal contribution of this project is a unified pedagogical framework that treats FPGA design, RF communications, embedded systems, and applied machine learning not as four independent subjects but as a single integrated discipline with its own design principles, interface patterns, and system-level reasoning. Existing educational resources address each domain thoroughly in isolation, and individual capstone projects may combine two of the four, but not a structured methodology for teaching students how the entire pipeline connects: how digital hardware design decisions propagate into RF system behavior, how embedded firmware must adapt to the timing and resource realities of reconfigurable logic, how RF link characteristics constrain the architecture of the processing back end, and how the resulting data informs and challenges the machine learning models that operate on it. This project fills that gap by identifying and articulating the theoretical connections across all four domains and organizing them into a progressive learning sequence where each integration point becomes an explicit teaching objective rather than an incidental implementation detail.
+	
+	The resulting curriculum is designed around weekly assignments using commercially available hardware, specifically the Digilent Nexys A7-100T, STM32 Nucleo-L476RG microcontrollers, and LoRa transceiver modules, with all development tools either free or available through standard academic licenses. This choice ensures that the curriculum is reproducible at other institutions without requiring custom hardware or proprietary infrastructure. However, the core contribution is not the hardware platform or the individual assignments but the synthesis itself: a documented, teachable model of how these four disciplines interact at the system level, from RF data collection through hardware-accelerated processing to intelligent classification, supported by a concrete implementation that students can build, test, and reason about as a unified whole.
 	
 	% Section 4: Project Timeline
 	\section{Project Timeline}
