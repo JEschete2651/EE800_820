@@ -1,0 +1,826 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Packages ──────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{tcolorbox}
+\usepackage{multicol}
+\usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc}
+
+% ── Colors ────────────────────────────────────────────────────
+\definecolor{stevens}{RGB}{163,31,52}       % Stevens Red
+\definecolor{darkgray}{RGB}{60,60,60}
+\definecolor{lightgray}{RGB}{240,240,240}
+\definecolor{accentblue}{RGB}{30,80,140}
+
+% ── Hyperref Setup ────────────────────────────────────────────
+\hypersetup{
+	colorlinks=true,
+	linkcolor=stevens,
+	urlcolor=accentblue,
+	citecolor=darkgray,
+	plainpages=false
+}
+
+% ── Header / Footer ──────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{darkgray}{Stevens Institute of Technology}}
+\fancyhead[R]{\small\textcolor{darkgray}{Spring 2026}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Section Formatting ───────────────────────────────────────
+\titleformat{\section}
+{\Large\bfseries\color{stevens}}{\thesection}{1em}{}[\vspace{-0.5em}\rule{\textwidth}{0.4pt}]
+\titleformat{\subsection}
+{\large\bfseries\color{darkgray}}{\thesubsection}{1em}{}
+
+% ── tcolorbox Styles ─────────────────────────────────────────
+\tcbset{
+	objective/.style={colback=lightgray, colframe=stevens, 
+		fonttitle=\bfseries, title=#1, boxrule=0.5pt, arc=2pt},
+	infobox/.style={colback=blue!5, colframe=accentblue, 
+		fonttitle=\bfseries, title=#1, boxrule=0.5pt, arc=2pt},
+	deliverable/.style={colback=green!5, colframe=green!40!black,
+		fonttitle=\bfseries, title=#1, boxrule=0.5pt, arc=2pt},
+	warning/.style={colback=red!5, colframe=stevens,
+		fonttitle=\bfseries, title=#1, boxrule=0.5pt, arc=2pt}
+}
+
+% ══════════════════════════════════════════════════════════════
+\begin{document}
+	
+	% ── Title Page ───────────────────────────────────────────────
+	\pagenumbering{Alph}
+	\begin{titlepage}
+		\centering
+		\vspace*{2cm}
+		
+		{\Huge\bfseries\color{stevens} Lesson Plan: Module~1\par}
+		\vspace{0.5cm}
+		{\LARGE\color{darkgray} RF Module Selection, Hardware Bring-Up,\\[4pt]
+			and Beacon--Receiver Subsystem Design\par}
+		
+		\vspace{1.5cm}
+		\rule{0.6\textwidth}{1pt}
+		\vspace{1.5cm}
+		
+		{\Large\textbf{An Educational Framework for\\[4pt]
+				AI-Driven Signal Processing}\par}
+		
+		\vspace{1.5cm}
+		
+		\begin{tabular}{rl}
+			\textbf{Student:}         & Jude Eschete \\
+			\textbf{Project Advisor:} & Dr.\ Bernard Yett \\
+			\textbf{Program:}         & M.S.\ Computer Engineering \\
+			\textbf{Institution:}     & Stevens Institute of Technology \\
+			\textbf{Date Range:}      & February 28 -- March 14, 2026 \\
+		\end{tabular}
+		
+		\vspace{2cm}
+		
+		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
+			\centering\small
+			This document presents a lesson plan for the first module of the capstone project,
+			covering RF transceiver selection, hardware platform validation, and the design of the
+			beacon--receiver subsystem that forms the foundation for all subsequent FPGA processing
+			and machine learning work.
+		\end{tcolorbox}
+		
+		\vfill
+		{\small\textcolor{darkgray}{JEschete@stevens.edu}}
+	\end{titlepage}
+	
+	% ── Table of Contents ────────────────────────────────────────
+	\pagenumbering{roman}
+	\tableofcontents
+	\newpage
+	\pagenumbering{arabic}
+	
+	% ══════════════════════════════════════════════════════════════
+	\section{Module Overview}
+	% ══════════════════════════════════════════════════════════════
+	
+	\begin{tcolorbox}[objective={Module 1 Learning Objectives}]
+		Upon completion of this module, the student (or future learner following this curriculum) will be able to:
+		\begin{enumerate}[label=\textbf{LO-\arabic*}]
+			\item Evaluate commercially available RF transceiver modules against project-specific requirements and justify a final selection with quantitative criteria.
+			\item Verify end-to-end hardware communication between the STM32 Nucleo-L476RG and the selected RF module using basic firmware.
+			\item Confirm FPGA toolchain readiness on the Digilent Nexys A7-100T and validate a minimal loopback design.
+			\item Design a complete RF beacon and receiver subsystem architecture, including transmission scheduling, packet formatting, and receiver data flow.
+			\item Produce a hardware requirements document and subsystem design specification that downstream modules can build upon directly.
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\subsection{Context Within the Project}
+	
+	This module spans the first two milestones in the project timeline (February 10 -- March 14). It establishes the hardware baseline and subsystem architecture upon which all subsequent modules depend. The RF module trade study and hardware bring-up validate that the chosen components can communicate reliably, while the beacon--receiver subsystem design defines the architecture that the FPGA RTL (Module~2) and ML pipeline (Module~3) will consume.
+	
+	\subsection{Prerequisites}
+	
+	Students beginning this module should have:
+	\begin{itemize}[leftmargin=2em]
+		\item Familiarity with C/C++ embedded programming (GPIO, SPI, UART, I\textsuperscript{2}C)
+		\item Basic understanding of digital modulation (ASK, FSK, LoRa spread-spectrum concepts)
+		\item Experience with VHDL and the FPGA synthesis flow
+		\item Introductory exposure to machine learning (supervised classification)
+		\item Access to the hardware listed in Section~\ref{sec:hardware}
+	\end{itemize}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Weekly Schedule}
+	% ══════════════════════════════════════════════════════════════
+	
+	The module spans four weeks across two project milestones. Each week has a thematic focus, concrete tasks, and a deliverable checkpoint.
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Module 1 weekly breakdown.}
+		\label{tab:schedule}
+		\renewcommand{\arraystretch}{1.4}
+		\begin{tabularx}{\textwidth}{c l X}
+			\toprule
+			\textbf{Week} & \textbf{Focus Area} & \textbf{Key Activities} \\
+			\midrule
+			1 & RF Module Trade Study &
+			Define selection criteria; evaluate candidate modules (RFM95W, SX1276, Ra-02, E32); perform link budget analysis; select and procure final module. \\
+			2 & Hardware Bring-Up &
+			Flash STM32 with SPI driver firmware; verify RF module register access; transmit/receive basic packets; confirm Nexys A7 toolchain and loopback; produce hardware requirements document. \\
+			3 & Beacon Subsystem Design &
+			Define beacon transmission architecture; design packet format and framing protocol; implement configurable transmission scheduling on STM32; validate multi-beacon operation. \\
+			4 & Receiver Subsystem Design &
+			Design receiver data path from RF front-end to FPGA input; define FPGA ingestion interface; implement receiver firmware; validate end-to-end beacon-to-FPGA data flow. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Week 1: RF Module Trade Study}
+	\label{sec:tradestudy}
+	% ══════════════════════════════════════════════════════════════
+	
+	\subsection{Objectives}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Define quantitative and qualitative selection criteria for the RF transceiver module.
+		\item Evaluate at least four candidate modules against those criteria.
+		\item Perform a basic link budget analysis for the benchtop operating environment.
+		\item Produce a justified final selection with procurement plan.
+	\end{itemize}
+	
+	\subsection{Selection Criteria}
+	
+	The following table defines the evaluation dimensions. Each criterion is weighted to reflect its importance to the project's educational and technical goals.
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{RF module selection criteria and weights.}
+		\label{tab:criteria}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l c X}
+			\toprule
+			\textbf{Criterion} & \textbf{Weight} & \textbf{Description} \\
+			\midrule
+			SPI Interface Compatibility & 20\% & Must support standard SPI (CPOL/CPHA modes) at voltages compatible with the STM32 Nucleo (3.3\,V logic). \\
+			Frequency Band & 15\% & 915\,MHz ISM band preferred for U.S.\ regulatory compliance. \\
+			Modulation Support & 15\% & Must support LoRa (CSS) and ideally FSK/OOK for multi-modulation classification exercises. \\
+			Documentation \& Community & 15\% & Availability of datasheets, application notes, open-source driver libraries, and community forums. \\
+			Cost \& Availability & 10\% & Per-unit cost and lead time; must be procurable from standard distributors (Digi-Key, Mouser, Adafruit). \\
+			Power Consumption & 10\% & Low enough for USB-powered benchtop operation; transmit current $< 120$\,mA. \\
+			Packet Engine Features & 10\% & On-chip FIFO, CRC, and packet handling to simplify initial firmware development. \\
+			Physical Form Factor & 5\% & Breadboard- or breakout-board-friendly; no fine-pitch BGA requiring reflow. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\subsection{Candidate Modules}
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Candidate RF transceiver modules.}
+		\label{tab:candidates}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l l l X}
+			\toprule
+			\textbf{Module} & \textbf{Chipset} & \textbf{Freq.} & \textbf{Notes} \\
+			\midrule
+			Adafruit RFM95W & SX1276 & 915\,MHz & Breadboard-ready breakout; extensive tutorials. \\
+			AI-Thinker Ra-02 & SX1278 & 433\,MHz & Low cost; 433\,MHz limits U.S.\ ISM exercises. \\
+			EByte E32-915T20D & SX1276 & 915\,MHz & UART interface (not SPI); 100\,mW TX power. \\
+			HopeRF RFM96W & SX1276 & 915\,MHz & SMD module; needs custom breakout or adapter. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\subsection{Link Budget Analysis}
+	
+	For the benchtop environment (transmitter--receiver separation $\leq 10$\,m indoors), students should compute:
+	
+	\begin{equation}
+		P_{\text{rx}} = P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - L_{\text{path}} - L_{\text{misc}}
+		\label{eq:linkbudget}
+	\end{equation}
+	
+	where:
+	\begin{itemize}[leftmargin=2em]
+		\item $P_{\text{tx}}$: Transmit power (dBm), typically $+13$ to $+20$\,dBm for SX1276-based modules.
+		\item $G_{\text{tx}}, G_{\text{rx}}$: Antenna gains (dBi); assume $\approx 2$\,dBi for standard whip antennas.
+		\item $L_{\text{path}}$: Free-space path loss at 915\,MHz over distance $d$:
+		\begin{equation}
+			L_{\text{path}} = 20\log_{10}(d) + 20\log_{10}(f) - 147.55 \quad \text{[dB]}
+		\end{equation}
+		\item $L_{\text{misc}}$: Miscellaneous losses (cable, mismatch, indoor multipath margin $\approx 10$\,dB).
+	\end{itemize}
+	
+	\begin{tcolorbox}[infobox={Exercise: Link Budget Worksheet}]
+		Calculate the received power for the following scenario:
+		\begin{itemize}
+			\item $P_{\text{tx}} = +14$\,dBm, $G_{\text{tx}} = G_{\text{rx}} = 2$\,dBi
+			\item $d = 5$\,m, $f = 915$\,MHz
+			\item $L_{\text{misc}} = 10$\,dB (indoor margin)
+		\end{itemize}
+		Verify that $P_{\text{rx}}$ exceeds the SX1276 receiver sensitivity ($-137$\,dBm at SF12, 125\,kHz BW) by a comfortable margin. Document the link margin and discuss its implications for multi-beacon scaling.
+	\end{tcolorbox}
+	
+	\begin{tcolorbox}[deliverable={Week 1 Deliverable}]
+		\textbf{RF Module Trade Study Report} --- A 3--5 page document containing the weighted evaluation matrix, link budget calculations, final module selection with justification, and a procurement plan (vendor, cost, estimated delivery).
+	\end{tcolorbox}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Week 2: Hardware Bring-Up and Validation}
+	\label{sec:bringup}
+	% ══════════════════════════════════════════════════════════════
+	
+	\subsection{Objectives}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Establish SPI communication between the STM32 Nucleo-L476RG and the selected RF module.
+		\item Transmit and receive basic test packets between two beacon nodes.
+		\item Validate the Nexys A7-100T FPGA toolchain (Vivado) with a minimal loopback design.
+		\item Document all hardware interfaces, pin assignments, and power requirements.
+	\end{itemize}
+	
+	\subsection{STM32 Firmware Bring-Up}
+	
+	\subsubsection{Development Environment}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item \textbf{IDE:} STM32CubeIDE (free, includes HAL libraries and code generation via STM32CubeMX).
+		\item \textbf{Target MCU:} STM32L476RG (ARM Cortex-M4, 80\,MHz, low-power).
+		\item \textbf{Debug Interface:} On-board ST-LINK/V2-1 (USB).
+	\end{itemize}
+	
+	\subsubsection{SPI Configuration}
+	
+	Using STM32CubeMX, configure the SPI peripheral as follows:
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{SPI peripheral configuration for RF module communication.}
+		\label{tab:spi}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabular}{l l l}
+			\toprule
+			\textbf{Parameter} & \textbf{Setting} & \textbf{Rationale} \\
+			\midrule
+			Mode & Full-Duplex Master & MCU drives clock to RF module \\
+			Clock Polarity (CPOL) & 0 & SX1276 default \\
+			Clock Phase (CPHA) & 0 & SX1276 default \\
+			Data Size & 8 bits & Register-level access \\
+			Baud Rate & $\leq 10$\,MHz & SX1276 SPI max = 10\,MHz \\
+			NSS & Software (GPIO) & Manual chip select control \\
+			\bottomrule
+		\end{tabular}
+	\end{table}
+	
+	\subsubsection{Validation Steps}
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item \textbf{Register Read Test:} Read the SX1276 \texttt{RegVersion} register (address \texttt{0x42}). Expected return value: \texttt{0x12}. This confirms SPI wiring and clock configuration.
+		\item \textbf{Register Write/Read-Back:} Write a known value to a writable register (e.g., \texttt{RegFrfMsb}), read it back, and verify.
+		\item \textbf{Mode Transition:} Command the module from \texttt{SLEEP} $\rightarrow$ \texttt{STANDBY} $\rightarrow$ \texttt{TX} and verify the mode bits in \texttt{RegOpMode}.
+		\item \textbf{Packet Transmission:} Configure two STM32+RF nodes. Transmit a known payload from Node~A; verify reception and CRC pass on Node~B. Log RSSI and SNR values.
+	\end{enumerate}
+	
+	\begin{tcolorbox}[warning={Common Pitfalls}]
+		\begin{itemize}
+			\item \textbf{Level mismatch:} Ensure the RF module operates at 3.3\,V logic. The Nucleo's Arduino-compatible headers provide 3.3\,V by default, but verify with a multimeter before connecting.
+			\item \textbf{SPI bus contention:} If other SPI peripherals share the bus, ensure proper chip-select management.
+			\item \textbf{Antenna:} Always connect an antenna (or 50\,$\Omega$ dummy load) before transmitting to avoid damage to the RF front-end.
+			\item \textbf{Reset sequencing:} The SX1276 requires a hardware reset pulse (active low, $\geq 100$\,$\mu$s) after power-on before SPI access is reliable.
+		\end{itemize}
+	\end{tcolorbox}
+	
+	\subsection{FPGA Toolchain Validation}
+	
+	\subsubsection{Development Environment}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item \textbf{Tool:} AMD Vivado Design Suite (WebPACK edition, free for Artix-7).
+		\item \textbf{Board:} Digilent Nexys A7-100T (XC7A100T-1CSG324C).
+		\item \textbf{Constraint File:} Use the Digilent-provided \texttt{Nexys-A7-100T-Master.xdc}.
+	\end{itemize}
+	
+	\subsubsection{Loopback Design}
+	
+	Implement a minimal design to validate the toolchain and board:
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item \textbf{LED Echo:} Map the 16 slide switches to the 16 LEDs (combinational pass-through). Confirms pin constraints and bitstream generation.
+		\item \textbf{UART Loopback:} Instantiate a simple UART receiver and transmitter at 115200 baud on the USB-UART bridge. Echo received characters back to the host terminal. Confirms clocking, UART IP, and host communication.
+		\item \textbf{Clock Verification:} Use an ILA (Integrated Logic Analyzer) core to probe a free-running counter driven by the 100\,MHz oscillator. Verify the expected count rate.
+	\end{enumerate}
+	
+	\begin{tcolorbox}[deliverable={Week 2 Deliverable}]
+		\textbf{Hardware Requirements Document} --- A formal document capturing:
+		\begin{enumerate}
+			\item \textbf{Bill of Materials (BOM):} Part numbers, quantities, unit costs, vendors, and lead times for all components.
+			\item \textbf{Interface Specification:} Pin mappings for STM32$\leftrightarrow$RF module (SPI + GPIO), planned FPGA$\leftrightarrow$receiver interface, UART debug connections.
+			\item \textbf{Power Budget:} Measured current draw for each subsystem; confirm USB power sufficiency.
+			\item \textbf{Validation Evidence:} Screenshots or logic analyzer captures of successful SPI transactions, packet reception logs with RSSI/SNR, FPGA loopback test results.
+			\item \textbf{Risk Register:} Identified risks (e.g., RF interference in lab environment, component lead times) with mitigation strategies.
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Week 3: Beacon Subsystem Design}
+	\label{sec:beacon}
+	% ══════════════════════════════════════════════════════════════
+	
+	\subsection{Objectives}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Define the role and behavior of each beacon node within the system.
+		\item Design a packet format that carries the metadata required for downstream classification.
+		\item Implement configurable transmission scheduling that supports multiple simultaneous beacons.
+		\item Validate multi-beacon operation and characterize the RF channel under concurrent transmissions.
+	\end{itemize}
+	
+	\subsection{Beacon Architecture Overview}
+	
+	Each beacon consists of an STM32 Nucleo-L476RG paired with the selected LoRa transceiver module. Beacons operate as cooperative targets: they transmit known signals at configurable intervals and parameters so that the receiver and FPGA processing chain have a controlled, characterizable input. The beacon subsystem must be designed so that students can scale from a single beacon to $N$ simultaneous beacons, progressively increasing the demands on the receiver and FPGA.
+	
+	\begin{tcolorbox}[infobox={Design Principle: Controlled Complexity}]
+		The beacon subsystem is intentionally designed to give students direct control over the RF environment. By parameterizing transmission power, modulation type, spreading factor, and timing, students can systematically vary the input to the FPGA and ML pipeline, creating a structured experimental platform rather than relying on uncontrolled ambient signals.
+	\end{tcolorbox}
+	
+	\subsection{Packet Format Design}
+	
+	Each beacon transmission must carry sufficient metadata for the receiver and FPGA to identify, classify, and prioritize it. The following packet structure is recommended:
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Beacon packet format (fixed-length, 32 bytes).}
+		\label{tab:packet}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l c c X}
+			\toprule
+			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
+			\midrule
+			Preamble Sync & 0 & 2\,B & Fixed sync word (\texttt{0xAE5A}) for frame detection. \\
+			Beacon ID & 2 & 1\,B & Unique identifier for this beacon (0x01--0xFF). \\
+			Sequence Number & 3 & 2\,B & Monotonically increasing counter; enables packet loss detection. \\
+			TX Power & 5 & 1\,B & Transmit power setting (dBm), encoded as unsigned integer. \\
+			Modulation Code & 6 & 1\,B & Identifies modulation type: 0x01=LoRa, 0x02=FSK, 0x03=OOK. \\
+			Spreading Factor & 7 & 1\,B & LoRa SF value (7--12); 0x00 if non-LoRa modulation. \\
+			Bandwidth Code & 8 & 1\,B & Encoded BW setting (e.g., 0x00=125\,kHz, 0x01=250\,kHz). \\
+			Timestamp & 9 & 4\,B & STM32 system tick (ms) at time of transmission. \\
+			Payload & 13 & 17\,B & User-defined data or pseudo-random training sequence. \\
+			CRC-16 & 30 & 2\,B & CRC over bytes 0--29 for integrity verification. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\begin{tcolorbox}[infobox={Design Rationale: Why These Fields?}]
+		The metadata fields (TX Power, Modulation Code, SF, BW) serve a dual purpose. First, they provide ground-truth labels for the ML classification pipeline in later modules --- the receiver knows what the beacon \emph{claims} it transmitted, enabling supervised training. Second, they allow the FPGA processing chain to verify its own detection and identification logic against known parameters.
+		
+		The 17-byte payload region can carry pseudo-random bit sequences for bit-error-rate (BER) testing or structured data patterns that exercise specific aspects of the demodulator.
+	\end{tcolorbox}
+	
+	\subsection{Transmission Scheduling}
+	
+	When multiple beacons share the same frequency band, uncoordinated transmissions will collide. The scheduling strategy must balance simplicity (suitable for an educational context) with sufficient sophistication to create realistic multi-access scenarios.
+	
+	\subsubsection{Scheduling Modes}
+	
+	Students should implement at least two scheduling modes:
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item \textbf{Fixed Interval (TDMA-like):} Each beacon is assigned a time slot within a repeating frame. Slot assignments are configured at compile time or via UART command. This mode produces predictable, non-colliding traffic and is the starting point for initial receiver validation.
+		
+		\begin{equation}
+			t_{\text{tx}}^{(k)} = T_{\text{frame}} \cdot n + \Delta t \cdot k, \quad k = 0, 1, \ldots, N-1
+			\label{eq:tdma}
+		\end{equation}
+		
+		where $T_{\text{frame}}$ is the frame period, $\Delta t$ is the slot duration, $k$ is the beacon index, and $n$ is the frame counter.
+		
+		\item \textbf{Randomized Interval (ALOHA-like):} Each beacon transmits after a random back-off drawn from a configurable uniform distribution $[T_{\min}, T_{\max}]$. This mode introduces collisions and partial overlaps, creating a more challenging scenario for the FPGA detection and the ML classifier.
+	\end{enumerate}
+	
+	\subsubsection{Timing Implementation}
+	
+	Transmission timing is driven by the STM32's hardware timer peripheral (TIM2 or TIM6) configured in one-shot or periodic mode. Key implementation details:
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Use the STM32 HAL timer interrupt callback (\texttt{HAL\_TIM\_PeriodElapsedCallback}) to trigger transmissions with minimal jitter.
+		\item For randomized mode, seed the pseudo-random number generator with a unique value per beacon (e.g., beacon ID XOR'd with an ADC noise sample).
+		\item Log each transmission timestamp over UART for ground-truth correlation with receiver data.
+	\end{itemize}
+	
+	\subsection{Beacon Firmware Architecture}
+	
+	The beacon firmware should be structured as a simple state machine:
+	
+	\begin{figure}[ht!]
+		\centering
+		\resizebox{0.85\textwidth}{!}{%
+			\begin{tikzpicture}[
+				node distance=2cm and 2.5cm,
+				state/.style={rectangle, draw=stevens, fill=lightgray, thick, rounded corners,
+					minimum width=2.8cm, minimum height=1cm, align=center, font=\small},
+				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray},
+				elabel/.style={font=\scriptsize\itshape, color=accentblue}
+				]
+				\node[state] (init) {INIT};
+				\node[state, right=of init] (config) {CONFIGURE};
+				\node[state, right=of config] (idle) {IDLE\\(Wait for Slot)};
+				\node[state, below=of idle] (build) {BUILD\\PACKET};
+				\node[state, left=of build] (tx) {TRANSMIT};
+				\node[state, left=of tx] (log) {LOG \&\\INCREMENT};
+				
+				\draw[arrow] (init) -- (config) node[midway, above, elabel] {Power-on reset};
+				\draw[arrow] (config) -- (idle) node[midway, above, elabel] {SPI verified};
+				\draw[arrow] (idle) -- (build) node[midway, right, elabel] {Timer expires};
+				\draw[arrow] (build) -- (tx) node[midway, above, elabel] {Packet ready};
+				\draw[arrow] (tx) -- (log) node[midway, above, elabel] {TX complete IRQ};
+				\draw[arrow] (log) -- (idle) node[midway, left, elabel] {Seq++ / reset timer};
+			\end{tikzpicture}%
+		}
+		\caption{Beacon firmware state machine. The IDLE$\rightarrow$BUILD$\rightarrow$TRANSMIT$\rightarrow$LOG cycle repeats for each scheduled transmission.}
+		\label{fig:beacon_fsm}
+	\end{figure}
+	
+	\subsection{Multi-Beacon Validation}
+	
+	\begin{tcolorbox}[infobox={Exercise: Two-Beacon Concurrent Operation}]
+		Configure two beacons with the following parameters and verify correct operation:
+		
+		\medskip
+		\begin{tabular}{l c c}
+			\toprule
+			\textbf{Parameter} & \textbf{Beacon A} & \textbf{Beacon B} \\
+			\midrule
+			Beacon ID & \texttt{0x01} & \texttt{0x02} \\
+			TX Power & +14\,dBm & +10\,dBm \\
+			Spreading Factor & SF7 & SF10 \\
+			Scheduling Mode & Fixed, 2\,s interval & Fixed, 3\,s interval \\
+			\bottomrule
+		\end{tabular}
+		
+		\medskip
+		Using a third STM32+RF module as a simple packet sniffer, capture 60 seconds of traffic and verify:
+		\begin{enumerate}
+			\item Both beacon IDs appear in received packets.
+			\item Sequence numbers are monotonically increasing for each beacon.
+			\item RSSI values differ between the two beacons (reflecting the TX power difference).
+			\item No CRC failures occur under the fixed-interval schedule.
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\begin{tcolorbox}[deliverable={Week 3 Deliverable}]
+		\textbf{Beacon Subsystem Design Document} --- A document containing:
+		\begin{enumerate}
+			\item Packet format specification with field descriptions and byte layout diagram.
+			\item Transmission scheduling design (both TDMA and ALOHA modes) with timing equations.
+			\item Beacon firmware architecture (state machine diagram and module descriptions).
+			\item Multi-beacon validation test results (packet captures, RSSI logs, sequence verification).
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Week 4: Receiver Subsystem Design}
+	\label{sec:receiver}
+	% ══════════════════════════════════════════════════════════════
+	
+	\subsection{Objectives}
+	
+	\begin{itemize}[leftmargin=2em]
+		\item Design the receiver data path from the RF module through the STM32 to the FPGA.
+		\item Define the interface protocol between the receiver MCU and the Nexys A7 FPGA.
+		\item Implement receiver firmware that captures, timestamps, and forwards received packets.
+		\item Validate end-to-end data flow from beacon transmission to FPGA ingestion.
+	\end{itemize}
+	
+	\subsection{Receiver Architecture}
+	
+	The receiver station uses a dedicated STM32 Nucleo-L476RG paired with an RF module configured in continuous receive mode. Unlike the beacons, the receiver must handle packets from multiple asynchronous sources. Its primary responsibilities are:
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item \textbf{Packet Reception:} Detect and demodulate incoming LoRa/FSK packets using the SX1276's internal packet engine and DIO interrupt lines.
+		\item \textbf{Metadata Extraction:} Read hardware-reported RSSI, SNR, and frequency error from the SX1276 registers for each received packet.
+		\item \textbf{Timestamping:} Capture the STM32 system tick at the moment the \texttt{RxDone} interrupt fires, providing a receiver-side timestamp independent of the beacon's claimed timestamp.
+		\item \textbf{Forwarding:} Package the received payload and metadata into a structured frame and transmit it to the FPGA over the chosen interface (SPI or UART).
+	\end{enumerate}
+	
+	\subsection{Receiver-to-FPGA Interface}
+	
+	\subsubsection{Interface Selection}
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Interface options for receiver--FPGA communication.}
+		\label{tab:interface}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l c c X}
+			\toprule
+			\textbf{Interface} & \textbf{Throughput} & \textbf{Complexity} & \textbf{Trade-offs} \\
+			\midrule
+			UART & $\leq 921.6$\,kbps & Low & Simple two-wire connection; sufficient for low beacon counts; well-supported in both STM32 HAL and VHDL. \\
+			SPI (MCU as master) & $\leq 10$\,Mbps & Medium & Higher throughput for scaling; requires clock, MOSI, MISO, and CS lines; FPGA acts as SPI slave. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\begin{tcolorbox}[infobox={Recommendation}]
+		Begin with UART at 115200 baud for initial integration. At 32 bytes per packet with framing overhead ($\sim$40 bytes total), UART supports approximately 28 packets per second, which is sufficient for the initial two-beacon configuration. Transition to SPI when scaling beyond 4--5 beacons or when latency requirements tighten in later modules.
+	\end{tcolorbox}
+	
+	\subsubsection{Receiver-to-FPGA Frame Format}
+	
+	The receiver wraps each received packet with additional metadata before forwarding to the FPGA:
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Receiver-to-FPGA forwarding frame (43 bytes).}
+		\label{tab:rxframe}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l c c X}
+			\toprule
+			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
+			\midrule
+			Start Delimiter & 0 & 1\,B & Fixed byte \texttt{0x7E} for frame synchronization. \\
+			Frame Length & 1 & 1\,B & Total frame length (excluding start delimiter and CRC). \\
+			RX Timestamp & 2 & 4\,B & Receiver-side system tick (ms) at \texttt{RxDone} interrupt. \\
+			RSSI & 6 & 1\,B & Received signal strength (dBm, two's complement). \\
+			SNR & 7 & 1\,B & Signal-to-noise ratio (dB, signed, 0.25\,dB resolution). \\
+			Freq.\ Error & 8 & 2\,B & Frequency error estimate from SX1276 (Hz, signed 16-bit). \\
+			Beacon Payload & 10 & 32\,B & Complete beacon packet as received (Table~\ref{tab:packet}). \\
+			Frame CRC-8 & 42 & 1\,B & CRC over bytes 1--41 for transport integrity. \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	\subsection{Receiver Firmware Architecture}
+	
+	The receiver firmware operates in an interrupt-driven architecture:
+	
+	\begin{figure}[ht!]
+		\centering
+		\resizebox{0.9\textwidth}{!}{%
+			\begin{tikzpicture}[
+				node distance=1.5cm and 2cm,
+				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
+					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
+				irq/.style={rectangle, draw=accentblue, fill=blue!5, thick,
+					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
+				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray},
+				elabel/.style={font=\scriptsize\itshape, color=accentblue}
+				]
+				% ISR path
+				\node[irq] (dio) {DIO0 IRQ\\(\texttt{RxDone})};
+				\node[block, right=of dio] (read) {Read FIFO\\+ Registers};
+				\node[block, right=of read] (stamp) {Timestamp\\+ Metadata};
+				\node[block, right=of stamp] (enqueue) {Enqueue to\\Ring Buffer};
+				
+				% Main loop path
+				\node[block, below=2cm of dio] (main) {Main Loop\\(IDLE)};
+				\node[block, right=of main] (dequeue) {Dequeue\\Packet};
+				\node[block, right=of dequeue] (frame) {Build\\TX Frame};
+				\node[block, right=of frame] (send) {Send to FPGA\\(UART/SPI)};
+				
+				% Arrows - ISR
+				\draw[arrow] (dio) -- (read) node[midway, above, elabel] {IRQ fires};
+				\draw[arrow] (read) -- (stamp);
+				\draw[arrow] (stamp) -- (enqueue);
+				
+				% Arrows - Main
+				\draw[arrow] (main) -- (dequeue) node[midway, above, elabel] {Buffer not empty};
+				\draw[arrow] (dequeue) -- (frame);
+				\draw[arrow] (frame) -- (send);
+				\draw[arrow] (send.south) -- ++(0,-0.6) -| (main.south) node[near start, right, elabel] {Return to idle};
+				
+				% ISR to main connection
+				\draw[arrow, dashed] (enqueue.south) -- ++(0,-0.5) -| (dequeue.north) node[near start, right, elabel] {Ring buffer};
+				
+				% Labels
+				\node[font=\small\bfseries\color{stevens}, above=0.3cm of dio, anchor=south west] {Interrupt Context};
+				\node[font=\small\bfseries\color{stevens}, above=0.3cm of main, anchor=south west] {Main Loop Context};
+			\end{tikzpicture}%
+		}
+		\caption{Receiver firmware architecture. The ISR captures packets into a ring buffer; the main loop drains the buffer and forwards frames to the FPGA.}
+		\label{fig:rx_fw}
+	\end{figure}
+	
+	\begin{tcolorbox}[warning={Concurrency Considerations}]
+		\begin{itemize}
+			\item The ring buffer must be sized to handle burst arrivals. With two beacons at 1-second intervals and a 43-byte frame, a 512-byte buffer (11 frames) provides ample margin.
+			\item Use \texttt{volatile} qualifiers and disable/enable interrupts around shared index variables to prevent race conditions between the ISR and main loop.
+			\item If the main loop cannot drain the buffer fast enough (detectable by a buffer-full flag), log an overflow event --- this becomes a design constraint that informs FPGA throughput requirements in Module~2.
+		\end{itemize}
+	\end{tcolorbox}
+	
+	\subsection{FPGA Ingestion Interface}
+	
+	On the FPGA side, the receiver data is captured by a simple UART receiver module (or SPI slave, if that interface is selected). The Week~4 scope is limited to:
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item \textbf{UART Receiver IP:} Implement or instantiate a UART RX module on the Nexys A7 that receives bytes at the configured baud rate and writes them to a small FIFO.
+		\item \textbf{Frame Detection:} Implement start-delimiter detection (\texttt{0x7E}) and frame-length extraction to identify complete frames in the byte stream.
+		\item \textbf{Verification:} Display received beacon IDs on the Nexys A7 seven-segment display or LEDs, confirming end-to-end data flow from beacon through receiver to FPGA fabric.
+	\end{enumerate}
+	
+	\begin{tcolorbox}[infobox={Exercise: End-to-End Data Flow Validation}]
+		With two beacons transmitting in fixed-interval mode:
+		\begin{enumerate}
+			\item Verify that the FPGA receives frames from both beacons by displaying alternating beacon IDs on the seven-segment display.
+			\item Compare the receiver-side RSSI values displayed on the FPGA with the values logged by the STM32 over UART debug to confirm data integrity across the interface.
+			\item Introduce a deliberate CRC error (corrupt one byte in the receiver firmware before forwarding) and confirm the FPGA's frame CRC check rejects the corrupted frame.
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\subsection{System Architecture Diagram}
+	
+	Figure~\ref{fig:arch} shows the complete subsystem architecture validated by the end of this module.
+	
+	\begin{figure}[ht!]
+		\centering
+		\resizebox{\textwidth}{!}{%
+			\begin{tikzpicture}[
+				node distance=1.5cm and 2.5cm,
+				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
+					minimum width=3cm, minimum height=1.2cm, align=center, font=\small},
+				future/.style={rectangle, draw=darkgray, fill=white, thick, dashed,
+					minimum width=3cm, minimum height=1.2cm, align=center, font=\small\color{darkgray}},
+				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray}
+				]
+				% Nodes
+				\node[block] (beacon1) {STM32 Nucleo\\+ RF Module\\(Beacon 1)};
+				\node[block, below=0.8cm of beacon1] (beacon2) {STM32 Nucleo\\+ RF Module\\(Beacon 2)};
+				\node[block, below=0.8cm of beacon2] (beaconN) {STM32 Nucleo\\+ RF Module\\(Beacon $N$)};
+				
+				\node[block, right=3cm of beacon2] (rx) {STM32 Nucleo\\+ RF Module\\(Receiver)};
+				
+				\node[block, right=3cm of rx] (fpga) {Nexys A7-100T\\FPGA\\(Frame Ingestion)};
+				
+				\node[future, right=3cm of fpga] (ml) {ML Pipeline\\(Module 3)};
+				
+				% Arrows
+				\draw[arrow] (beacon1.east) -- ++(1,0) |- (rx.west);
+				\draw[arrow] (beacon2.east) -- (rx.west);
+				\draw[arrow] (beaconN.east) -- ++(1,0) |- (rx.west);
+				\draw[arrow] (rx.east) -- (fpga.west) node[midway, above, font=\scriptsize] {UART / SPI};
+				\draw[arrow, dashed, color=darkgray!50] (fpga.east) -- (ml.west) node[midway, above, font=\scriptsize\color{darkgray}] {(Module 2+)};
+				
+				% RF labels
+				\node[font=\scriptsize\itshape, color=accentblue] at ($(beacon1.east)!0.5!(rx.west)+(0,0.8)$) {915\,MHz RF};
+				
+				% Grouping
+				\node[draw=stevens, dashed, thick, rounded corners, 
+				fit=(beacon1)(beacon2)(beaconN), 
+				label={[font=\small\bfseries\color{stevens}]above:Beacon Array}] {};
+			\end{tikzpicture}%
+		}
+		\caption{Module~1 subsystem architecture. Solid blocks and arrows indicate components and data paths validated by end of Week~4. The dashed ML Pipeline block indicates a downstream module.}
+		\label{fig:arch}
+	\end{figure}
+	
+	\begin{tcolorbox}[deliverable={Week 4 Deliverable}]
+		\textbf{Receiver Subsystem Design Document} --- A document containing:
+		\begin{enumerate}
+			\item Receiver architecture description and data flow diagram.
+			\item Receiver-to-FPGA interface selection rationale and frame format specification.
+			\item Receiver firmware design (interrupt architecture, ring buffer sizing, forwarding logic).
+			\item FPGA ingestion module description (UART RX, frame detection, verification outputs).
+			\item End-to-end validation test results (beacon$\rightarrow$receiver$\rightarrow$FPGA data flow confirmation).
+		\end{enumerate}
+	\end{tcolorbox}
+	
+	\newpage
+	% ══════════════════════════════════════════════════════════════
+	\section{Hardware Platform Reference}
+	\label{sec:hardware}
+	% ══════════════════════════════════════════════════════════════
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Required hardware components for Module 1.}
+		\label{tab:hardware}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{l l X}
+			\toprule
+			\textbf{Component} & \textbf{Qty} & \textbf{Purpose} \\
+			\midrule
+			STM32 Nucleo-L476RG & $\geq 3$ & Two beacon MCUs + one receiver MCU \\
+			RF Transceiver Module & $\geq 3$ & Sub-GHz LoRa communication (e.g., RFM95W, 915\,MHz) \\
+			915\,MHz Whip Antenna & $\geq 3$ & Required for RF transmission/reception \\
+			Digilent Nexys A7-100T & 1 & FPGA development board (Artix-7, 100T) \\
+			USB Micro-B Cables & 4--5 & Power and programming for Nucleo and Nexys boards \\
+			Breadboard + Jumper Wires & --- & Prototyping connections (SPI, GPIO, power, UART) \\
+			Logic Analyzer (optional) & 1 & SPI/UART bus debugging and timing verification \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	% ══════════════════════════════════════════════════════════════
+	\section{Assessment Rubric}
+	% ══════════════════════════════════════════════════════════════
+	
+	\begin{table}[ht!]
+		\centering
+		\caption{Module 1 assessment rubric.}
+		\label{tab:rubric}
+		\renewcommand{\arraystretch}{1.3}
+		\begin{tabularx}{\textwidth}{X c c}
+			\toprule
+			\textbf{Assessment Item} & \textbf{Weight} & \textbf{Due} \\
+			\midrule
+			RF Module Trade Study Report (weighted matrix, link budget, justification) & 20\% & Week 1 \\
+			Hardware Requirements Document (BOM, interfaces, power budget, validation evidence) & 20\% & Week 2 \\
+			Beacon Subsystem Design (packet format, scheduling, firmware, multi-beacon tests) & 30\% & Week 3 \\
+			Receiver Subsystem Design (data path, interface, firmware, end-to-end validation) & 30\% & Week 4 \\
+			\bottomrule
+		\end{tabularx}
+	\end{table}
+	
+	% ══════════════════════════════════════════════════════════════
+	\section{Recommended Resources}
+	% ══════════════════════════════════════════════════════════════
+	
+	\subsection{Datasheets and Technical References}
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item Semtech, ``SX1276/77/78/79 Datasheet,'' Rev.\ 7, 2020.
+		\item STMicroelectronics, ``STM32L476xx Reference Manual,'' RM0351, Rev.\ 9, 2023.
+		\item Xilinx/AMD, ``Artix-7 FPGAs Data Sheet: DC and AC Switching Characteristics,'' DS181, 2023.
+		\item Digilent, ``Nexys A7 Reference Manual,'' Rev.\ C, 2022.
+	\end{enumerate}
+	
+	\subsection{Application Notes}
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item Semtech AN1200.22, ``LoRa Modulation Basics.''
+		\item Semtech AN1200.13, ``SX1276/7/8 LoRa Modem Design Guide.''
+		\item STMicroelectronics AN4286, ``SPI Protocol Used in the STM32 Bootloader.''
+		\item STMicroelectronics AN4013, ``STM32 Timer Overview and Low-Power Timer Usage.''
+	\end{enumerate}
+	
+	\subsection{Textbooks}
+	
+	\begin{enumerate}[leftmargin=2em]
+		\item P.\ P.\ Chu, \textit{FPGA Prototyping by VHDL Examples: Xilinx Artix-7 Edition}, 2nd ed., Wiley, 2017.
+		\item R.\ E.\ Haskell and D.\ M.\ Hanna, \textit{Digital Design Using Digilent FPGA Boards: VHDL / Vivado Edition}, LBE Books, 2019.
+		\item C.\ \"Unsalan and B.\ Tar, \textit{Digital System Design with FPGA: Implementation Using Verilog and VHDL}, McGraw-Hill, 2017.
+		\item B.\ Sklar, \textit{Digital Communications: Fundamentals and Applications}, 2nd ed., Prentice Hall, 2001.
+		\item J.\ W.\ Valvano, \textit{Embedded Systems: Real-Time Interfacing to ARM Cortex-M Microcontrollers}, 6th ed., 2023.
+	\end{enumerate}
+	
+	% ══════════════════════════════════════════════════════════════
+	\section{Transition to Module 2}
+	% ══════════════════════════════════════════════════════════════
+	
+	Upon successful completion of Module~1, students will have:
+	\begin{itemize}[leftmargin=2em]
+		\item A validated hardware platform with confirmed SPI communication across all nodes.
+		\item A fully specified and tested beacon subsystem capable of multi-beacon concurrent operation.
+		\item A receiver subsystem that captures, timestamps, and forwards packets to the FPGA.
+		\item End-to-end data flow from beacon transmission through receiver to FPGA frame ingestion.
+		\item Comprehensive design documentation covering packet formats, interfaces, and firmware architectures.
+	\end{itemize}
+	
+	Module~2 (March 15--28) will build directly on these foundations with FPGA RTL design and signal processing simulation. The UART/SPI ingestion interface validated in Week~4 becomes the input to the FPGA processing pipeline, and the beacon packet format defines the data structures that the RTL must parse, classify, and prioritize in real time.
+	
+	\vfill
+	\begin{center}
+		\rule{0.5\textwidth}{0.4pt}\\[6pt]
+		{\small\textcolor{darkgray}{End of Module 1 Lesson Plan}}
+	\end{center}
+	
+\end{document}
