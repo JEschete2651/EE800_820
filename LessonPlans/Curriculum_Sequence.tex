@@ -1,0 +1,88 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\definecolor{stevens}{RGB}{163,31,52}
+\definecolor{darkgray}{RGB}{60,60,60}
+
+\titleformat{\section}{\Large\bfseries\color{stevens}}{\thesection}{1em}{}[\vspace{-0.5em}\rule{\textwidth}{0.4pt}]
+
+\begin{document}
+
+\begin{center}
+    {\Huge\bfseries\color{stevens} Curriculum Module Sequence} \\[0.5em]
+    {\Large\color{darkgray} An Educational Framework for AI-Driven Signal Processing}
+\end{center}
+
+\vspace{1em}
+
+\section*{Overview}
+This document outlines the five-module sequence for the capstone project. Each module builds upon the previous one, guiding the student from hardware selection and embedded firmware development through FPGA logic design to the final integration of machine learning for RF signal classification.
+
+\section{Module 1: RF Hardware \& Subsystem Design}
+\textbf{Dates:} February 28 -- March 14 \\
+\textbf{Prerequisites:} Embedded C, Basic RF Theory \\
+\textbf{Objectives:}
+\begin{itemize}[noitemsep]
+    \item Select and validate RF transceiver hardware (LoRa/FSK).
+    \item Implement STM32 firmware for beacon transmission and receiver data collection.
+    \item Design the packet protocol and transmission scheduling algorithms.
+    \item Validate the receiver-to-FPGA physical interface (UART/SPI).
+\end{itemize}
+\textbf{Deliverables:} Hardware Requirements Doc, Beacon/Receiver Subsystem Design Docs.
+
+\section{Module 2: FPGA RTL Design \& Simulation}
+\textbf{Dates:} March 15 -- March 28 \\
+\textbf{Prerequisites:} VHDL/Verilog, Digital Logic Design \\
+\textbf{Objectives:}
+\begin{itemize}[noitemsep]
+    \item Design FPGA RTL for ingesting serial data from the receiver MCU.
+    \item Implement packet parsing, buffering, and integrity checking (CRC) in hardware.
+    \item Develop simulation testbenches to verify logic against recorded beacon data.
+    \item Prepare the FPGA data path for feature extraction.
+\end{itemize}
+\textbf{Deliverables:} FPGA RTL Source Code, Simulation Reports, Resource Utilization Report.
+
+\newpage
+\section{Module 3: System Integration \& Data Collection}
+\textbf{Dates:} March 29 -- April 11 \\
+\textbf{Prerequisites:} Module 1 \& 2 Completion \\
+\textbf{Objectives:}
+\begin{itemize}[noitemsep]
+    \item Integrate the physical STM32 receiver with the programmed FPGA.
+    \item Verify end-to-end data flow: RF Beacon $\to$ STM32 Receiver $\to$ FPGA.
+    \item Execute data collection campaigns to build a labeled RF dataset.
+    \item Characterize system latency and throughput.
+\end{itemize}
+\textbf{Deliverables:} Integrated System Demo, Labeled RF Dataset, Integration Test Report.
+
+\section{Module 4: AI-Driven Classification Pipeline}
+\textbf{Dates:} April 12 -- April 25 \\
+\textbf{Prerequisites:} Python, Intro to Machine Learning \\
+\textbf{Objectives:}
+\begin{itemize}[noitemsep]
+    \item Preprocess collected FPGA data for machine learning training.
+    \item Train and evaluate classifiers (e.g., Random Forest, MLP, CNN) on signal features.
+    \item Deploy the inference model (host-side or embedded) to classify signals in real-time.
+    \item Analyze classification accuracy against signal-to-noise ratio (SNR).
+\end{itemize}
+\textbf{Deliverables:} Trained Model Files, Classification Performance Report, Inference Script.
+
+\section{Module 5: System Validation \& Benchmarking}
+\textbf{Dates:} April 26 -- May 9 \\
+\textbf{Prerequisites:} Full System Integration \\
+\textbf{Objectives:}
+\begin{itemize}[noitemsep]
+    \item Conduct final system stress tests with multiple concurrent beacons.
+    \item Benchmark total system response time (Transmission to Classification).
+    \item Finalize all curriculum documentation and lab guides.
+    \item Prepare final project report and presentation.
+\end{itemize}
+\textbf{Deliverables:} Final Project Report, Presentation Slides, Complete Curriculum Package.
+
+\end{document}

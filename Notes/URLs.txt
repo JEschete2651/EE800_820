@@ -1,2 +1,15 @@
 Vivado Design Tools DL:
 https://www.xilinx.com/support/download/index.html/content/xilinx/en/downloadNav/vivado-design-tools.html
+
+
+Materials
+Micro Controller:
+https://www.amazon.com/dp/B01IO3N646?psc=1&smid=A3VQM30V11FI5X x3
+FPGA:
+https://digilent.com/shop/nexys-a7-amd-artix-7-fpga-trainer-board-recommended-for-ece-curriculum/
+Radio:
+https://www.adafruit.com/product/3072 x3
+Misc Pieces: 
+https://www.adafruit.com/product/4269 x3
+https://www.adafruit.com/product/1661 x3
+https://www.adafruit.com/product/1865 x3

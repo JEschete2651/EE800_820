@@ -14,3 +14,13 @@
 *.snm
 *.vrb
 desktop.ini
+
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# Engagement Sim logs
+engagement.log
+data_stream.log
+logs/
