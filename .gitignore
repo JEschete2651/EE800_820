@@ -1,5 +1,11 @@
 # IEEE source papers (copyrighted, do not distribute)
-Term_Paper/Sources/*.pdf
+Term_Paper/Sources/IEEESources/
+
+# Claude Code memory/config
+.claude/
+
+# LaTeX editor temp files
+Term_Paper/Midstage/*.tmp.*
 
 # LaTeX auxiliary files
 *.aux
