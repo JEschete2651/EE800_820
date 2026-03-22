@@ -1,0 +1,54 @@
+Mid-Stage Report Requirements
+
+Overall Requirements:
+
+    The mid-stage report must be written in IEEE format. Please follow the templates provided at https://www.ieee.org/conferences/publishing/templates.html.Links to an external site. Reports that do not follow the IEEE format are not accepted; i.e., the report will receive 0 points.
+    Reports not following the requirements below will lose points.
+    Only the PDF file format is accepted.
+    For the individual projects, the report should be 3 - 4 pages. For team projects, the report should be 4 - 5 pages.
+    You must discuss the report with your Project Advisor before submission. Otherwise, the report will not be accepted.
+    Deadline: March 23, EST. Late submissions are not accepted.
+
+ 
+
+Main sections of the report 
+
+Project Title
+
+Student Name and Project Advisor Name 
+
+ 
+
+Section 1: Introduction
+
+This section introduces the background, importance, and challenges of the research problem. This section can also include the related work and the main contributions.
+
+At the end of the section, you must outline how the rest of the paper is organized. This will help the readers to understand the structure of the report. It is suggested that this section be 0.75 - 1 page. The Font size for this section is 10.
+
+ 
+
+Section 2: Problem Statement
+
+This section formally defines the research problem, including the definition of the context and/or system model of the problem. The language in this section should be concise, accurate, and clear. Do not beat around the bush without a focus. Instead, clearly define exactly the problem you are solving in this paper. Yes, just one problem, not two problems.
+
+Notice survey papers are not accepted; Just analyzing the existing work is not accepted. This section is suggested to be 0.75 - 1 page. The Font size for this section is 10.
+
+ 
+
+Section 3: Preliminary Idea and Analysis
+
+This section presents your work. It could be a new model, a new algorithm, a new architecture, a new design, or a new protocol. Anything is new. The section title should reflect your work.
+
+For this course, a survey of existing work is not considered new. When presenting your work, you must also elaborate on the rationale of the new design: why you think your model/algorithm/architecture/design/protocol can solve the problem, and even more importantly, why it will perform better than others. This section is suggested to be 2 pages, and the Font size is 10. Team project reports should be 3 pages.
+
+This section might also provide numerical results. You may obtain the results through simulations, real-system experiments, or theoretical analysis. For this mid-stage report, presenting the numerical results is optional.
+
+ 
+
+References
+
+At least 6 (individual project) or 8 (team project) references published in the last five years in IEEE/ACM journals or conferences. Notice that many non-IEEE or non-ACM conference papers are included in IEEE Xplore. These papers are not IEEE/ACM conference papers. You need to look at the conference or journal names. If they are IEEE/ACM papers, the conference/journal names must have a prefix of ‘IEEE’ or 'ACM'.
+
+All references must be cited in the report.
+
+Do not copy and paste any single sentence from references, the Internet, ChatGPT, or other tools. Should such a copy/paste be identified, the report will receive 0 points. 

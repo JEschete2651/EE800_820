@@ -1,0 +1,131 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{An Educational Framework for AI-Driven RF Signal Processing on FPGA}
+
+\author{\IEEEauthorblockN{Jude Eschete}
+\IEEEauthorblockA{\textit{Dept. of Electrical and Computer Engineering} \\
+\textit{Stevens Institute of Technology}\\
+Hoboken, NJ, USA \\
+JEschete@stevens.edu}
+\and
+\IEEEauthorblockN{Project Advisor: Bernard Yett}
+\IEEEauthorblockA{\textit{Dept. of Electrical and Computer Engineering} \\
+\textit{Stevens Institute of Technology}\\
+Hoboken, NJ, USA}
+}
+
+\maketitle
+
+\begin{abstract}
+University electrical engineering programs typically deliver instruction in FPGA digital design, RF communications, embedded systems, and machine learning as independent courses, leaving graduates without structured experience integrating these disciplines. This paper presents an educational framework built around a concrete benchtop hardware platform in which STM32 microcontrollers transmit LoRa RF signals that are received and processed in real time by a Digilent Nexys A7-100T FPGA, with collected signal data feeding a machine learning classification pipeline. A five-module progressive curriculum sequences students from hardware bring-up and embedded firmware development through FPGA RTL design, system integration, and AI-driven signal analysis. Each module makes the interfaces between disciplines explicit teaching objectives, enabling students to reason about how design decisions in one domain propagate constraints into adjacent ones.
+\end{abstract}
+
+\begin{IEEEkeywords}
+FPGA, LoRa, machine learning, RF signal processing, embedded systems, curriculum design, signal classification
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+Modern electrical and computer engineering practice increasingly demands fluency across multiple technical domains simultaneously. Defense, telecommunications, and aerospace systems routinely integrate real-time RF data acquisition, hardware-accelerated digital processing, embedded firmware, and intelligent signal analysis within a single pipeline. University curricula, however, frequently deliver these disciplines in isolation. A student may learn HDL synthesis and timing closure in a digital design course, modulation theory and channel models in a communications course, interrupt-driven firmware in an embedded systems course, and classification on benchmark datasets in a machine learning course—without encountering a structured experience that requires synthesizing these skills into a working system.
+
+This isolation creates a gap between academic preparation and professional practice. Engineers who understand each domain individually often struggle with the interface problems that arise when combining them: how RF modulation parameters affect FPGA buffer sizing, how reconfigurable logic resource constraints shape a data collection pipeline for machine learning, or how real-world RF propagation deviates from classroom channel models. These cross-disciplinary concerns are not incidental details but core engineering competencies that no single-domain course addresses.
+
+Prior research has contributed to each component of this problem in isolation. Educational frameworks for FPGA-based digital design have shown that structured, hardware-grounded lab sequences improve student accessibility and outcomes \cite{b9}. The STM32 Nucleo platform family has been evaluated as an effective embedded systems teaching tool for IoT-oriented communication curricula \cite{b10}. On the technical side, FPGA-accelerated RF signal classification using reservoir computing \cite{b1} and ML-augmented angle-of-arrival estimation \cite{b2} demonstrate that reconfigurable logic platforms can host complete real-time inference pipelines. Streaming CNN architectures deployed directly on RF system-on-chip (RFSoC) FPGAs have achieved continuous, sample-by-sample automatic modulation classification at high sample rates \cite{b3}. LoRa-specific signal analysis has been addressed through spectrogram-based spreading factor detection \cite{b5}, deep learning device identification from I/Q data \cite{b6}, and neural network demodulation from time-domain samples \cite{b8}. SoC FPGA implementations of LoRa gateways have demonstrated hardware-accelerated processing for this modulation scheme \cite{b7}. However, no existing curriculum integrates all four disciplines—FPGA design, RF communications, embedded systems, and machine learning—into a single progressive sequence in which every integration point is an explicit learning objective.
+
+This paper addresses that gap. Section~\ref{sec:problem} formally defines the research problem and the context in which it occurs. Section~\ref{sec:framework} presents the proposed educational framework, including the hardware platform, the curriculum module sequence, and the pedagogical rationale for the design.
+
+\section{Problem Statement}
+\label{sec:problem}
+
+The research problem is the absence of a structured, progressive educational curriculum that integrates FPGA digital design, RF communications, embedded microcontroller programming, and machine learning-based signal analysis into a unified learning experience where each cross-domain interface is a deliberate teaching objective.
+
+The target population is senior undergraduate and master's-level electrical engineering students who have completed introductory coursework in each of the four domains individually. These students possess foundational prerequisite knowledge—HDL syntax, basic modulation and link theory, embedded C programming, and introductory machine learning—but lack experience working with systems that require all four simultaneously. When confronted with a multidisciplinary design problem, they face a secondary difficulty: understanding how a decision made within one domain generates requirements and constraints in adjacent domains that cannot be resolved without knowledge from both.
+
+The concrete system context is a benchtop RF signal processing testbed. Multiple STM32 Nucleo-L476RG microcontrollers, each paired with a LoRa radio module, serve as independently configurable beacon transmitters. A receiver station captures incoming transmissions and forwards the parsed RF data to a Digilent Nexys A7-100T FPGA, which performs real-time detection, packet integrity verification, and feature extraction in programmable logic on the Artix-7 fabric. Extracted signal features are collected by a host machine and used to train and evaluate machine learning classifiers for signal classification and emitter identification tasks. This architecture exposes four concrete interface problems that span disciplinary boundaries: the firmware-to-RF interface, the RF-to-FPGA interface, the FPGA-to-data-pipeline interface, and the data-to-model interface. Each requires cross-disciplinary reasoning to characterize and resolve.
+
+The specific problem being solved is not a shortage of technical resources in any individual domain. Comprehensive textbooks, open-source FPGA IP cores, well-documented ML frameworks, and hardware reference designs exist for every component in this system. The gap is the absence of a curriculum that sequences these resources into an integrated learning experience, identifies the interface problems between domains as first-class subjects of instruction, and provides students with a concrete hardware implementation through which to develop and test their understanding. Closing this gap requires both a pedagogical framework and a hardware-grounded implementation that embodies it.
+
+\section{Proposed Integrated Educational Framework}
+\label{sec:framework}
+
+The proposed solution is a five-module curriculum paired with the benchtop hardware platform described in Section~\ref{sec:problem}. The framework assumes foundational domain knowledge and focuses entirely on the integration layer: the design decisions, interface protocols, and system-level reasoning skills that emerge only when students work across disciplinary boundaries simultaneously.
+
+\subsection{Hardware Platform}
+
+The platform consists of three subsystem layers selected for their pedagogical properties as well as their technical capability.
+
+At the transmission layer, up to four STM32 Nucleo-L476RG microcontrollers each drive a LoRa radio module operating in the 915~MHz ISM band. Each beacon transmits structured packets at configurable spreading factors, bandwidths, and power levels. The LoRa modulation scheme was selected deliberately: its chirp spread spectrum waveform provides a set of directly observable RF parameters that connect modulation theory to both FPGA datapath design and machine learning feature engineering. Recent research has validated LoRa as a testbed for deep learning-based signal analysis \cite{b5,b6,b8}, and SoC FPGA-based gateway implementations demonstrate the feasibility of hardware-accelerated processing for this waveform \cite{b7}.
+
+At the processing layer, a receiver MCU captures LoRa packets over-the-air and forwards the deserialized data to the Nexys A7-100T FPGA via a serial bus (UART or SPI). The FPGA performs packet parsing, CRC-based integrity checking, and feature extraction in RTL logic synthesized onto the Artix-7 fabric. The choice of a mid-range educational FPGA imposes resource constraints that are realistic—limiting available DSP slices, block RAM, and routing—while remaining tractable for a student first implementing a signal processing datapath.
+
+At the analysis layer, a host machine collects labeled feature vectors from the FPGA over USB-UART, builds a dataset across multiple beacon configurations, and trains ML classifiers to identify signal sources, spreading factors, and transmission parameters. Prior work on comparative deep learning architectures for automatic modulation classification \cite{b4} and FPGA-accelerated CNN-based inference \cite{b1,b3} informs the model architecture choices evaluated at this layer.
+
+To support pre-hardware exploration and course preparation, a software-only engagement simulator was developed in Python. This tool models the multi-beacon scenario—including jamming, counter-jamming, and binary data streams—and generates synthetic signal logs that students can use to prototype their ML pipeline before the hardware system is operational. The simulator enables parallel progress on the ML curriculum modules while hardware integration is ongoing.
+
+\subsection{Curriculum Module Sequence}
+
+\textit{Module 1: RF Hardware and Subsystem Design.} Students implement beacon transmission firmware on the STM32 platform, design the packet protocol and transmission scheduling algorithm, and validate the physical receiver-to-FPGA serial interface. The primary learning objective is understanding how firmware design choices—SPI clock rate, DMA configuration, interrupt latency—affect the timing and integrity of the data stream delivered to the FPGA. Students who have previously programmed microcontrollers in isolation discover that the FPGA downstream imposes strict throughput and synchronization requirements that the firmware must satisfy.
+
+\textit{Module 2: FPGA RTL Design and Simulation.} Students implement the FPGA-side data ingestion pipeline in VHDL or Verilog: serial receiver, packet parser, CRC checker, and a feature extraction datapath. Simulation testbenches use recorded beacon data from Module 1 as stimulus, reinforcing the connection between the RF protocol designed upstream and the RTL logic that processes it. Students encounter FPGA-specific design constraints—timing closure, clock domain crossing, memory resource allocation—in the context of a real signal, not a synthetic exercise.
+
+\textit{Module 3: System Integration and Data Collection.} Students connect the hardware subsystems built in Modules 1 and 2 for the first time and characterize end-to-end data flow: RF beacon transmission through reception and FPGA processing to feature output. Latency, throughput, and packet error rate are measured. Synchronization mismatches and protocol errors that were invisible in per-subsystem development surface here as integration failures that must be diagnosed and resolved. Students then execute a structured data collection campaign across multiple beacon configurations, producing a labeled dataset for the ML pipeline.
+
+\textit{Module 4: AI-Driven Classification Pipeline.} Using the hardware-collected dataset from Module 3, students preprocess FPGA-extracted features, train and evaluate classifiers—including CNN architectures validated for RF signal classification tasks \cite{b2,b4}—and analyze classification accuracy as a function of signal-to-noise ratio and number of concurrent beacons. Training on real hardware data rather than curated benchmarks exposes students directly to distribution shift, label noise, and the feature engineering decisions that connect RF physics to model input.
+
+\textit{Module 5: System Validation and Benchmarking.} Students stress-test the complete pipeline with multiple simultaneous beacons, measure total system response time from RF transmission to classification decision, and characterize the performance envelope of their implementation. The benchmarking exercise requires active engagement with all four domains: RF link budget analysis, FPGA timing and resource reports, serial interface throughput, and ML classification accuracy curves.
+
+\subsection{Pedagogical Rationale}
+
+The framework's central design principle is that the interfaces between disciplinary domains are the primary teaching objects. Existing FPGA education frameworks \cite{b9} and embedded systems curricula \cite{b10} have demonstrated the effectiveness of hardware-grounded, progressive lab sequences within a single discipline. This work extends that model to four disciplines simultaneously by treating each inter-domain interface as a design problem whose resolution requires knowledge from both adjacent domains.
+
+A student who implements a CRC verifier in RTL and then diagnoses a packet loss event caused by firmware DMA timing has internalized a cross-domain constraint that no single-discipline course can produce. Likewise, a student who trains a classifier on FPGA-extracted features and observes accuracy degradation when beacon power levels change has encountered the coupling between RF link behavior and machine learning model performance as an empirical reality rather than a textbook abstraction.
+
+The framework is designed for reproducibility. All hardware components are commercially available through standard academic purchasing channels, and all development tools are free or available under academic license. The core contribution is not a novel hardware platform or a new ML technique but a documented, teachable model of how FPGA design, RF communications, embedded firmware, and machine learning interact at the system level—organized as a progressive curriculum in which that interaction is the subject of instruction.
+
+\section*{References}
+
+\begin{thebibliography}{00}
+
+\bibitem{b1}
+H. Komkov, L. Pocher, A. Restelli, B. Hunt, and D. Lathrop, ``RF signal classification using Boolean reservoir computing on an FPGA,'' in \textit{Proc. 2021 Int. Joint Conf. Neural Networks (IJCNN)}, Jul. 2021, doi: 10.1109/IJCNN52387.2021.9533342.
+
+\bibitem{b2}
+J. F. Lin, T. Morehouse, C. Montes, E. Caushi, A. Dudko, E. Savage, and R. Zhou, ``A study of angle of arrival estimation of a RF signal with FPGA acceleration,'' in \textit{Proc. 2024 Int. Wireless Commun. Mobile Comput. Conf. (IWCMC)}, 2024, pp. 1625--1630, doi: 10.1109/IWCMC61514.2024.10592551.
+
+\bibitem{b3}
+A. MacLellan, L. H. Crockett, and R. W. Stewart, ``Streaming convolutional neural network FPGA architecture for RFSoC data converters,'' in \textit{Proc. 21st IEEE Interreg. New Circuits Syst. Conf. (NEWCAS)}, Edinburgh, UK, Jun. 2023, doi: 10.1109/NEWCAS57931.2023.10198198.
+
+\bibitem{b4}
+K. A. Alnajjar, S. Ghunaim, and S. Ansari, ``Automatic modulation classification in deep learning,'' in \textit{Proc. 2022 5th Int. Conf. Commun., Signal Process., Appl. (ICCSPA)}, Cairo, Egypt, Dec. 2022, doi: 10.1109/ICCSPA55860.2022.10019122.
+
+\bibitem{b5}
+P. M. Mutescu, A. Lavric, A. I. Petrariu, and V. Popa, ``Deep learning enhanced spectrum sensing for LoRa spreading factor detection,'' in \textit{Proc. 2023 13th Int. Symp. Adv. Topics Elect. Eng. (ATEE)}, Bucharest, Romania, Mar. 2023, doi: 10.1109/ATEE58038.2023.10108224.
+
+\bibitem{b6}
+Y. E. Sagduyu and T. Erpek, ``Adversarial attacks on LoRa device identification and rogue signal detection with deep learning,'' in \textit{Proc. MILCOM 2023 --- 2023 IEEE Military Commun. Conf.}, Boston, MA, Oct.--Nov. 2023, pp. 385--390, doi: 10.1109/MILCOM58377.2023.10356224.
+
+\bibitem{b7}
+T.-P. Dang, T.-K. Tran, T.-T. Bui, and H.-T. Huynh, ``LoRa gateway based on SoC FPGA platforms,'' in \textit{Proc. 2021 Int. Symp. Elect. Electron. Eng. (ISEE)}, 2021, pp. 48--52, doi: 10.1109/ISEE51682.2021.9418711.
+
+\bibitem{b8}
+K. Dakic, B. Al Homssi, A. Al-Hourani, and M. Lech, ``LoRa signal demodulation using deep learning, a time-domain approach,'' in \textit{Proc. 2021 IEEE 93rd Veh. Technol. Conf. (VTC2021-Spring)}, Apr. 2021, doi: 10.1109/VTC2021-Spring51267.2021.9448711.
+
+\bibitem{b9}
+W. Smith, Z. Driskill, J. Goeders, and M. Wirthlin, ``Digital design education using an open-source, cloud-based FPGA toolchain,'' in \textit{Proc. 2024 IEEE Intermountain Eng., Technol. Comput. Conf. (i-ETC)}, May 2024, doi: 10.1109/i-ETC.2024.10564285.
+
+\bibitem{b10}
+N. O. Strelkov, V. V. Krutskikh, and E. V. Shalimova, ``Programming STM32 Nucleo platform for IoT education using STM32duino and Mbed OS,'' in \textit{Proc. 2022 VI Int. Conf. Inf. Technol. Eng. Educ. (Inforino)}, Apr. 2022, doi: 10.1109/Inforino53888.2022.9782920.
+
+\end{thebibliography}
+
+\end{document}
