@@ -1,143 +1,114 @@
-"""Control panel - simulation controls, config, and jam buttons."""
+"""Control panel - simulation controls and dynamic jam target selector."""
 
 import tkinter as tk
 from tkinter import ttk
-from app.utils.constants import DEFAULT_TICK_MS, DEFAULT_JAM_THRESHOLD, DEFAULT_JAM_COOLDOWN_S
 
 
 class ControlPanel(tk.LabelFrame):
-    """Panel with simulation controls and configuration."""
-
     def __init__(self, parent, **kwargs):
-        super().__init__(parent, text="Controls", font=("Consolas", 11, "bold"),
-                         padx=8, pady=8, **kwargs)
+        super().__init__(parent, text="Controls", font=("Consolas", 10, "bold"),
+                         padx=6, pady=6, **kwargs)
+        self._callbacks: dict = {}
 
-        self.callbacks = {}
+        # --- Simulation controls ---
+        sim_frame = tk.LabelFrame(self, text="Simulation", padx=4, pady=4)
+        sim_frame.pack(fill=tk.X, pady=(0, 4))
 
-        # --- Simulation Controls ---
-        sim_frame = tk.LabelFrame(self, text="Simulation", padx=6, pady=4)
-        sim_frame.pack(fill=tk.X, pady=(0, 6))
+        btn_row1 = tk.Frame(sim_frame)
+        btn_row1.pack(fill=tk.X, pady=1)
+        self.btn_start = tk.Button(btn_row1, text="START", width=7, bg="#166534",
+                                   fg="white", font=("Consolas", 9, "bold"),
+                                   command=lambda: self._fire("start"))
+        self.btn_start.pack(side=tk.LEFT, padx=1)
+        self.btn_stop = tk.Button(btn_row1, text="STOP", width=7, bg="#991b1b",
+                                  fg="white", font=("Consolas", 9, "bold"),
+                                  command=lambda: self._fire("stop"),
+                                  state=tk.DISABLED)
+        self.btn_stop.pack(side=tk.LEFT, padx=1)
+        self.btn_reset = tk.Button(btn_row1, text="RESET", width=7, bg="#6b7280",
+                                   fg="white", font=("Consolas", 9, "bold"),
+                                   command=lambda: self._fire("reset"))
+        self.btn_reset.pack(side=tk.LEFT, padx=1)
 
-        btn_frame = tk.Frame(sim_frame)
-        btn_frame.pack(fill=tk.X)
+        btn_row2 = tk.Frame(sim_frame)
+        btn_row2.pack(fill=tk.X, pady=1)
+        self.btn_pause = tk.Button(btn_row2, text="PAUSE", width=7, bg="#8b5cf6",
+                                   fg="white", font=("Consolas", 9, "bold"),
+                                   command=lambda: self._fire("toggle_pause"),
+                                   state=tk.DISABLED)
+        self.btn_pause.pack(side=tk.LEFT, padx=1)
+        self.btn_step = tk.Button(btn_row2, text="STEP", width=7, bg="#6366f1",
+                                  fg="white", font=("Consolas", 9, "bold"),
+                                  command=lambda: self._fire("step"))
+        self.btn_step.pack(side=tk.LEFT, padx=1)
 
-        self.start_btn = tk.Button(btn_frame, text="START", bg="#22c55e", fg="white",
-                                    font=("Consolas", 10, "bold"), width=8,
-                                    command=lambda: self._fire("start"))
-        self.start_btn.pack(side=tk.LEFT, padx=2)
+        # --- Jam target selector ---
+        jam_frame = tk.LabelFrame(self, text="Jamming", padx=4, pady=4)
+        jam_frame.pack(fill=tk.X, pady=(0, 4))
 
-        self.stop_btn = tk.Button(btn_frame, text="STOP", bg="#ef4444", fg="white",
-                                   font=("Consolas", 10, "bold"), width=8,
-                                   command=lambda: self._fire("stop"), state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=2)
+        tk.Label(jam_frame, text="Threat:", font=("Consolas", 8)).pack(anchor="w")
+        self.threat_var = tk.StringVar()
+        self.threat_combo = ttk.Combobox(jam_frame, textvariable=self.threat_var,
+                                         state="readonly", width=20)
+        self.threat_combo.pack(fill=tk.X, pady=(0, 4))
 
-        self.reset_btn = tk.Button(btn_frame, text="RESET", bg="#6b7280", fg="white",
-                                    font=("Consolas", 10, "bold"), width=8,
-                                    command=lambda: self._fire("reset"))
-        self.reset_btn.pack(side=tk.LEFT, padx=2)
+        tk.Label(jam_frame, text="Jam Target:", font=("Consolas", 8)).pack(anchor="w")
+        self.target_var = tk.StringVar()
+        self.target_combo = ttk.Combobox(jam_frame, textvariable=self.target_var,
+                                         state="readonly", width=20)
+        self.target_combo.pack(fill=tk.X, pady=(0, 4))
 
-        # --- Configuration ---
-        config_frame = tk.LabelFrame(self, text="Configuration", padx=6, pady=4)
-        config_frame.pack(fill=tk.X, pady=(0, 6))
+        btn_jam_row = tk.Frame(jam_frame)
+        btn_jam_row.pack(fill=tk.X)
+        self.btn_jam = tk.Button(btn_jam_row, text="ENGAGE JAM", bg="#b91c1c",
+                                 fg="white", font=("Consolas", 9, "bold"),
+                                 width=12, command=lambda: self._fire("engage_jam"))
+        self.btn_jam.pack(side=tk.LEFT, padx=1)
+        self.btn_stop_jam = tk.Button(btn_jam_row, text="CEASE JAM", width=12,
+                                      font=("Consolas", 9, "bold"),
+                                      command=lambda: self._fire("cease_jam"))
+        self.btn_stop_jam.pack(side=tk.LEFT, padx=1)
 
-        # Tick rate
-        tk.Label(config_frame, text="Tick Rate (ms):", font=("Consolas", 9)).grid(
-            row=0, column=0, sticky="w", pady=2)
-        self.tick_var = tk.IntVar(value=DEFAULT_TICK_MS)
-        self.tick_spin = tk.Spinbox(config_frame, from_=100, to=5000, increment=100,
-                                     textvariable=self.tick_var, width=8,
-                                     font=("Consolas", 9))
-        self.tick_spin.grid(row=0, column=1, sticky="w", padx=4, pady=2)
+        tk.Label(jam_frame, text="Targets auto counter-jam when targeted",
+                 font=("Consolas", 7), fg="#666", wraplength=220,
+                 justify=tk.LEFT).pack(anchor="w", pady=(2, 0))
 
-        # Jam threshold
-        tk.Label(config_frame, text="Jam Threshold:", font=("Consolas", 9)).grid(
-            row=1, column=0, sticky="w", pady=2)
-        self.threshold_var = tk.IntVar(value=DEFAULT_JAM_THRESHOLD)
-        self.threshold_spin = tk.Spinbox(config_frame, from_=1, to=20, increment=1,
-                                          textvariable=self.threshold_var, width=8,
-                                          font=("Consolas", 9))
-        self.threshold_spin.grid(row=1, column=1, sticky="w", padx=4, pady=2)
-
-        # Jam cooldown
-        tk.Label(config_frame, text="Jam Cooldown (s):", font=("Consolas", 9)).grid(
-            row=2, column=0, sticky="w", pady=2)
-        self.cooldown_var = tk.DoubleVar(value=DEFAULT_JAM_COOLDOWN_S)
-        self.cooldown_spin = tk.Spinbox(config_frame, from_=1.0, to=30.0, increment=0.5,
-                                         textvariable=self.cooldown_var, width=8,
-                                         font=("Consolas", 9), format="%.1f")
-        self.cooldown_spin.grid(row=2, column=1, sticky="w", padx=4, pady=2)
-
-        self.apply_btn = tk.Button(config_frame, text="Apply Config",
-                                    font=("Consolas", 9),
-                                    command=lambda: self._fire("apply_config"))
-        self.apply_btn.grid(row=3, column=0, columnspan=2, pady=4)
-
-        # --- Jamming Controls ---
-        jam_frame = tk.LabelFrame(self, text="Jamming", padx=6, pady=4)
-        jam_frame.pack(fill=tk.X, pady=(0, 6))
-
-        self.jam_alpha_btn = tk.Button(
-            jam_frame, text="JAM Target-Alpha", bg="#f59e0b", fg="black",
-            font=("Consolas", 10, "bold"),
-            command=lambda: self._fire("jam_alpha"))
-        self.jam_alpha_btn.pack(fill=tk.X, pady=2)
-
-        self.jam_bravo_btn = tk.Button(
-            jam_frame, text="JAM Target-Bravo", bg="#f59e0b", fg="black",
-            font=("Consolas", 10, "bold"),
-            command=lambda: self._fire("jam_bravo"))
-        self.jam_bravo_btn.pack(fill=tk.X, pady=2)
-
-        # Target counter-jam status (reactive, not manual)
-        self.counter_jam_label = tk.Label(
-            jam_frame, text="Targets counter-jam automatically when targeted",
-            font=("Consolas", 8), fg="#666", wraplength=250, justify=tk.LEFT)
-        self.counter_jam_label.pack(anchor="w", pady=(4, 0))
-
-        # --- Log Controls ---
-        log_frame = tk.LabelFrame(self, text="Logs", padx=6, pady=4)
-        log_frame.pack(fill=tk.X)
-
-        self.clear_log_btn = tk.Button(
-            log_frame, text="Clear Logs", font=("Consolas", 9),
-            command=lambda: self._fire("clear_logs"))
-        self.clear_log_btn.pack(fill=tk.X)
+        # --- Info label ---
+        self.info_var = tk.StringVar(value="Ready")
+        tk.Label(self, textvariable=self.info_var, font=("Consolas", 8),
+                 fg="#888").pack(fill=tk.X, pady=(4, 0))
 
     def set_callback(self, name: str, func):
-        self.callbacks[name] = func
+        self._callbacks[name] = func
 
     def _fire(self, name: str):
-        if name in self.callbacks:
-            self.callbacks[name]()
+        cb = self._callbacks.get(name)
+        if cb:
+            cb()
+
+    def update_asset_lists(self, target_names: list[str], threat_names: list[str]):
+        self.threat_combo["values"] = threat_names
+        if threat_names and not self.threat_var.get():
+            self.threat_var.set(threat_names[0])
+        self.target_combo["values"] = target_names
+        if target_names and not self.target_var.get():
+            self.target_var.set(target_names[0])
 
     def set_running(self, running: bool):
-        if running:
-            self.start_btn.config(state=tk.DISABLED)
-            self.stop_btn.config(state=tk.NORMAL)
-            self.tick_spin.config(state=tk.DISABLED)
-            self.threshold_spin.config(state=tk.DISABLED)
-            self.cooldown_spin.config(state=tk.DISABLED)
-            self.apply_btn.config(state=tk.DISABLED)
-        else:
-            self.start_btn.config(state=tk.NORMAL)
-            self.stop_btn.config(state=tk.DISABLED)
-            self.tick_spin.config(state=tk.NORMAL)
-            self.threshold_spin.config(state=tk.NORMAL)
-            self.cooldown_spin.config(state=tk.NORMAL)
-            self.apply_btn.config(state=tk.NORMAL)
+        self.btn_start.config(state="disabled" if running else "normal")
+        self.btn_stop.config(state="normal" if running else "disabled")
+        self.btn_step.config(state="normal" if running else "disabled")
+        self.btn_pause.config(state="normal" if running else "disabled")
 
-    def update_jam_buttons(self, jam_target_name: str | None):
-        """Update jam buttons to reflect which target is being jammed."""
-        if jam_target_name == "Target-Alpha":
-            self.jam_alpha_btn.config(text="DISENGAGE Alpha", bg="#ef4444")
-            self.jam_bravo_btn.config(text="JAM Target-Bravo", bg="#f59e0b",
-                                       state=tk.DISABLED)
-        elif jam_target_name == "Target-Bravo":
-            self.jam_bravo_btn.config(text="DISENGAGE Bravo", bg="#ef4444")
-            self.jam_alpha_btn.config(text="JAM Target-Alpha", bg="#f59e0b",
-                                       state=tk.DISABLED)
-        else:
-            self.jam_alpha_btn.config(text="JAM Target-Alpha", bg="#f59e0b",
-                                       state=tk.NORMAL)
-            self.jam_bravo_btn.config(text="JAM Target-Bravo", bg="#f59e0b",
-                                       state=tk.NORMAL)
+    def set_paused(self, paused: bool):
+        self.btn_pause.config(text="RESUME" if paused else "PAUSE",
+                              bg="#22c55e" if paused else "#8b5cf6")
+
+    def set_info(self, text: str):
+        self.info_var.set(text)
+
+    def get_selected_threat(self) -> str:
+        return self.threat_var.get()
+
+    def get_selected_target(self) -> str:
+        return self.target_var.get()

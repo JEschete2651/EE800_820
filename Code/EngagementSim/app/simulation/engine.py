@@ -1,4 +1,7 @@
-"""Core simulation engine - drives the tick loop and coordinates systems."""
+"""Core simulation engine - tick loop with pause/step and metrics.
+
+Iterates over dynamic lists of targets and threats each tick.
+"""
 
 import time
 from app.models.engagement_state import EngagementState
@@ -13,64 +16,71 @@ class SimulationEngine:
         self.logger = sim_logger
         self.comm_system = CommunicationSystem()
         self.jam_system = JammingSystem()
-        self.event_callback = None  # GUI sets this to receive events
+        self.event_callback = None
 
     def set_event_callback(self, callback):
-        """Set callback function that receives (list[str]) events each tick."""
         self.event_callback = callback
 
     def tick(self):
-        """Run one simulation tick."""
-        if not self.state.running:
+        if not self.state.running or self.state.paused:
             return
 
         now = time.time()
-        self.state.tick_count += 1
-        events = []
-        events.append(f"--- Tick {self.state.tick_count} ---")
+        s = self.state
+        s.tick_count += 1
+        events = [f"--- Tick {s.tick_count} ---"]
 
-        # Update asset cooldowns
-        self.state.threat.update(now)
-        self.state.target_a.update(now)
-        self.state.target_b.update(now)
+        # Update all assets
+        for target in s.targets:
+            target.update(now, s.tick_count)
+        for threat in s.threats:
+            threat.update(now, s.tick_count)
 
-        # 1) Target-to-target communication
-        comm_events = self.comm_system.exchange(
-            self.state.target_a, self.state.target_b,
-            self.state.threat, self.logger
-        )
+        # 1) Target-to-target communication (all valid pairs)
+        comm_events = self.comm_system.exchange_all(
+            s.targets, s.threats, self.logger, s)
         events.extend(comm_events)
 
-        # 2) Threat jamming (if active)
-        if self.state.threat.is_jamming:
-            jam_events = self.jam_system.threat_jam_tick(
-                self.state.threat,
-                [self.state.target_a, self.state.target_b],
-                self.logger
-            )
-            events.extend(jam_events)
+        # 2) Threat jamming (all active threats)
+        jam_events = self.jam_system.threat_jam_tick(
+            s.threats, s.targets, self.logger, s)
+        events.extend(jam_events)
 
-        # 3) Target counter-jamming
+        # 3) Target counter-jamming (all targets vs all threats)
         counter_events = self.jam_system.target_counter_jam_tick(
-            [self.state.target_a, self.state.target_b],
-            self.state.threat, self.logger
-        )
+            s.targets, s.threats, self.logger, s)
         events.extend(counter_events)
 
-        # Log tick summary
-        self.logger.log_event("ENGINE", f"Tick {self.state.tick_count} completed")
+        # Record metrics
+        s.record_tick_metrics()
+        self.logger.log_event("ENGINE", f"Tick {s.tick_count} completed")
 
-        # Push events to GUI
         if self.event_callback:
             self.event_callback(events)
 
+    def step(self):
+        was_paused = self.state.paused
+        self.state.paused = False
+        self.tick()
+        self.state.paused = was_paused
+
     def start(self):
         self.state.running = True
+        self.state.paused = False
         self.logger.log_event("ENGINE", "Simulation STARTED")
 
     def stop(self):
         self.state.running = False
+        self.state.paused = False
         self.logger.log_event("ENGINE", "Simulation STOPPED")
+
+    def pause(self):
+        self.state.paused = True
+        self.logger.log_event("ENGINE", "Simulation PAUSED")
+
+    def resume(self):
+        self.state.paused = False
+        self.logger.log_event("ENGINE", "Simulation RESUMED")
 
     def reset(self):
         self.state.reset()
