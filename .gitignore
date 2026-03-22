@@ -1,3 +1,6 @@
+# IEEE source papers (copyrighted, do not distribute)
+Term_Paper/Sources/*.pdf
+
 # LaTeX auxiliary files
 *.aux
 *.log
