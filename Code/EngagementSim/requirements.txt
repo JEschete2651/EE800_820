@@ -1,1 +1,1 @@
-# No external dependencies - uses only Python stdlib (tkinter)
+customtkinter>=5.2.0

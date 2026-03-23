@@ -3,7 +3,11 @@
 import json
 import os
 import tkinter as tk
+import customtkinter as ctk
 from tkinter import filedialog, messagebox
+
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
 from app.models.engagement_state import EngagementState
 from app.simulation.engine import SimulationEngine
@@ -20,11 +24,10 @@ from app.utils.constants import DEFAULT_CENTER_LAT, DEFAULT_CENTER_LON
 
 class MainWindow:
     def __init__(self):
-        self.root = tk.Tk()
+        self.root = ctk.CTk()
         self.root.title("EW Engagement Simulator")
         self.root.geometry("1500x900")
         self.root.minsize(1100, 700)
-        self.root.configure(bg="#f0f0f0")
 
         log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "..", "..", "logs")
@@ -75,8 +78,9 @@ class MainWindow:
         mb.set_callback("clear_logs", self._clear_logs)
 
     def _build_ui(self):
-        # Left column: controls + asset config/status (wider for inline config)
-        left = tk.Frame(self.root, width=310)
+        # Left column: controls + asset config/status
+        left = ctk.CTkFrame(self.root, width=315, corner_radius=0,
+                            fg_color="transparent")
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(8, 4), pady=8)
         left.pack_propagate(False)
 
@@ -88,7 +92,7 @@ class MainWindow:
         self.status_panel.set_apply_callback(self._on_asset_config_apply)
 
         # Center: map + charts
-        center = tk.Frame(self.root)
+        center = ctk.CTkFrame(self.root, corner_radius=0, fg_color="transparent")
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4, pady=8)
 
         self.map_panel = MapPanel(center)
@@ -98,7 +102,8 @@ class MainWindow:
         self.chart_panel.pack(fill=tk.X, ipady=10)
 
         # Right: logs
-        right = tk.Frame(self.root, width=400)
+        right = ctk.CTkFrame(self.root, width=400, corner_radius=0,
+                             fg_color="transparent")
         right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(4, 8), pady=8)
 
         self.log_panel = LogPanel(right)
