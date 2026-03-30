@@ -1,0 +1,46 @@
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\begin{document}
+
+	\begin{center}
+		{\Large\textbf{EE800/820 Weekly Status Report}}
+	\end{center}
+
+	\vspace{0.5em}
+
+	\noindent\textbf{Student:} Jude Eschete\\
+	\noindent\textbf{Project Advisor:} Bernard Yett\\
+	\textbf{Week of:} March 23, 2026\\
+	\textbf{Project:} An Educational Framework for AI-Driven RF Signal Processing on FPGA
+
+	\vspace{1em}
+	\hrule
+	\vspace{1em}
+
+	\section*{Accomplishments This Week}
+
+	\begin{itemize}[noitemsep]
+		\item Submitted the mid-stage report documenting the five-module curriculum framework, hardware platform design, and engagement simulator.
+		\item Completed the Module 2 lesson plan (FPGA RTL Design and Simulation), covering UART receiver design, packet parsing with hardware CRC verification, and feature extraction datapath architecture.
+		\item Completed the Module 3 lesson plan (System Integration and Data Collection), covering integration debugging methodology, performance characterization, and structured data collection campaign design.
+		\item Removed hard-coded date references from body text across Modules 1--3 to keep the curriculum schedule-independent.
+		\item Created the Vivado RTL project (LoRa\_FPGA\_FeaturePipeline) targeting the Nexys A7-100T for Module 2 implementation.
+	\end{itemize}
+
+	\section*{Goals for Next Week}
+
+	\begin{itemize}[noitemsep]
+		\item Begin FPGA RTL implementation: UART receiver module with dual-flip-flop synchronizer and 16x oversampling.
+		\item Implement the receive FIFO and start the packet parser state machine in VHDL.
+		\item Create initial simulation testbenches using recorded beacon data from Module 1 hardware bring-up.
+	\end{itemize}
+
+	\section*{Potential Blockers}
+
+	\begin{itemize}[noitemsep]
+		\item Verifying that the CRC-8 and CRC-16 polynomial implementations in VHDL match the STM32 firmware computation exactly (byte ordering and initialization values).
+	\end{itemize}
+
+\end{document}
