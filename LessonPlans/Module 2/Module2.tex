@@ -1,5 +1,11 @@
 \documentclass[11pt,letterpaper]{article}
 
+% Build steps (from this folder):
+% 1) pdflatex Module2.tex
+% 2) makeglossaries Module2
+% 3) pdflatex Module2.tex
+% 4) pdflatex Module2.tex
+
 % ── Packages ──────────────────────────────────────────────────
 \usepackage[margin=1in]{geometry}
 \usepackage{titlesec}
@@ -16,7 +22,10 @@
 \usepackage{caption}
 \usepackage{tikz}
 \usepackage{listings}
+\usepackage[acronym,toc]{glossaries}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, decorations.pathreplacing}
+\makeglossaries%
+\input{../glossary}
 
 % ── Colors ────────────────────────────────────────────────────
 \definecolor{stevens}{RGB}{163,31,52}       % Stevens Red
@@ -89,7 +98,7 @@
 
 		{\Huge\bfseries\color{stevens} Lesson Plan: Module~2\par}
 		\vspace{0.5cm}
-		{\LARGE\color{darkgray} FPGA RTL Design, Signal Ingestion Pipeline,\\[4pt]
+		{\LARGE\color{darkgray} Field-Programmable Gate Array (\FPGA{}) Register-Transfer Level (\RTL{}) Design, Signal Ingestion Pipeline,\\[4pt]
 			and Simulation Verification\par}
 
 		\vspace{1.5cm}
@@ -114,9 +123,9 @@
 		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
 			\centering\small
 			This document presents the lesson plan for the second module of the capstone project,
-			covering the design and simulation of the FPGA-side signal processing pipeline on the
-			Digilent Nexys A7-100T. Students implement UART-based data ingestion, packet parsing
-			with hardware CRC verification, and a feature extraction datapath in VHDL, then verify
+			covering the design and simulation of the \FPGA-side signal processing pipeline on the
+			Digilent Nexys A7-100T. Students implement \UART-based data ingestion, packet parsing
+			with hardware \CRC{} verification, and a feature extraction datapath in \VHDL, then verify
 			the complete pipeline through simulation testbenches driven by recorded beacon data from
 			Module~1.
 		\end{tcolorbox}
@@ -138,31 +147,31 @@
 	\begin{tcolorbox}[objective={Module 2 Learning Objectives}]
 		Upon completion of this module, the student (or future learner following this curriculum) will be able to:
 		\begin{enumerate}[label=\textbf{LO-\arabic*}]
-			\item Implement a UART receiver module in VHDL that reliably captures asynchronous serial data at 115200~baud and interfaces with the FPGA's 100~MHz system clock domain through proper synchronization techniques.
+			\item Implement a \UART{} receiver module in \VHDL{} that reliably captures asynchronous serial data at 115200~baud and interfaces with the \FPGA's 100~MHz system clock domain through proper synchronization techniques.
 			\item Design and implement a packet parser state machine that detects frame delimiters, extracts fixed-length fields, and routes parsed data to downstream processing stages.
-			\item Implement hardware CRC verification (CRC-8 for the receiver frame, CRC-16 for the beacon payload) and use the results to gate downstream processing, rejecting corrupted frames in real time.
-			\item Architect a feature extraction datapath that transforms parsed packet fields into a structured feature vector suitable for the machine learning classification pipeline in Module~4.
-			\item Develop simulation testbenches in VHDL that use recorded beacon data from Module~1 as stimulus, verify functional correctness of each pipeline stage, and identify timing or resource issues before hardware deployment.
-			\item Analyze FPGA resource utilization (LUTs, flip-flops, block RAM, DSP slices) and timing reports to make informed design trade-offs within the Artix-7 fabric constraints.
+			\item Implement hardware \CRC{} verification (\CRC{}-8 for the receiver frame, \CRC{}-16 for the beacon payload) and use the results to gate downstream processing, rejecting corrupted frames in real time.
+			\item Architect a feature extraction datapath that transforms parsed packet fields into a structured feature vector suitable for the \ML{} classification pipeline in Module~4.
+			\item Develop simulation testbenches in \VHDL{} that use recorded beacon data from Module~1 as stimulus, verify functional correctness of each pipeline stage, and identify timing or resource issues before hardware deployment.
+			\item Analyze \FPGA{} resource utilization (look-up tables (\LUT{}s), flip-flops, block random access memory (\BRAM{}), and digital signal processing (DSP) slices) and timing reports to make informed design trade-offs within the Artix-7 fabric constraints.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\subsection{Context Within the Project}
 
-	Module~2 builds directly on the hardware platform validated in Module~1. The UART interface between the receiver STM32 and the Nexys A7 FPGA, characterized in Module~1 Week~4, becomes the input to the RTL processing pipeline developed here. The beacon packet format (32~bytes, Table~4 in Module~1) and the receiver-to-FPGA forwarding frame (43~bytes, Table~6 in Module~1) define the exact data structures that the FPGA logic must parse.
+	Module~2 builds directly on the hardware platform validated in Module~1. The \UART{} interface between the receiver STM32 microcontroller unit (\MCU{}) and the Nexys A7 \FPGA{}, characterized in Module~1 Week~4, becomes the input to the \RTL{} processing pipeline developed here. The beacon packet format (32~bytes, Table~4 in Module~1) and the receiver-to-\FPGA{} forwarding frame (43~bytes, Table~6 in Module~1) define the exact data structures that the \FPGA{} logic must parse.
 
-	This module represents the first point in the curriculum where students work entirely within the FPGA design domain, but the design decisions they make are constrained by upstream choices from Module~1 (baud rate, packet format, interface protocol) and must anticipate downstream requirements in Module~3 (system integration throughput) and Module~4 (feature vector format for ML training). This cross-module dependency chain---firmware choices constraining RTL design, which in turn shapes the ML data pipeline---is the central pedagogical theme of the framework.
+	This module represents the first point in the curriculum where students work entirely within the \FPGA{} design domain, but the design decisions they make are constrained by upstream choices from Module~1 (baud rate, packet format, interface protocol) and must anticipate downstream requirements in Module~3 (system integration throughput) and Module~4 (feature vector format for \ML{} training). This cross-module dependency chain---firmware choices constraining \RTL{} design, which in turn shapes the \ML{} data pipeline---is the central pedagogical theme of the framework.
 
 	\subsection{Prerequisites}
 
 	Students beginning this module should have:
 	\begin{itemize}[leftmargin=2em]
-		\item Completed Module~1 with a working beacon--receiver subsystem and validated FPGA toolchain (Vivado, Nexys A7 bitstream generation confirmed).
-		\item Proficiency in VHDL (entity/architecture declarations, signal assignments, process blocks, component instantiation) or equivalent Verilog fluency.
-		\item Understanding of synchronous digital design principles: clock domains, setup/hold timing, finite state machines, and registered outputs.
+		\item Completed Module~1 with a working beacon--receiver subsystem and validated \FPGA{} toolchain (Vivado, Nexys A7 bitstream generation confirmed).
+		\item Proficiency in \VHDL{} (entity/architecture declarations, signal assignments, process blocks, component instantiation) or equivalent Verilog fluency.
+		\item Understanding of synchronous digital design principles: clock domains, setup/hold timing, finite state machines (FSMs), and registered outputs.
 		\item Familiarity with simulation concepts (testbench structure, stimulus generation, waveform analysis) in Vivado Simulator or ModelSim.
 		\item Access to the hardware and software listed in Section~\ref{sec:resources}.
-		\item Recorded beacon data files (UART byte captures) from Module~1 Week~4 validation exercises.
+		\item Recorded beacon data files (\UART{} byte captures) from Module~1 Week~4 validation exercises.
 	\end{itemize}
 
 	\newpage
@@ -170,7 +179,7 @@
 	\section{Weekly Schedule}
 	% ══════════════════════════════════════════════════════════════
 
-	The module spans two weeks (four working sessions) of intensive RTL development, with each session progressing from lower-level interface logic to higher-level data processing. Simulation verification is integrated throughout rather than deferred to the end.
+	The module spans two weeks (four working sessions) of intensive \RTL{} development, with each session progressing from lower-level interface logic to higher-level data processing. Simulation verification is integrated throughout rather than deferred to the end.
 
 	\begin{table}[ht!]
 		\centering
@@ -181,39 +190,39 @@
 			\toprule
 			\textbf{Week} & \textbf{Focus Area} & \textbf{Key Activities} \\
 			\midrule
-			1 & UART Receiver \& Clock Domain Management &
-			Implement UART RX module with oversampling; design dual-flip-flop synchronizer for clock domain crossing; implement byte-level receive FIFO; simulate and verify against recorded Module~1 byte streams. \\
-			2 & Packet Parser \& CRC Verification &
-			Implement frame delimiter detection and packet parser state machine; design CRC-8 and CRC-16 hardware verification modules; integrate parser with UART receiver; simulate end-to-end frame reception with both valid and corrupted inputs. \\
+			1 & \UART{} Receiver \& Clock Domain Management &
+			Implement \UART{} RX module with oversampling; design dual-flip-flop synchronizer for clock domain crossing; implement byte-level receive \FIFO{}; simulate and verify against recorded Module~1 byte streams. \\
+			2 & Packet Parser \& \CRC{} Verification &
+			Implement frame delimiter detection and packet parser state machine; design \CRC{}-8 and \CRC{}-16 hardware verification modules; integrate parser with \UART{} receiver; simulate end-to-end frame reception with both valid and corrupted inputs. \\
 			3 & Feature Extraction Datapath &
-			Design feature vector format for ML pipeline; implement field extraction and feature register file; add dual-port BRAM feature storage for multi-beacon accumulation; implement beacon prioritization logic based on signal quality metrics. \\
+			Design feature vector format for \ML{} pipeline; implement field extraction and feature register file; add dual-port \BRAM{} feature storage for multi-beacon accumulation; implement beacon prioritization logic based on signal quality metrics. \\
 			4 & Simulation, Verification \& Optimization &
-			Build comprehensive testbenches using full Module~1 data captures; run end-to-end pipeline simulation; analyze resource utilization and timing reports; optimize critical paths; document design and prepare RTL for Module~3 integration. \\
+			Build comprehensive testbenches using full Module~1 data captures; run end-to-end pipeline simulation; analyze resource utilization and timing reports; optimize critical paths; document design and prepare \RTL{} for Module~3 integration. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 1: UART Receiver and Clock Domain Management}
+	\section{Week 1: \UART{} Receiver and Clock Domain Management}
 	\label{sec:uart}
 	% ══════════════════════════════════════════════════════════════
 
 	\subsection{Objectives}
 
 	\begin{itemize}[leftmargin=2em]
-		\item Implement a UART receiver module in VHDL capable of reliable 115200-baud reception on the Nexys A7's 100~MHz clock domain.
-		\item Design and implement a dual-flip-flop synchronizer for the asynchronous UART input.
-		\item Implement a small receive FIFO to decouple byte reception timing from downstream consumption.
-		\item Verify the UART receiver in simulation against recorded byte sequences from Module~1.
+		\item Implement a \UART{} receiver module in \VHDL{} capable of reliable 115200-baud reception on the Nexys A7's 100~MHz clock domain.
+		\item Design and implement a dual-flip-flop synchronizer for the asynchronous \UART{} input.
+		\item Implement a small receive \FIFO{} to decouple byte reception timing from downstream consumption.
+		\item Verify the \UART{} receiver in simulation against recorded byte sequences from Module~1.
 	\end{itemize}
 
 	\subsection{The Clock Domain Crossing Problem}
 
-	The receiver-to-FPGA interface validated in Module~1 uses UART at 115200~baud. From the FPGA's perspective, the incoming serial line is an asynchronous signal: it transitions according to the STM32's clock, which bears no phase or frequency relationship to the Nexys A7's 100~MHz oscillator. Sampling this signal directly with a 100~MHz register risks metastability---a condition where the register output is neither a clean logic~0 nor logic~1 for an indeterminate settling period.
+	The receiver-to-\FPGA{} interface validated in Module~1 uses \UART{} at 115200~baud. From the \FPGA{}'s perspective, the incoming serial line is an asynchronous signal: it transitions according to the STM32's clock, which bears no phase or frequency relationship to the Nexys A7's 100~MHz oscillator. Sampling this signal directly with a 100~MHz register risks metastability---a condition where the register output is neither a clean logic~0 nor logic~1 for an indeterminate settling period.
 
-	\begin{tcolorbox}[infobox={Why This Matters Beyond UART}]
-		Clock domain crossing is not merely a UART implementation detail. It is the foundational challenge of any system that ingests data from an external source---precisely the situation in every RF receiver, sensor interface, and multi-chip pipeline. Students who understand the synchronization problem here will recognize it again when connecting multiple FPGA subsystems in Module~3 and when evaluating real-time inference latency in Module~5. The UART interface is intentionally chosen as the simplest context in which to encounter this universal FPGA design challenge.
+	\begin{tcolorbox}[infobox={Why This Matters Beyond \UART{}}]
+		Clock domain crossing is not merely a \UART{} implementation detail. It is the foundational challenge of any system that ingests data from an external source---precisely the situation in every \RF{} receiver, sensor interface, and multi-chip pipeline. Students who understand the synchronization problem here will recognize it again when connecting multiple \FPGA{} subsystems in Module~3 and when evaluating real-time inference latency in Module~5. The \UART{} interface is intentionally chosen as the simplest context in which to encounter this universal \FPGA{} design challenge.
 	\end{tcolorbox}
 
 	\subsubsection{Dual-Flip-Flop Synchronizer}
@@ -240,7 +249,7 @@
 				\node[block] (input) {Async\\UART RX};
 				\node[block, right=of input] (ff1) {FF Stage 1\\(may go\\metastable)};
 				\node[block, right=of ff1] (ff2) {FF Stage 2\\(clean\\output)};
-				\node[block, right=of ff2] (logic) {UART\\Receiver\\Logic};
+				\node[block, right=of ff2] (logic) {\UART{}\\Receiver\\Logic};
 
 				\draw[arrow] (input) -- (ff1) node[midway, above, elabel] {uart\_rxd};
 				\draw[arrow] (ff1) -- (ff2) node[midway, above, elabel] {rxd\_sync1};
@@ -251,7 +260,7 @@
 				\draw[-{Stealth[length=2mm]}, thick, color=stevens] ($(ff2.south)+(0,-0.5)$) -- (ff2.south) node[below=0.5cm, font=\scriptsize\color{stevens}] {clk\_100MHz};
 			\end{tikzpicture}%
 		}
-		\caption{Dual-flip-flop synchronizer for the asynchronous UART input. Both stages are clocked by the FPGA's 100~MHz system clock.}
+		\caption{Dual-flip-flop synchronizer for the asynchronous \UART{} input. Both stages are clocked by the \FPGA{}'s 100~MHz system clock.}
 		\label{fig:synchronizer}
 	\end{figure}
 
@@ -264,13 +273,13 @@
 				\texttt{attribute ASYNC\_REG of rxd\_sync1 : signal is "TRUE";}\\
 				\texttt{attribute ASYNC\_REG of rxd\_sync2 : signal is "TRUE";}
 			\end{center}
-			\item \textbf{Do not synchronize multi-bit buses this way.} The dual-FF synchronizer is valid only for single-bit signals. Multi-bit data crossing clock domains requires a FIFO with gray-coded pointers or a handshake protocol.
+			\item \textbf{Do not synchronize multi-bit buses this way.} The dual-FF synchronizer is valid only for single-bit signals. Multi-bit data crossing clock domains requires a \FIFO{} with gray-coded pointers or a handshake protocol.
 		\end{itemize}
 	\end{tcolorbox}
 
-	\subsection{UART Receiver Architecture}
+	\subsection{\UART{} Receiver Architecture}
 
-	The UART receiver samples the synchronized serial input at $16\times$ the baud rate (oversampling) to reliably detect the start bit edge and center-sample each data bit. At 115200~baud, the bit period is:
+	The \UART{} receiver samples the synchronized serial input at $16\times$ the baud rate (oversampling) to reliably detect the start bit edge and center-sample each data bit. At 115200~baud, the bit period is:
 
 	\begin{equation}
 		T_{\text{bit}} = \frac{1}{115200} \approx 8.68\;\mu\text{s}
@@ -314,7 +323,7 @@
 				\draw[arrow] (done) -- (idle) node[midway, left, elabel] {1 clk pulse};
 			\end{tikzpicture}%
 		}
-		\caption{UART receiver state machine. The receiver waits for a falling edge (start bit), verifies at mid-bit, samples 8 data bits at their centers, checks the stop bit, and asserts a one-cycle \texttt{rx\_valid} pulse with the received byte on \texttt{rx\_data[7:0]}.}
+		\caption{\UART{} receiver state machine. The receiver waits for a falling edge (start bit), verifies at mid-bit, samples 8 data bits at their centers, checks the stop bit, and asserts a one-cycle \texttt{rx\_valid} pulse with the received byte on \texttt{rx\_data[7:0]}.}
 		\label{fig:uart_fsm}
 	\end{figure}
 
@@ -322,7 +331,7 @@
 
 	\begin{table}[ht!]
 		\centering
-		\caption{UART receiver design parameters.}
+		\caption{\UART{} receiver design parameters.}
 		\label{tab:uart_params}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabular}{l l l}
@@ -332,7 +341,7 @@
 			System Clock & 100~MHz & Nexys A7 on-board oscillator \\
 			Baud Rate & 115200 & Matched to Module~1 receiver firmware \\
 			Data Bits & 8 & Standard byte-oriented transfer \\
-			Parity & None & CRC provides integrity checking at frame level \\
+			Parity & None & \CRC{} provides integrity checking at frame level \\
 			Stop Bits & 1 & Standard configuration \\
 			Oversampling & $16\times$ & Provides $\pm 3\%$ baud rate tolerance \\
 			Clocks per Sample & 54 & $\lfloor 100\text{M} / (115200 \times 16) \rfloor$ \\
@@ -342,11 +351,11 @@
 
 	\subsubsection{Entity Interface}
 
-	The UART receiver module exposes the following port interface:
+	The \UART{} receiver module exposes the following port interface:
 
 	\begin{table}[ht!]
 		\centering
-		\caption{UART receiver entity ports.}
+		\caption{\UART{} receiver entity ports.}
 		\label{tab:uart_ports}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
@@ -355,7 +364,7 @@
 			\midrule
 			\texttt{clk} & in & 1 & 100~MHz system clock \\
 			\texttt{rst} & in & 1 & Synchronous active-high reset \\
-			\texttt{uart\_rxd} & in & 1 & Raw UART serial input (asynchronous) \\
+			\texttt{uart\_rxd} & in & 1 & Raw \UART{} serial input (asynchronous) \\
 			\texttt{rx\_data} & out & 8 & Received byte (valid when \texttt{rx\_valid} = `1') \\
 			\texttt{rx\_valid} & out & 1 & One-cycle pulse indicating a valid byte is available \\
 			\texttt{rx\_error} & out & 1 & Framing error (stop bit not detected) \\
@@ -363,13 +372,13 @@
 		\end{tabularx}
 	\end{table}
 
-	\subsection{Receive FIFO}
+	\subsection{Receive \FIFO{}}
 
-	A small synchronous FIFO decouples the byte-by-byte arrival rate of the UART from the downstream packet parser, which consumes bytes in bursts (one complete frame at a time). At 115200~baud, one byte arrives every $\sim$86.8~$\mu$s (10 bit times including start and stop). A 43-byte receiver frame takes approximately 3.73~ms to arrive. The FIFO must buffer at least one complete frame.
+	A small synchronous \FIFO{} decouples the byte-by-byte arrival rate of the \UART{} from the downstream packet parser, which consumes bytes in bursts (one complete frame at a time). At 115200~baud, one byte arrives every $\sim$86.8~$\mu$s (10 bit times including start and stop). A 43-byte receiver frame takes approximately 3.73~ms to arrive. The \FIFO{} must buffer at least one complete frame.
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Receive FIFO design parameters.}
+		\caption{Receive \FIFO{} design parameters.}
 		\label{tab:fifo_params}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabular}{l l l}
@@ -378,14 +387,14 @@
 			\midrule
 			Width & 8 bits & Byte-oriented data \\
 			Depth & 64 entries & Buffers 1.4 complete frames (margin for back-pressure) \\
-			Implementation & Distributed RAM & Small depth; lower latency than BRAM for $\leq 64$ entries \\
+			Implementation & Distributed RAM & Small depth; lower latency than \BRAM{} for $\leq 64$ entries \\
 			Flags & \texttt{full}, \texttt{empty}, \texttt{count[5:0]} & Parser reads when \texttt{empty} = `0'; overflow detection \\
 			\bottomrule
 		\end{tabular}
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Design Choice: Distributed RAM vs.\ Block RAM}]
-		For FIFOs of 64 entries or fewer, Vivado will infer distributed RAM (implemented in LUT resources) rather than consuming a block RAM tile. This is the correct choice here: the Artix-7 100T has only 135 block RAM tiles (4,860~Kb total), and each one is a precious resource that should be reserved for larger storage needs in the feature extraction datapath (Week~3). A 64$\times$8 distributed RAM FIFO consumes only 8 LUTs---negligible against the 63,400 available.
+		For FIFOs of 64 entries or fewer, Vivado will infer distributed RAM (implemented in \LUT{} resources) rather than consuming a block RAM tile. This is the correct choice here: the Artix-7 100T has only 135 block RAM tiles (4,860~Kb total), and each one is a precious resource that should be reserved for larger storage needs in the feature extraction datapath (Week~3). A 64$\times$8 distributed RAM \FIFO{} consumes only 8 \LUT{}s---negligible against the 63,400 available.
 	\end{tcolorbox}
 
 	\subsection{Week 1 Integration}
@@ -403,7 +412,7 @@
 				elabel/.style={font=\scriptsize\itshape, color=accentblue}
 				]
 				\node[block] (sync) {Dual-FF\\Synchronizer};
-				\node[block, right=of sync] (uart) {UART\\Receiver};
+				\node[block, right=of sync] (uart) {\UART{}\\Receiver};
 				\node[block, right=of uart] (fifo) {Receive\\FIFO (64$\times$8)};
 				\node[block, right=of fifo, draw=darkgray, dashed, fill=white] (parser) {Packet\\Parser\\(Week 2)};
 
@@ -416,27 +425,27 @@
 				\node[font=\scriptsize, color=darkgray] at ($(sync.west)+(-1.5,-0.3)$) {(from STM32)};
 			\end{tikzpicture}%
 		}
-		\caption{Week~1 pipeline: synchronizer $\rightarrow$ UART receiver $\rightarrow$ receive FIFO. The dashed parser block is implemented in Week~2.}
+		\caption{Week~1 pipeline: synchronizer $\rightarrow$ \UART{} receiver $\rightarrow$ receive \FIFO{}. The dashed parser block is implemented in Week~2.}
 		\label{fig:week1_pipeline}
 	\end{figure}
 
-	\begin{tcolorbox}[infobox={Exercise: UART Receiver Simulation}]
-		Create a VHDL testbench that:
+	\begin{tcolorbox}[infobox={Exercise: \UART{} Receiver Simulation}]
+		Create a \VHDL{} testbench that:
 		\begin{enumerate}
 			\item Generates a stimulus signal mimicking the STM32 transmitting the sequence \texttt{0x7E, 0x29, 0xA1} (the start delimiter, a frame length, and part of a timestamp) at 115200 baud. Include proper start and stop bits.
-			\item Verifies that the UART receiver outputs the correct bytes with the correct \texttt{rx\_valid} timing.
+			\item Verifies that the \UART{} receiver outputs the correct bytes with the correct \texttt{rx\_valid} timing.
 			\item Introduces a $\pm 2\%$ baud rate deviation in the stimulus and confirms the receiver still decodes correctly (testing the oversampling tolerance).
 			\item Injects a framing error (missing stop bit) and verifies that \texttt{rx\_error} is asserted.
 		\end{enumerate}
-		Record waveform screenshots showing correct byte capture, FIFO write, and error detection.
+		Record waveform screenshots showing correct byte capture, \FIFO{} write, and error detection.
 	\end{tcolorbox}
 
 	\begin{tcolorbox}[deliverable={Week 1 Deliverable}]
-		\textbf{UART Receiver Design and Simulation Report} --- A document containing:
+		\textbf{\UART{} Receiver Design and Simulation Report} --- A document containing:
 		\begin{enumerate}
-			\item VHDL source code for the synchronizer, UART receiver, and receive FIFO modules.
+			\item \VHDL{} source code for the synchronizer, \UART{} receiver, and receive \FIFO{} modules.
 			\item Entity port descriptions and design parameter justifications.
-			\item Simulation waveform captures showing correct byte reception, FIFO operation, and error detection.
+			\item Simulation waveform captures showing correct byte reception, \FIFO{} operation, and error detection.
 			\item Baud rate tolerance analysis: demonstrate correct reception at $\pm 2\%$ baud deviation and identify the failure threshold.
 		\end{enumerate}
 	\end{tcolorbox}
@@ -451,18 +460,18 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item Implement a state-machine-based packet parser that detects the \texttt{0x7E} frame start delimiter and extracts the 43-byte receiver frame structure defined in Module~1.
-		\item Implement hardware CRC-8 verification for the receiver frame (transport integrity) and CRC-16 verification for the embedded beacon payload (source integrity).
-		\item Integrate the parser with the Week~1 UART receiver and FIFO.
+		\item Implement hardware \CRC{}-8 verification for the receiver frame (transport integrity) and \CRC{}-16 verification for the embedded beacon payload (source integrity).
+		\item Integrate the parser with the Week~1 \UART{} receiver and \FIFO{}.
 		\item Simulate the integrated pipeline with valid and deliberately corrupted frames.
 	\end{itemize}
 
 	\subsection{Frame Structure Recap}
 
-	The parser must handle two nested data structures. The outer structure is the receiver-to-FPGA forwarding frame defined in Module~1 (Table~6):
+	The parser must handle two nested data structures. The outer structure is the receiver-to-\FPGA{} forwarding frame defined in Module~1 (Table~6):
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Receiver-to-FPGA forwarding frame (43 bytes, from Module~1).}
+		\caption{Receiver-to-\FPGA{} forwarding frame (43 bytes, from Module~1).}
 		\label{tab:rxframe_recap}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
@@ -470,13 +479,13 @@
 			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 			\midrule
 			Start Delimiter & 0 & 1\,B & Fixed \texttt{0x7E} \\
-			Frame Length & 1 & 1\,B & Remaining frame length (excluding start delimiter and CRC) \\
+			Frame Length & 1 & 1\,B & Remaining frame length (excluding start delimiter and \CRC{}) \\
 			RX Timestamp & 2 & 4\,B & Receiver system tick (ms) \\
-			RSSI & 6 & 1\,B & Received signal strength (dBm, two's complement) \\
-			SNR & 7 & 1\,B & Signal-to-noise ratio (dB, signed) \\
+			\RSSI{} & 6 & 1\,B & Received signal strength (dBm, two's complement) \\
+			\SNR{} & 7 & 1\,B & Signal-to-noise ratio (dB, signed) \\
 			Freq.\ Error & 8 & 2\,B & Frequency error (Hz, signed 16-bit) \\
 			Beacon Payload & 10 & 32\,B & Complete beacon packet (see inner structure) \\
-			Frame CRC-8 & 42 & 1\,B & CRC-8 over bytes 1--41 \\
+			Frame \CRC{}-8 & 42 & 1\,B & \CRC{}-8 over bytes 1--41 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -496,19 +505,19 @@
 			Beacon ID & 2 & 1\,B & Unique beacon identifier \\
 			Sequence Number & 3 & 2\,B & Packet loss detection counter \\
 			TX Power & 5 & 1\,B & Transmit power (dBm) \\
-			Modulation Code & 6 & 1\,B & 0x01=LoRa, 0x02=FSK, 0x03=OOK \\
+			Modulation Code & 6 & 1\,B & 0x01=LoRa, 0x02=\FSK{}, 0x03=\OOK{} \\
 			Spreading Factor & 7 & 1\,B & SF7--SF12; 0x00 if non-LoRa \\
 			Bandwidth Code & 8 & 1\,B & 0x00=125kHz, 0x01=250kHz \\
 			Timestamp & 9 & 4\,B & Beacon-side system tick (ms) \\
 			Payload & 13 & 17\,B & Pseudo-random or user data \\
-			CRC-16 & 30 & 2\,B & CRC over bytes 0--29 \\
+			\CRC{}-16 & 30 & 2\,B & \CRC{} over bytes 0--29 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\subsection{Packet Parser State Machine}
 
-	The parser reads bytes sequentially from the receive FIFO and walks through the frame structure field by field. A byte counter tracks the current position within the frame, and dedicated registers capture each field as it arrives.
+	The parser reads bytes sequentially from the receive \FIFO{} and walks through the frame structure field by field. A byte counter tracks the current position within the frame, and dedicated registers capture each field as it arrives.
 
 	\begin{figure}[ht!]
 		\centering
@@ -522,7 +531,7 @@
 				]
 				\node[state] (hunt) {HUNT\\(Seek \texttt{0x7E})};
 				\node[state, right=of hunt] (len) {LENGTH\\(Read Frame\\Length)};
-				\node[state, right=of len] (meta) {METADATA\\(RX Timestamp,\\RSSI, SNR,\\Freq Error)};
+				\node[state, right=of len] (meta) {METADATA\\(RX Timestamp,\\RSSI, \SNR{},\\Freq Error)};
 				\node[state, right=of meta] (payload) {BEACON\\PAYLOAD\\(32 bytes)};
 				\node[state, below=of payload] (crc) {FRAME\\CRC-8\\CHECK};
 				\node[state, left=of crc] (valid) {FRAME\\VALID};
@@ -532,8 +541,8 @@
 				\draw[arrow] (len) -- (meta) node[midway, above, elabel] {length stored};
 				\draw[arrow] (meta) -- (payload) node[midway, above, elabel] {8 bytes captured};
 				\draw[arrow] (payload) -- (crc) node[midway, right, elabel] {32 bytes captured};
-				\draw[arrow] (crc) -- (valid) node[midway, above, elabel] {CRC match};
-				\draw[arrow] (crc) -- (reject) node[midway, above, elabel] {CRC mismatch};
+				\draw[arrow] (crc) -- (valid) node[midway, above, elabel] {\CRC{} match};
+				\draw[arrow] (crc) -- (reject) node[midway, above, elabel] {\CRC{} mismatch};
 				\draw[arrow] (valid.south) -- ++(0,-0.5) -| (hunt.south) node[near start, below, elabel] {frame\_valid pulse};
 				\draw[arrow] (reject.south) -- ++(0,-0.8) -| (hunt.south);
 
@@ -541,7 +550,7 @@
 				\draw[arrow] (hunt.north) -- ++(0,0.5) -| ($(hunt.north)+(0.8,0)$) -- ($(hunt.east)+(0,0.3)$) node[near start, above, elabel] {byte $\neq$ 0x7E};
 			\end{tikzpicture}%
 		}
-		\caption{Packet parser state machine. The HUNT state discards bytes until the start delimiter is found. The parser then progresses through fixed-length fields sequentially, culminating in CRC verification. On CRC failure, the parser returns to HUNT without asserting \texttt{frame\_valid}.}
+		\caption{Packet parser state machine. The HUNT state discards bytes until the start delimiter is found. The parser then progresses through fixed-length fields sequentially, culminating in \CRC{} verification. On \CRC{} failure, the parser returns to HUNT without asserting \texttt{frame\_valid}.}
 		\label{fig:parser_fsm}
 	\end{figure}
 
@@ -558,14 +567,14 @@
 			\midrule
 			\texttt{clk} & in & 1 & 100~MHz system clock \\
 			\texttt{rst} & in & 1 & Synchronous active-high reset \\
-			\texttt{fifo\_data} & in & 8 & Byte from receive FIFO \\
-			\texttt{fifo\_empty} & in & 1 & FIFO empty flag \\
-			\texttt{fifo\_rd} & out & 1 & FIFO read enable (parser requests next byte) \\
-			\texttt{frame\_valid} & out & 1 & One-cycle pulse: complete frame passed CRC \\
-			\texttt{frame\_reject} & out & 1 & One-cycle pulse: frame failed CRC \\
+			\texttt{fifo\_data} & in & 8 & Byte from receive \FIFO{} \\
+			\texttt{fifo\_empty} & in & 1 & \FIFO{} empty flag \\
+			\texttt{fifo\_rd} & out & 1 & \FIFO{} read enable (parser requests next byte) \\
+			\texttt{frame\_valid} & out & 1 & One-cycle pulse: complete frame passed \CRC{} \\
+			\texttt{frame\_reject} & out & 1 & One-cycle pulse: frame failed \CRC{} \\
 			\texttt{rx\_timestamp} & out & 32 & Receiver timestamp field \\
-			\texttt{rssi} & out & 8 & RSSI field \\
-			\texttt{snr} & out & 8 & SNR field \\
+			\texttt{rssi} & out & 8 & \RSSI{} field \\
+			\texttt{snr} & out & 8 & \SNR{} field \\
 			\texttt{freq\_error} & out & 16 & Frequency error field \\
 			\texttt{beacon\_id} & out & 8 & Beacon ID from embedded payload \\
 			\texttt{seq\_num} & out & 16 & Beacon sequence number \\
@@ -574,27 +583,27 @@
 			\texttt{spread\_factor} & out & 8 & Spreading factor \\
 			\texttt{bw\_code} & out & 8 & Bandwidth code \\
 			\texttt{beacon\_timestamp} & out & 32 & Beacon-side timestamp \\
-			\texttt{beacon\_crc\_ok} & out & 1 & Inner CRC-16 verification result \\
+			\texttt{beacon\_crc\_ok} & out & 1 & Inner \CRC{}-16 verification result \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
-	\subsection{Hardware CRC Implementation}
+	\subsection{Hardware \CRC{} Implementation}
 
-	The pipeline performs two levels of CRC verification. The CRC-8 check validates transport integrity (did the bytes survive the UART link without corruption?), while the CRC-16 check validates source integrity (did the beacon construct the packet correctly?). Both checks execute in hardware as the bytes stream through the parser, adding zero latency to the overall frame processing time.
+	The pipeline performs two levels of \CRC{} verification. The \CRC{}-8 check validates transport integrity (did the bytes survive the \UART{} link without corruption?), while the \CRC{}-16 check validates source integrity (did the beacon construct the packet correctly?). Both checks execute in hardware as the bytes stream through the parser, adding zero latency to the overall frame processing time.
 
-	\subsubsection{CRC-8 (Frame Transport Integrity)}
+	\subsubsection{\CRC{}-8 (Frame Transport Integrity)}
 
-	The receiver frame uses CRC-8 with the polynomial:
+	The receiver frame uses \CRC{}-8 with the polynomial:
 
 	\begin{equation}
-		G(x) = x^8 + x^2 + x + 1 \quad \text{(0x07, CRC-8/ITU)}
+		G(x) = x^8 + x^2 + x + 1 \quad \text{(0x07, \CRC{}-8/ITU)}
 		\label{eq:crc8}
 	\end{equation}
 
-	The CRC is computed over bytes 1--41 of the frame (everything between the start delimiter and the CRC byte itself). The hardware implementation uses a byte-wide combinational CRC step function: each time a new byte arrives from the parser, the current CRC register is updated in a single clock cycle.
+	The \CRC{} is computed over bytes 1--41 of the frame (everything between the start delimiter and the \CRC{} byte itself). The hardware implementation uses a byte-wide combinational \CRC{} step function: each time a new byte arrives from the parser, the current \CRC{} register is updated in a single clock cycle.
 
-	The byte-wide CRC-8 update can be expressed as a set of XOR equations derived from the polynomial. For an 8-bit input byte $D[7{:}0]$ and current CRC state $C[7{:}0]$, the next CRC state $C'[7{:}0]$ is a purely combinational function:
+	The byte-wide \CRC{}-8 update can be expressed as a set of XOR equations derived from the polynomial. For an 8-bit input byte $D[7{:}0]$ and current \CRC{} state $C[7{:}0]$, the next \CRC{} state $C'[7{:}0]$ is a purely combinational function:
 
 	\begin{equation}
 		C'[i] = f_i(C[7{:}0], D[7{:}0]) \quad \text{for } i = 0, 1, \ldots, 7
@@ -603,22 +612,22 @@
 
 	where each $f_i$ is an XOR tree that can be generated automatically by tools or derived from the polynomial long division.
 
-	\begin{tcolorbox}[infobox={Implementation Strategy: CRC XOR Equations}]
-		Rather than implementing CRC bit-by-bit (which would require 8 clock cycles per byte), use a pre-computed byte-wide XOR network. The open-source tool \texttt{pycrc} or the online OutputLogic CRC Generator can produce the VHDL combinational equations for any polynomial and data width. For CRC-8/0x07 with 8-bit data input, this yields 8 XOR equations, each involving a subset of the 16 input bits ($C[7{:}0]$ and $D[7{:}0]$). The entire update computes in a single combinational step.
+	\begin{tcolorbox}[infobox={Implementation Strategy: \CRC{} XOR Equations}]
+		Rather than implementing \CRC{} bit-by-bit (which would require 8 clock cycles per byte), use a pre-computed byte-wide XOR network. The open-source tool \texttt{pycrc} or the online OutputLogic \CRC{} Generator can produce the \VHDL{} combinational equations for any polynomial and data width. For \CRC{}-8/0x07 with 8-bit data input, this yields 8 XOR equations, each involving a subset of the 16 input bits ($C[7{:}0]$ and $D[7{:}0]$). The entire update computes in a single combinational step.
 	\end{tcolorbox}
 
-	\subsubsection{CRC-16 (Beacon Payload Integrity)}
+	\subsubsection{\CRC{}-16 (Beacon Payload Integrity)}
 
-	The beacon packet uses CRC-16-CCITT:
+	The beacon packet uses \CRC{}-16-CCITT:
 
 	\begin{equation}
 		G(x) = x^{16} + x^{12} + x^5 + 1 \quad \text{(0x1021)}
 		\label{eq:crc16}
 	\end{equation}
 
-	This CRC is computed over bytes 0--29 of the beacon payload (the first 30 bytes within the 32-byte beacon packet embedded at frame offset~10). The same byte-wide combinational approach applies: a 16-bit CRC register is updated once per byte as the parser streams through the beacon payload region.
+	This \CRC{} is computed over bytes 0--29 of the beacon payload (the first 30 bytes within the 32-byte beacon packet embedded at frame offset~10). The same byte-wide combinational approach applies: a 16-bit \CRC{} register is updated once per byte as the parser streams through the beacon payload region.
 
-	\subsubsection{CRC Verification Timing}
+	\subsubsection{\CRC{} Verification Timing}
 
 	\begin{figure}[ht!]
 		\centering
@@ -639,26 +648,26 @@
 				\node[block, right=of meta] (bpay) {Beacon\\Payload\\Bytes 10--41};
 				\node[block, right=of bpay] (fcrc) {Frame\\CRC-8\\Byte 42};
 
-				% CRC-8 span
+				% \CRC{}-8 span
 				\draw[decorate, decoration={brace, amplitude=8pt, raise=4pt}, thick, color=accentblue]
 				(len.north west) -- (bpay.north east)
-				node[midway, above=12pt, font=\small\color{accentblue}] {CRC-8 computed over bytes 1--41};
+				node[midway, above=12pt, font=\small\color{accentblue}] {\CRC{}-8 computed over bytes 1--41};
 
-				% CRC-16 span
+				% \CRC{}-16 span
 				\draw[decorate, decoration={brace, amplitude=8pt, raise=4pt, mirror}, thick, color=stevens]
 				($(bpay.south west)+(0.1,0)$) -- ($(bpay.south east)+(-0.1,0)$)
-				node[midway, below=12pt, font=\small\color{stevens}] {CRC-16 computed over beacon bytes 0--29 (frame bytes 10--39)};
+				node[midway, below=12pt, font=\small\color{stevens}] {\CRC{}-16 computed over beacon bytes 0--29 (frame bytes 10--39)};
 			\end{tikzpicture}%
 		}
-		\caption{CRC coverage within the forwarding frame. CRC-8 covers the entire frame body. CRC-16 covers the beacon payload independently. Both are computed concurrently as bytes stream through the parser.}
+		\caption{\CRC{} coverage within the forwarding frame. \CRC{}-8 covers the entire frame body. \CRC{}-16 covers the beacon payload independently. Both are computed concurrently as bytes stream through the parser.}
 		\label{fig:crc_coverage}
 	\end{figure}
 
 	\begin{tcolorbox}[warning={Common Pitfalls}]
 		\begin{itemize}
-			\item \textbf{CRC initialization:} CRC-8/ITU initializes to \texttt{0x00}; CRC-16-CCITT initializes to \texttt{0xFFFF}. Incorrect initialization will produce a valid-looking but wrong CRC for every frame, causing 100\% rejection.
-			\item \textbf{Byte ordering:} The CRC-16 check bytes in the beacon packet are transmitted MSB-first. Ensure the comparison logic accounts for the byte order of the received CRC field versus the computed residual.
-			\item \textbf{Running CRC during non-covered bytes:} The CRC-8 engine must \emph{not} include byte~0 (the start delimiter) in its computation. The CRC-16 engine must only process the 30 beacon data bytes (frame bytes 10--39), not the 2-byte CRC-16 field itself (bytes 40--41). Use the parser's byte counter to gate the CRC update enable signals.
+			\item \textbf{\CRC{} initialization:} \CRC{}-8/ITU initializes to \texttt{0x00}; \CRC{}-16-CCITT initializes to \texttt{0xFFFF}. Incorrect initialization will produce a valid-looking but wrong \CRC{} for every frame, causing 100\% rejection.
+			\item \textbf{Byte ordering:} The \CRC{}-16 check bytes in the beacon packet are transmitted MSB-first. Ensure the comparison logic accounts for the byte order of the received \CRC{} field versus the computed residual.
+			\item \textbf{Running \CRC{} during non-covered bytes:} The \CRC{}-8 engine must \emph{not} include byte~0 (the start delimiter) in its computation. The \CRC{}-16 engine must only process the 30 beacon data bytes (frame bytes 10--39), not the 2-byte \CRC{}-16 field itself (bytes 40--41). Use the parser's byte counter to gate the \CRC{} update enable signals.
 		\end{itemize}
 	\end{tcolorbox}
 
@@ -667,20 +676,20 @@
 	\begin{tcolorbox}[infobox={Exercise: Parser Verification with Module~1 Data}]
 		Create a simulation testbench that:
 		\begin{enumerate}
-			\item Feeds a sequence of valid 43-byte frames (recorded or hand-constructed from Module~1 packet format) through the UART receiver and into the parser. Verify that all parsed fields match expected values and \texttt{frame\_valid} is asserted for each frame.
-			\item Inserts a single corrupted byte (bit flip) in the metadata region of one frame. Verify that CRC-8 fails and \texttt{frame\_reject} is asserted while subsequent valid frames still parse correctly.
-			\item Inserts a corrupted byte within the beacon payload region. Verify that the frame-level CRC-8 still fails (the corruption propagates through both CRC engines) and the beacon-level CRC-16 also reports failure via \texttt{beacon\_crc\_ok} = `0'.
+			\item Feeds a sequence of valid 43-byte frames (recorded or hand-constructed from Module~1 packet format) through the \UART{} receiver and into the parser. Verify that all parsed fields match expected values and \texttt{frame\_valid} is asserted for each frame.
+			\item Inserts a single corrupted byte (bit flip) in the metadata region of one frame. Verify that \CRC{}-8 fails and \texttt{frame\_reject} is asserted while subsequent valid frames still parse correctly.
+			\item Inserts a corrupted byte within the beacon payload region. Verify that the frame-level \CRC{}-8 still fails (the corruption propagates through both \CRC{} engines) and the beacon-level \CRC{}-16 also reports failure via \texttt{beacon\_crc\_ok} = `0'.
 			\item Sends a stream of bytes with \emph{no} \texttt{0x7E} delimiter for 100 bytes, then sends a valid frame. Verify that the parser remains in HUNT state during the garbage bytes and correctly synchronizes when the valid frame arrives.
 			\item Tests back-to-back frames with zero inter-frame gap. Verify the parser immediately re-enters HUNT and captures the second frame.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\begin{tcolorbox}[deliverable={Week 2 Deliverable}]
-		\textbf{Packet Parser and CRC Verification Report} --- A document containing:
+		\textbf{Packet Parser and \CRC{} Verification Report} --- A document containing:
 		\begin{enumerate}
-			\item VHDL source code for the packet parser state machine, CRC-8 module, and CRC-16 module.
+			\item \VHDL{} source code for the packet parser state machine, \CRC{}-8 module, and \CRC{}-16 module.
 			\item State machine diagram with transition conditions and output assignments.
-			\item Simulation waveform captures demonstrating: valid frame parsing, CRC-8 rejection, CRC-16 rejection, synchronization recovery, and back-to-back frame handling.
+			\item Simulation waveform captures demonstrating: valid frame parsing, \CRC{}-8 rejection, \CRC{}-16 rejection, synchronization recovery, and back-to-back frame handling.
 			\item A table comparing expected vs.\ actual parsed field values for at least 5 distinct test frames.
 		\end{enumerate}
 	\end{tcolorbox}
@@ -694,19 +703,19 @@
 	\subsection{Objectives}
 
 	\begin{itemize}[leftmargin=2em]
-		\item Define a fixed-format feature vector that captures the signal characteristics needed by the ML classification pipeline in Module~4.
+		\item Define a fixed-format feature vector that captures the signal characteristics needed by the \ML{} classification pipeline in Module~4.
 		\item Implement a feature extraction module that populates the feature vector from parsed packet fields.
 		\item Design a dual-port block RAM storage structure for accumulating feature vectors from multiple beacons.
 		\item Implement beacon prioritization logic based on received signal quality metrics.
-		\item Provide a host-readable output interface for exporting feature vectors to the ML pipeline.
+		\item Provide a host-readable output interface for exporting feature vectors to the \ML{} pipeline.
 	\end{itemize}
 
 	\subsection{Feature Vector Design}
 
-	The feature vector is the data product of the FPGA pipeline---the structured representation of each received beacon transmission that will serve as input to the machine learning classifiers in Module~4. Its design is a cross-domain decision: the FPGA designer must include enough information for the ML engineer to build accurate classifiers, but the vector must remain compact enough to store and export efficiently within the FPGA's resource budget.
+	The feature vector is the data product of the \FPGA{} pipeline---the structured representation of each received beacon transmission that will serve as input to the machine learning classifiers in Module~4. Its design is a cross-domain decision: the \FPGA{} designer must include enough information for the \ML{} engineer to build accurate classifiers, but the vector must remain compact enough to store and export efficiently within the \FPGA{}'s resource budget.
 
 	\begin{tcolorbox}[infobox={Design Principle: Features as Cross-Domain Interface}]
-		The feature vector is the primary data contract between the FPGA pipeline (Module~2) and the ML classification pipeline (Module~4). Decisions made here---which fields to include, their precision, and their ordering---directly constrain the preprocessing and model architecture decisions students make two modules later. This is a concrete example of the cross-domain interface reasoning the framework is designed to teach: an FPGA design choice shapes an ML workflow.
+		The feature vector is the primary data contract between the \FPGA{} pipeline (Module~2) and the \ML{} classification pipeline (Module~4). Decisions made here---which fields to include, their precision, and their ordering---directly constrain the preprocessing and model architecture decisions students make two modules later. This is a concrete example of the cross-domain interface reasoning the framework is designed to teach: an \FPGA{} design choice shapes an \ML{} workflow.
 	\end{tcolorbox}
 
 	\subsubsection{Feature Vector Format}
@@ -718,22 +727,22 @@
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
 			\toprule
-			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description / ML Relevance} \\
+			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description / \ML{} Relevance} \\
 			\midrule
 			Beacon ID & 0 & 1\,B & Class label for emitter identification tasks. \\
 			Modulation Code & 1 & 1\,B & Ground-truth label for modulation classification. \\
 			Spreading Factor & 2 & 1\,B & Ground-truth label for SF detection tasks. \\
-			Bandwidth Code & 3 & 1\,B & RF configuration parameter. \\
+			Bandwidth Code & 3 & 1\,B & \RF{} configuration parameter. \\
 			TX Power & 4 & 1\,B & Transmitted power (enables path loss estimation). \\
-			RSSI & 5 & 1\,B & Primary signal strength feature (signed). \\
-			SNR & 6 & 1\,B & Signal quality feature (signed). \\
+			\RSSI{} & 5 & 1\,B & Primary signal strength feature (signed). \\
+			\SNR{} & 6 & 1\,B & Signal quality feature (signed). \\
 			Freq.\ Error & 7 & 2\,B & Carrier offset feature (signed, Hz). \\
 			RX Timestamp & 9 & 4\,B & Absolute reception time. \\
 			Beacon Timestamp & 13 & 4\,B & Transmission time (enables latency calculation). \\
 			Sequence Number & 17 & 2\,B & Packet loss and ordering feature. \\
-			Payload CRC Status & 19 & 1\,B & 0x01 = pass, 0x00 = fail (data quality indicator). \\
+			Payload \CRC{} Status & 19 & 1\,B & 0x01 = pass, 0x00 = fail (data quality indicator). \\
 			Inter-Arrival Time & 20 & 4\,B & Time since last packet from this beacon ID (computed). \\
-			RSSI Delta & 24 & 2\,B & Change in RSSI from previous observation (computed, signed). \\
+			\RSSI{} Delta & 24 & 2\,B & Change in \RSSI{} from previous observation (computed, signed). \\
 			Observation Count & 26 & 2\,B & Running count of observations from this beacon ID. \\
 			Reserved & 28 & 4\,B & Padding for 32-byte alignment; available for future features. \\
 			\bottomrule
@@ -742,10 +751,10 @@
 
 	\subsubsection{Computed Features}
 
-	Three fields in the feature vector are not directly extracted from the packet but are computed by the FPGA logic from the current and previous observations:
+	Three fields in the feature vector are not directly extracted from the packet but are computed by the \FPGA{} logic from the current and previous observations:
 
 	\begin{itemize}[leftmargin=2em]
-		\item \textbf{Inter-Arrival Time:} The difference between the current RX timestamp and the RX timestamp of the last valid packet from the same Beacon ID. This feature captures transmission scheduling regularity, which may differ between beacon modes (TDMA vs.\ ALOHA) and is a useful discriminator for the ML pipeline.
+		\item \textbf{Inter-Arrival Time:} The difference between the current RX timestamp and the RX timestamp of the last valid packet from the same Beacon ID. This feature captures transmission scheduling regularity, which may differ between beacon modes (TDMA vs.\ ALOHA) and is a useful discriminator for the \ML{} pipeline.
 
 		\begin{equation}
 			\Delta t_{\text{IAT}}^{(k)} = T_{\text{rx,current}}^{(k)} - T_{\text{rx,previous}}^{(k)}
@@ -754,27 +763,27 @@
 
 		where $k$ is the Beacon ID.
 
-		\item \textbf{RSSI Delta:} The signed difference between the current RSSI and the RSSI of the previous observation from the same beacon. Large RSSI fluctuations may indicate multipath fading, obstruction, or power control changes---all of which are relevant to anomaly detection tasks.
+		\item \textbf{\RSSI{} Delta:} The signed difference between the current \RSSI{} and the \RSSI{} of the previous observation from the same beacon. Large \RSSI{} fluctuations may indicate multipath fading, obstruction, or power control changes---all of which are relevant to anomaly detection tasks.
 
 		\begin{equation}
-			\Delta \text{RSSI}^{(k)} = \text{RSSI}_{\text{current}}^{(k)} - \text{RSSI}_{\text{previous}}^{(k)}
+			\Delta \text{\RSSI{}}^{(k)} = \text{\RSSI{}}_{\text{current}}^{(k)} - \text{\RSSI{}}_{\text{previous}}^{(k)}
 			\label{eq:rssi_delta}
 		\end{equation}
 
-		\item \textbf{Observation Count:} A running counter of valid frames received from each Beacon ID since reset. This provides a measure of link reliability and can serve as a weight or confidence indicator in the ML pipeline.
+		\item \textbf{Observation Count:} A running counter of valid frames received from each Beacon ID since reset. This provides a measure of link reliability and can serve as a weight or confidence indicator in the \ML{} pipeline.
 	\end{itemize}
 
 	\begin{tcolorbox}[warning={Common Pitfalls}]
 		\begin{itemize}
-			\item \textbf{First-observation edge case:} When a beacon is seen for the first time (observation count = 1), there is no previous timestamp or RSSI. Set Inter-Arrival Time to \texttt{0xFFFFFFFF} (sentinel) and RSSI Delta to \texttt{0x0000}. The ML preprocessing code in Module~4 must be aware of these sentinel values.
+			\item \textbf{First-observation edge case:} When a beacon is seen for the first time (observation count = 1), there is no previous timestamp or \RSSI{}. Set Inter-Arrival Time to \texttt{0xFFFFFFFF} (sentinel) and \RSSI{} Delta to \texttt{0x0000}. The \ML{} preprocessing code in Module~4 must be aware of these sentinel values.
 			\item \textbf{Timestamp rollover:} The STM32 system tick is a 32-bit millisecond counter that rolls over after $\sim$49.7 days. For benchtop sessions this is not a concern, but the subtraction logic should use unsigned arithmetic to handle rollover correctly in principle.
-			\item \textbf{Signed vs.\ unsigned:} RSSI (two's complement) and Freq.\ Error (signed 16-bit) are signed quantities. Ensure the VHDL arithmetic uses \texttt{signed} types from \texttt{ieee.numeric\_std} for delta computations.
+			\item \textbf{Signed vs.\ unsigned:} \RSSI{} (two's complement) and Freq.\ Error (signed 16-bit) are signed quantities. Ensure the \VHDL{} arithmetic uses \texttt{signed} types from \texttt{ieee.numeric\_std} for delta computations.
 		\end{itemize}
 	\end{tcolorbox}
 
 	\subsection{Per-Beacon State Registers}
 
-	To compute the derived features, the FPGA must maintain per-beacon state. A small register file indexed by Beacon ID stores the previous observation's timestamp, RSSI, and the running observation count.
+	To compute the derived features, the \FPGA{} must maintain per-beacon state. A small register file indexed by Beacon ID stores the previous observation's timestamp, \RSSI{}, and the running observation count.
 
 	\begin{table}[ht!]
 		\centering
@@ -786,25 +795,25 @@
 			\textbf{Field} & \textbf{Size} & \textbf{Description} \\
 			\midrule
 			Previous RX Timestamp & 4\,B & Last valid reception time for this Beacon ID \\
-			Previous RSSI & 1\,B & Last RSSI value for this Beacon ID \\
+			Previous \RSSI{} & 1\,B & Last \RSSI{} value for this Beacon ID \\
 			Observation Count & 2\,B & Running count of valid observations \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
-	With Beacon IDs ranging from \texttt{0x01} to \texttt{0xFF} (255 possible beacons), the state register file requires $255 \times 7 = 1{,}785$ bytes. This fits comfortably in a single 2~KB block RAM tile (one 18~Kb BRAM configured as $256 \times 8$, or a pair of them for wider access).
+	With Beacon IDs ranging from \texttt{0x01} to \texttt{0xFF} (255 possible beacons), the state register file requires $255 \times 7 = 1{,}785$ bytes. This fits comfortably in a single 2~KB block RAM tile (one 18~Kb \BRAM{} configured as $256 \times 8$, or a pair of them for wider access).
 
 	\begin{tcolorbox}[infobox={Design Choice: Register File vs.\ Lookup Table}]
-		For the expected benchtop scenario of 2--8 beacons, a simple array of registers would suffice and avoid the BRAM overhead. However, implementing the state as an addressable RAM indexed by Beacon ID scales cleanly to the full 255-beacon address space without modification. This is a deliberate pedagogical choice: students learn to design for the general case using parameterizable, memory-mapped structures rather than hard-coding for a specific beacon count. The BRAM cost (1 tile out of 135) is minimal.
+		For the expected benchtop scenario of 2--8 beacons, a simple array of registers would suffice and avoid the \BRAM{} overhead. However, implementing the state as an addressable RAM indexed by Beacon ID scales cleanly to the full 255-beacon address space without modification. This is a deliberate pedagogical choice: students learn to design for the general case using parameterizable, memory-mapped structures rather than hard-coding for a specific beacon count. The \BRAM{} cost (1 tile out of 135) is minimal.
 	\end{tcolorbox}
 
 	\subsection{Feature Storage: Dual-Port Block RAM}
 
-	Completed feature vectors are written to a dual-port block RAM that serves as the handoff buffer between the FPGA pipeline and the host-side ML data collection. Port~A is the FPGA write port (driven by the feature extraction logic); Port~B is the read port (driven by the host interface for data export).
+	Completed feature vectors are written to a dual-port block RAM that serves as the handoff buffer between the \FPGA{} pipeline and the host-side \ML{} data collection. Port~A is the \FPGA{} write port (driven by the feature extraction logic); Port~B is the read port (driven by the host interface for data export).
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Feature storage BRAM configuration.}
+		\caption{Feature storage \BRAM{} configuration.}
 		\label{tab:feature_bram}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabular}{l l l}
@@ -813,9 +822,9 @@
 			\midrule
 			Width & 256 bits (32 bytes) & One feature vector per address \\
 			Depth & 256 entries & One slot per possible Beacon ID \\
-			Total Size & 8~KB & Fits in 4$\times$ 18~Kb BRAM tiles (or 2$\times$ 36~Kb) \\
-			Port A & Write (FPGA pipeline) & Synchronous write on \texttt{frame\_valid} \\
-			Port B & Read (host interface) & Asynchronous read for data export via UART \\
+			Total Size & 8~KB & Fits in 4$\times$ 18~Kb \BRAM{} tiles (or 2$\times$ 36~Kb) \\
+			Port A & Write (\FPGA{} pipeline) & Synchronous write on \texttt{frame\_valid} \\
+			Port B & Read (host interface) & Asynchronous read for data export via \UART{} \\
 			\bottomrule
 		\end{tabular}
 	\end{table}
@@ -825,24 +834,24 @@
 	When the parser asserts \texttt{frame\_valid}, the feature extraction module:
 	\begin{enumerate}[leftmargin=2em]
 		\item Reads the per-beacon state for the incoming Beacon ID from the state RAM.
-		\item Computes the three derived features (Inter-Arrival Time, RSSI Delta, Observation Count).
+		\item Computes the three derived features (Inter-Arrival Time, \RSSI{} Delta, Observation Count).
 		\item Assembles the 32-byte feature vector.
-		\item Writes the feature vector to the feature BRAM at address = Beacon ID.
-		\item Updates the per-beacon state RAM with the current timestamp, RSSI, and incremented count.
+		\item Writes the feature vector to the feature \BRAM{} at address = Beacon ID.
+		\item Updates the per-beacon state RAM with the current timestamp, \RSSI{}, and incremented count.
 	\end{enumerate}
 
 	This sequence completes in a small fixed number of clock cycles (state read latency + computation + write = $\sim$4--6 cycles at 100~MHz), which is negligible compared to the $\sim$3.73~ms frame arrival interval at 115200 baud.
 
 	\subsubsection{Read / Export Interface}
 
-	For Module~2, the export interface is a simple UART transmitter that sends feature vectors to the host PC on demand (triggered by a pushbutton or a host-side UART command). The host-side Python script stores the received feature vectors as CSV or binary records for use in Module~4. The full export protocol is finalized during Module~3 integration, but the BRAM read port and a minimal UART TX module should be implemented now to enable early testing.
+	For Module~2, the export interface is a simple \UART{} transmitter that sends feature vectors to the host PC on demand (triggered by a pushbutton or a host-side \UART{} command). The host-side Python script stores the received feature vectors as CSV or binary records for use in Module~4. The full export protocol is finalized during Module~3 integration, but the \BRAM{} read port and a minimal \UART{} TX module should be implemented now to enable early testing.
 
 	\subsection{Beacon Prioritization Logic}
 
 	As a stretch goal for advanced students, implement a simple prioritization scheme that ranks active beacons by signal quality. The priority score for each beacon can be computed as:
 
 	\begin{equation}
-		P^{(k)} = \alpha \cdot \text{RSSI}^{(k)} + \beta \cdot \text{SNR}^{(k)} - \gamma \cdot |\Delta \text{RSSI}^{(k)}|
+		P^{(k)} = \alpha \cdot \text{\RSSI{}}^{(k)} + \beta \cdot \text{\SNR{}}^{(k)} - \gamma \cdot |\Delta \text{\RSSI{}}^{(k)}|
 		\label{eq:priority}
 	\end{equation}
 
@@ -864,19 +873,19 @@
 				]
 				% Pipeline
 				\node[block] (sync) {Synchronizer};
-				\node[block, right=of sync] (uart) {UART RX};
-				\node[block, right=of uart] (fifo) {RX FIFO};
+				\node[block, right=of sync] (uart) {\UART{} RX};
+				\node[block, right=of uart] (fifo) {RX \FIFO{}};
 				\node[block, right=of fifo] (parser) {Packet\\Parser};
 				\node[block, right=of parser] (feat) {Feature\\Extraction};
 				\node[mem, right=of feat] (bram) {Feature\\BRAM\\(256$\times$32B)};
-				\node[block, right=of bram] (export) {UART TX\\(Export)};
+				\node[block, right=of bram] (export) {\UART{} TX\\(Export)};
 
 				% State RAM
 				\node[mem, below=1.5cm of feat] (state) {Per-Beacon\\State RAM};
 
-				% CRC modules
-				\node[block, below=1.5cm of parser] (crc8) {CRC-8};
-				\node[block, right=0.8cm of crc8] (crc16) {CRC-16};
+				% \CRC{} modules
+				\node[block, below=1.5cm of parser] (crc8) {\CRC{}-8};
+				\node[block, right=0.8cm of crc8] (crc16) {\CRC{}-16};
 
 				% Arrows
 				\draw[arrow] ($(sync.west)+(-1,0)$) -- (sync.west) node[midway, above, elabel] {uart\_rxd};
@@ -888,7 +897,7 @@
 				\draw[arrow] (bram) -- (export) node[midway, above, elabel] {read port};
 				\draw[arrow] (export.east) -- ++(1,0) node[right, font=\scriptsize] {To Host PC};
 
-				% CRC connections
+				% \CRC{} connections
 				\draw[arrow] (parser.south) -- ++(0,-0.3) -| (crc8.north) node[near end, left, elabel] {byte stream};
 				\draw[arrow] (parser.south) -- ++(0,-0.3) -| (crc16.north);
 				\draw[arrow] (crc8.east) -- ++(0.1,0) |- ($(parser.south east)+(0,0.15)$) node[near start, right, elabel] {crc\_ok};
@@ -900,37 +909,37 @@
 				\node[draw=stevens, dashed, thick, rounded corners,
 				fit=(sync)(uart)(fifo)(parser)(feat)(bram)(export)(state)(crc8)(crc16),
 				inner sep=10pt,
-				label={[font=\small\bfseries\color{stevens}]above:FPGA Top-Level (Nexys A7-100T)}] {};
+				label={[font=\small\bfseries\color{stevens}]above:\FPGA{} Top-Level (Nexys A7-100T)}] {};
 			\end{tikzpicture}%
 		}
-		\caption{Complete Module~2 FPGA pipeline architecture. Solid blocks are implemented across Weeks 1--3. The UART TX export module enables early data extraction for ML pipeline prototyping.}
+		\caption{Complete Module~2 \FPGA{} pipeline architecture. Solid blocks are implemented across Weeks 1--3. The \UART{} TX export module enables early data extraction for \ML{} pipeline prototyping.}
 		\label{fig:full_pipeline}
 	\end{figure}
 
 	\begin{tcolorbox}[infobox={Exercise: Feature Vector Verification}]
 		Using two beacons transmitting in fixed-interval mode (as configured in Module~1 Week~3):
 		\begin{enumerate}
-			\item Run the full FPGA pipeline in simulation for 30 simulated seconds of beacon traffic (approximately 15 packets per beacon at 2-second intervals).
-			\item Export the feature BRAM contents and verify:
+			\item Run the full \FPGA{} pipeline in simulation for 30 simulated seconds of beacon traffic (approximately 15 packets per beacon at 2-second intervals).
+			\item Export the feature \BRAM{} contents and verify:
 			\begin{itemize}
-				\item Beacon IDs \texttt{0x01} and \texttt{0x02} each have entries in the BRAM.
-				\item RSSI values differ between beacons (reflecting the TX power difference from Module~1).
+				\item Beacon IDs \texttt{0x01} and \texttt{0x02} each have entries in the \BRAM{}.
+				\item \RSSI{} values differ between beacons (reflecting the TX power difference from Module~1).
 				\item Observation counts increment correctly for each beacon.
-				\item Inter-arrival times are approximately 2000~ms ($\pm$ UART/processing jitter).
-				\item RSSI Delta values are near zero for fixed-position, fixed-power beacons.
+				\item Inter-arrival times are approximately 2000~ms ($\pm$ \UART{}/processing jitter).
+				\item \RSSI{} Delta values are near zero for fixed-position, fixed-power beacons.
 			\end{itemize}
-			\item Introduce a 5~dB TX power reduction on Beacon~B midway through the simulation. Verify that the RSSI Delta becomes negative and the feature vector captures the transition.
+			\item Introduce a 5~dB TX power reduction on Beacon~B midway through the simulation. Verify that the \RSSI{} Delta becomes negative and the feature vector captures the transition.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\begin{tcolorbox}[deliverable={Week 3 Deliverable}]
 		\textbf{Feature Extraction Datapath Design Document} --- A document containing:
 		\begin{enumerate}
-			\item Feature vector format specification with field descriptions, sizes, and ML relevance.
-			\item VHDL source code for the feature extraction module, per-beacon state RAM, and feature BRAM.
-			\item Block diagram of the complete pipeline from UART input to feature BRAM output.
-			\item Simulation results demonstrating correct feature computation for multi-beacon scenarios, including computed features (inter-arrival time, RSSI delta, observation count).
-			\item Resource estimate: anticipated LUT, FF, and BRAM usage for the current design.
+			\item Feature vector format specification with field descriptions, sizes, and \ML{} relevance.
+			\item \VHDL{} source code for the feature extraction module, per-beacon state RAM, and feature \BRAM{}.
+			\item Block diagram of the complete pipeline from \UART{} input to feature \BRAM{} output.
+			\item Simulation results demonstrating correct feature computation for multi-beacon scenarios, including computed features (inter-arrival time, \RSSI{} delta, observation count).
+			\item Resource estimate: anticipated \LUT{}, FF, and \BRAM{} usage for the current design.
 		\end{enumerate}
 	\end{tcolorbox}
 
@@ -943,23 +952,23 @@
 	\subsection{Objectives}
 
 	\begin{itemize}[leftmargin=2em]
-		\item Build comprehensive end-to-end testbenches that exercise the full pipeline from raw UART stimulus to feature vector output.
+		\item Build comprehensive end-to-end testbenches that exercise the full pipeline from raw \UART{} stimulus to feature vector output.
 		\item Verify the pipeline against recorded Module~1 beacon data to confirm compatibility with the physical system.
 		\item Analyze Vivado implementation reports to understand resource utilization, timing margins, and critical paths.
 		\item Optimize the design to meet timing closure and minimize resource usage where appropriate.
-		\item Document the complete RTL design for handoff to Module~3 system integration.
+		\item Document the complete \RTL{} design for handoff to Module~3 system integration.
 	\end{itemize}
 
 	\subsection{End-to-End Testbench Architecture}
 
-	The comprehensive testbench wraps the entire FPGA top-level module and provides stimulus at the UART serial input while monitoring outputs at the feature BRAM export interface.
+	The comprehensive testbench wraps the entire \FPGA{} top-level module and provides stimulus at the \UART{} serial input while monitoring outputs at the feature \BRAM{} export interface.
 
 	\subsubsection{Stimulus Generation}
 
-	The testbench reads stimulus data from a text file containing the byte sequences recorded during Module~1 validation. This approach ensures that the RTL is verified against the exact data the physical system produces, not idealized test vectors.
+	The testbench reads stimulus data from a text file containing the byte sequences recorded during Module~1 validation. This approach ensures that the \RTL{} is verified against the exact data the physical system produces, not idealized test vectors.
 
 	\begin{tcolorbox}[infobox={Stimulus File Format}]
-		Use a simple text file with one hexadecimal byte per line. The testbench reads each byte, serializes it according to the UART protocol (start bit, 8 data bits LSB-first, stop bit), and drives the \texttt{uart\_rxd} signal with proper 115200-baud timing. This file-driven approach allows the same testbench to be reused with different data captures without modifying VHDL code.
+		Use a simple text file with one hexadecimal byte per line. The testbench reads each byte, serializes it according to the \UART{} protocol (start bit, 8 data bits LSB-first, stop bit), and drives the \texttt{uart\_rxd} signal with proper 115200-baud timing. This file-driven approach allows the same testbench to be reused with different data captures without modifying \VHDL{} code.
 
 		Example \texttt{stimulus.txt}:
 		\begin{center}
@@ -985,13 +994,13 @@
 			\textbf{\#} & \textbf{Scenario} & \textbf{Verification Criteria} \\
 			\midrule
 			1 & Normal operation (2 beacons, 20 frames each) & All fields parsed correctly; all CRCs pass; feature vectors stored and exported. \\
-			2 & CRC-8 failure (1 corrupted frame in 20) & Corrupted frame rejected; all other frames accepted; pipeline resynchronizes. \\
-			3 & CRC-16 failure (beacon payload corruption) & Frame-level CRC-8 also fails; \texttt{beacon\_crc\_ok} = `0'; pipeline recovers. \\
+			2 & \CRC{}-8 failure (1 corrupted frame in 20) & Corrupted frame rejected; all other frames accepted; pipeline resynchronizes. \\
+			3 & \CRC{}-16 failure (beacon payload corruption) & Frame-level \CRC{}-8 also fails; \texttt{beacon\_crc\_ok} = `0'; pipeline recovers. \\
 			4 & Garbage bytes before valid frame & Parser remains in HUNT; synchronizes on first valid \texttt{0x7E}; no false positives. \\
 			5 & Back-to-back frames (zero gap) & Both frames parsed correctly; no missed frames. \\
-			6 & Maximum burst (5 frames, minimal spacing) & FIFO does not overflow; all frames parsed and stored. \\
+			6 & Maximum burst (5 frames, minimal spacing) & \FIFO{} does not overflow; all frames parsed and stored. \\
 			7 & Single beacon (long duration, 100 frames) & Observation count reaches 100; inter-arrival time stabilizes; no counter overflow. \\
-			8 & Beacon ID collision (new beacon replaces old) & Feature BRAM overwrites previous entry; per-beacon state updates correctly. \\
+			8 & Beacon ID collision (new beacon replaces old) & Feature \BRAM{} overwrites previous entry; per-beacon state updates correctly. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -1009,18 +1018,18 @@
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c c X}
 			\toprule
-			\textbf{Module} & \textbf{LUTs} & \textbf{FFs} & \textbf{BRAM (18Kb)} & \textbf{Notes} \\
+			\textbf{Module} & \textbf{\LUT{}s} & \textbf{FFs} & \textbf{\BRAM{} (18Kb)} & \textbf{Notes} \\
 			\midrule
 			Synchronizer & 2 & 2 & 0 & Two flip-flops \\
-			UART Receiver & $\sim$80 & $\sim$50 & 0 & State machine + counters \\
-			Receive FIFO (64$\times$8) & $\sim$20 & $\sim$15 & 0 & Distributed RAM \\
+			\UART{} Receiver & $\sim$80 & $\sim$50 & 0 & State machine + counters \\
+			Receive \FIFO{} (64$\times$8) & $\sim$20 & $\sim$15 & 0 & Distributed RAM \\
 			Packet Parser & $\sim$200 & $\sim$300 & 0 & State machine + field registers \\
-			CRC-8 Engine & $\sim$30 & $\sim$10 & 0 & Combinational XOR network \\
-			CRC-16 Engine & $\sim$50 & $\sim$20 & 0 & Combinational XOR network \\
+			\CRC{}-8 Engine & $\sim$30 & $\sim$10 & 0 & Combinational XOR network \\
+			\CRC{}-16 Engine & $\sim$50 & $\sim$20 & 0 & Combinational XOR network \\
 			Feature Extraction & $\sim$150 & $\sim$200 & 0 & Arithmetic + muxing \\
 			Per-Beacon State RAM & 0 & 0 & 1 & 256$\times$56 bits \\
-			Feature BRAM & 0 & 0 & 4 & 256$\times$256 bits \\
-			UART TX (Export) & $\sim$60 & $\sim$40 & 0 & Byte serializer \\
+			Feature \BRAM{} & 0 & 0 & 4 & 256$\times$256 bits \\
+			\UART{} TX (Export) & $\sim$60 & $\sim$40 & 0 & Byte serializer \\
 			\midrule
 			\textbf{Total Estimate} & $\sim$\textbf{600} & $\sim$\textbf{640} & \textbf{5} & \\
 			\textbf{Artix-7 100T Available} & 63,400 & 126,800 & 270 & \\
@@ -1030,7 +1039,7 @@
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Why Resource Awareness Matters at $<$1\%}]
-		The Module~2 pipeline consumes a tiny fraction of the Artix-7's capacity, which is by design. The deliberately low utilization at this stage teaches two lessons. First, it demonstrates that a well-structured ingestion pipeline is not the resource bottleneck---it is the downstream processing (filtering, inference, multi-channel reception in later modules) that will challenge the fabric. Second, it establishes a baseline against which students can measure the resource cost of design decisions in Module~3 (e.g., adding a second UART receiver for a second receiver station) and Module~4 (e.g., implementing an on-FPGA neural network inference engine). Understanding the resource budget \emph{before} it becomes tight is essential to making good trade-off decisions when it does.
+		The Module~2 pipeline consumes a tiny fraction of the Artix-7's capacity, which is by design. The deliberately low utilization at this stage teaches two lessons. First, it demonstrates that a well-structured ingestion pipeline is not the resource bottleneck---it is the downstream processing (filtering, inference, multi-channel reception in later modules) that will challenge the fabric. Second, it establishes a baseline against which students can measure the resource cost of design decisions in Module~3 (e.g., adding a second \UART{} receiver for a second receiver station) and Module~4 (e.g., implementing an on-\FPGA{} neural network inference engine). Understanding the resource budget \emph{before} it becomes tight is essential to making good trade-off decisions when it does.
 	\end{tcolorbox}
 
 	\subsection{Timing Analysis}
@@ -1040,7 +1049,7 @@
 	\begin{itemize}[leftmargin=2em]
 		\item \textbf{Worst Negative Slack (WNS):} Must be $\geq 0$~ns for timing closure. At 100~MHz (10~ns period), the combinational path between any two registers must complete within the setup time margin. For this design, WNS should be comfortably positive ($> 3$~ns slack expected).
 		\item \textbf{Worst Hold Slack (WHS):} Must be $\geq 0$~ns. Hold violations indicate that data arrives too quickly at the destination register. Vivado automatically inserts hold-fix buffers during place-and-route if needed.
-		\item \textbf{Critical Path:} Identify which module contains the longest combinational path. The CRC XOR networks are likely candidates. If the critical path is in the CRC-16 engine, students should consider pipelining the CRC update (split the XOR tree across two register stages) as an optimization exercise.
+		\item \textbf{Critical Path:} Identify which module contains the longest combinational path. The \CRC{} XOR networks are likely candidates. If the critical path is in the \CRC{}-16 engine, students should consider pipelining the \CRC{} update (split the XOR tree across two register stages) as an optimization exercise.
 	\end{itemize}
 
 	\begin{tcolorbox}[infobox={Exercise: Timing Closure Analysis}]
@@ -1048,24 +1057,24 @@
 			\item Run Vivado synthesis and implementation for the complete Module~2 design targeting the XC7A100T-1CSG324C.
 			\item Record the WNS, WHS, and total negative slack (TNS) values.
 			\item Identify the critical path endpoints (source register $\rightarrow$ destination register) and the module it passes through.
-			\item If the critical path passes through the CRC-16 engine, insert a pipeline register to split the combinational logic and re-run implementation. Document the improvement in WNS.
+			\item If the critical path passes through the \CRC{}-16 engine, insert a pipeline register to split the combinational logic and re-run implementation. Document the improvement in WNS.
 			\item Compare the post-implementation resource utilization against the estimates in Table~\ref{tab:resources}. Explain any significant deviations.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\subsection{Design Documentation Requirements}
 
-	The Week~4 deliverable includes comprehensive documentation of the complete RTL design, prepared in a format that supports the Module~3 integration effort.
+	The Week~4 deliverable includes comprehensive documentation of the complete \RTL{} design, prepared in a format that supports the Module~3 integration effort.
 
 	\begin{tcolorbox}[deliverable={Week 4 Deliverable}]
 		\textbf{Simulation Verification and Resource Optimization Report} --- A document containing:
 		\begin{enumerate}
-			\item End-to-end testbench VHDL source code with file-driven stimulus and automated output checking.
+			\item End-to-end testbench \VHDL{} source code with file-driven stimulus and automated output checking.
 			\item Simulation results for all 8 verification scenarios in Table~\ref{tab:scenarios}, with waveform captures and pass/fail summary.
 			\item Vivado resource utilization report (post-implementation) with comparison to estimates.
 			\item Timing summary (WNS, WHS, critical path identification) and any optimization steps taken.
-			\item Complete RTL module hierarchy diagram with port-level interface descriptions.
-			\item Pin assignment and constraint file (\texttt{.xdc}) for the Nexys A7-100T, covering UART RX/TX pins, debug LEDs, and seven-segment display outputs.
+			\item Complete \RTL{} module hierarchy diagram with port-level interface descriptions.
+			\item Pin assignment and constraint file (\texttt{.xdc}) for the Nexys A7-100T, covering \UART{} RX/TX pins, debug LEDs, and seven-segment display outputs.
 		\end{enumerate}
 	\end{tcolorbox}
 
@@ -1084,37 +1093,37 @@
 			\toprule
 			\textbf{Item} & \textbf{Qty / Version} & \textbf{Purpose} \\
 			\midrule
-			Digilent Nexys A7-100T & 1 & Target FPGA board (Artix-7 XC7A100T) \\
-			USB Micro-B Cable & 1 & FPGA programming and UART communication \\
-			STM32 Nucleo-L476RG + RF Module & $\geq 1$ & Beacon/receiver for live data capture (optional in sim-only weeks) \\
+			Digilent Nexys A7-100T & 1 & Target \FPGA{} board (Artix-7 XC7A100T) \\
+			USB Micro-B Cable & 1 & \FPGA{} programming and \UART{} communication \\
+			STM32 Nucleo-L476RG + \RF{} Module & $\geq 1$ & Beacon/receiver for live data capture (optional in sim-only weeks) \\
 			AMD Vivado Design Suite & 2024.1+ (WebPACK) & Synthesis, implementation, simulation \\
 			Vivado Simulator (built-in) & --- & Behavioral and post-synthesis simulation \\
 			ModelSim (optional) & --- & Alternative HDL simulator \\
 			Python 3.10+ & --- & Stimulus file generation and output verification scripts \\
-			Terminal Emulator & --- & UART debug (PuTTY, Tera Term, or minicom) \\
+			Terminal Emulator & --- & \UART{} debug (PuTTY, Tera Term, or minicom) \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
-	\subsection{FPGA Pin Assignments}
+	\subsection{\FPGA{} Pin Assignments}
 
 	The following pin assignments extend the Module~1 loopback validation with the signals needed for the Module~2 pipeline:
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Key FPGA pin assignments on the Nexys A7-100T.}
+		\caption{Key \FPGA{} pin assignments on the Nexys A7-100T.}
 		\label{tab:pins}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l l l X}
 			\toprule
-			\textbf{Signal} & \textbf{FPGA Pin} & \textbf{Connector} & \textbf{Description} \\
+			\textbf{Signal} & \textbf{\FPGA{} Pin} & \textbf{Connector} & \textbf{Description} \\
 			\midrule
-			\texttt{uart\_rxd} (from STM32) & JA[1] & PMOD JA & Receiver MCU TX $\rightarrow$ FPGA RX \\
-			\texttt{uart\_txd} (to host) & C4 & USB-UART & Feature export to host PC \\
+			\texttt{uart\_rxd} (from STM32) & JA[1] & PMOD JA & Receiver \MCU{} TX $\rightarrow$ \FPGA{} RX \\
+			\texttt{uart\_txd} (to host) & C4 & USB-\UART{} & Feature export to host PC \\
 			\texttt{clk\_100mhz} & E3 & On-board & 100~MHz system clock \\
 			\texttt{rst} & N17 & BTNC & Center pushbutton (active-high reset) \\
 			\texttt{export\_trigger} & M18 & BTNU & Upper pushbutton (trigger feature export) \\
-			\texttt{led[15:0]} & H17--V14 & On-board LEDs & Debug: frame count, FIFO status, CRC status \\
+			\texttt{led[15:0]} & H17--V14 & On-board LEDs & Debug: frame count, \FIFO{} status, \CRC{} status \\
 			\texttt{seg[6:0]} + \texttt{an[7:0]} & Various & 7-seg display & Beacon ID and priority display \\
 			\bottomrule
 		\end{tabularx}
@@ -1133,9 +1142,9 @@
 			\toprule
 			\textbf{Assessment Item} & \textbf{Weight} & \textbf{Due} \\
 			\midrule
-			UART Receiver Design and Simulation Report (synchronizer, receiver, FIFO, baud tolerance) & 20\% & Week 1 \\
-			Packet Parser and CRC Verification Report (state machine, CRC-8/16, integration simulation) & 25\% & Week 2 \\
-			Feature Extraction Datapath Design Document (feature vector, state RAM, BRAM, multi-beacon) & 25\% & Week 3 \\
+			\UART{} Receiver Design and Simulation Report (synchronizer, receiver, \FIFO{}, baud tolerance) & 20\% & Week 1 \\
+			Packet Parser and \CRC{} Verification Report (state machine, \CRC{}-8/16, integration simulation) & 25\% & Week 2 \\
+			Feature Extraction Datapath Design Document (feature vector, state RAM, \BRAM{}, multi-beacon) & 25\% & Week 3 \\
 			Simulation Verification and Resource Optimization Report (testbench suite, utilization, timing) & 30\% & Week 4 \\
 			\bottomrule
 		\end{tabularx}
@@ -1152,31 +1161,31 @@
 		\item Xilinx/AMD, ``Artix-7 FPGAs Data Sheet: DC and AC Switching Characteristics,'' DS181, 2023.
 		\item Digilent, ``Nexys A7 Reference Manual,'' Rev.\ C, 2022.
 		\item Xilinx/AMD, ``7 Series FPGAs Memory Resources User Guide,'' UG473, 2023. (Block RAM configuration and dual-port usage.)
-		\item Xilinx/AMD, ``7 Series FPGAs Configurable Logic Block User Guide,'' UG474, 2023. (Distributed RAM, LUT structure, and carry chains.)
+		\item Xilinx/AMD, ``7 Series FPGAs Configurable Logic Block User Guide,'' UG474, 2023. (Distributed RAM, \LUT{} structure, and carry chains.)
 		\item Xilinx/AMD, ``Vivado Design Suite User Guide: Synthesis,'' UG901, 2023. (Synthesis attributes including \texttt{ASYNC\_REG}.)
 	\end{enumerate}
 
-	\subsection{VHDL Design References}
+	\subsection{\VHDL{} Design References}
 
 	\begin{enumerate}[leftmargin=2em]
-		\item P.\ P.\ Chu, \textit{FPGA Prototyping by VHDL Examples: Xilinx Artix-7 Edition}, 2nd ed., Wiley, 2017. (Chapters on UART design, FIFO structures, and testbench methodology.)
-		\item R.\ E.\ Haskell and D.\ M.\ Hanna, \textit{Digital Design Using Digilent FPGA Boards: VHDL / Vivado Edition}, LBE Books, 2019. (Nexys A7-specific examples and constraint file templates.)
-		\item P.\ J.\ Ashenden, \textit{The Designer's Guide to VHDL}, 3rd ed., Morgan Kaufmann, 2008. (Comprehensive VHDL language reference.)
+		\item P.\ P.\ Chu, \textit{\FPGA{} Prototyping by \VHDL{} Examples: Xilinx Artix-7 Edition}, 2nd ed., Wiley, 2017. (Chapters on \UART{} design, \FIFO{} structures, and testbench methodology.)
+		\item R.\ E.\ Haskell and D.\ M.\ Hanna, \textit{Digital Design Using Digilent \FPGA{} Boards: \VHDL{} / Vivado Edition}, LBE Books, 2019. (Nexys A7-specific examples and constraint file templates.)
+		\item P.\ J.\ Ashenden, \textit{The Designer's Guide to \VHDL{}}, 3rd ed., Morgan Kaufmann, 2008. (Comprehensive \VHDL{} language reference.)
 	\end{enumerate}
 
-	\subsection{CRC Implementation References}
+	\subsection{\CRC{} Implementation References}
 
 	\begin{enumerate}[leftmargin=2em]
 		\item W.\ W.\ Peterson and D.\ T.\ Brown, ``Cyclic Codes for Error Detection,'' \textit{Proceedings of the IRE}, vol.~49, no.~1, pp.~228--235, Jan.\ 1961.
-		\item T.\ Jejekel, ``pycrc --- Free, Easy to Use CRC Calculator and C Source Code Generator.'' [Online]. Available: \url{https://pycrc.org/}
-		\item OutputLogic, ``CRC Generator.'' [Online]. Available: \url{https://outputlogic.com/?page_id=321} (Generates VHDL/Verilog CRC modules for arbitrary polynomials and data widths.)
+		\item T.\ Jejekel, ``pycrc --- Free, Easy to Use \CRC{} Calculator and C Source Code Generator.'' [Online]. Available: \url{https://pycrc.org/}
+		\item OutputLogic, ``\CRC{} Generator.'' [Online]. Available: \url{https://outputlogic.com/?page_id=321} (Generates \VHDL{}/Verilog \CRC{} modules for arbitrary polynomials and data widths.)
 	\end{enumerate}
 
 	\subsection{Application Notes}
 
 	\begin{enumerate}[leftmargin=2em]
-		\item Xilinx/AMD, ``XAPP585: UART Lite Core,'' Application Note, 2023. (Reference UART implementation for Xilinx FPGAs.)
-		\item Xilinx/AMD, ``XAPP495: Implementing a Serial Communication Protocol Using the SPI Interface,'' Application Note, 2023.
+		\item Xilinx/AMD, ``XAPP585: \UART{} Lite Core,'' Application Note, 2023. (Reference \UART{} implementation for Xilinx FPGAs.)
+		\item Xilinx/AMD, ``XAPP495: Implementing a Serial Communication Protocol Using the \SPI{} Interface,'' Application Note, 2023.
 	\end{enumerate}
 
 	\newpage
@@ -1186,20 +1195,23 @@
 
 	Upon successful completion of Module~2, students will have:
 	\begin{itemize}[leftmargin=2em]
-		\item A fully simulated and verified FPGA signal processing pipeline: UART ingestion $\rightarrow$ packet parsing $\rightarrow$ CRC verification $\rightarrow$ feature extraction $\rightarrow$ BRAM storage.
-		\item Hardware CRC engines that validate both transport-level and source-level data integrity in real time.
-		\item A feature vector format designed explicitly for the ML classification pipeline, with both directly-extracted and FPGA-computed features.
-		\item Dual-port BRAM storage supporting concurrent write (from pipeline) and read (for host export), sized for up to 255 simultaneous beacons.
+		\item A fully simulated and verified \FPGA{} signal processing pipeline: \UART{} ingestion $\rightarrow$ packet parsing $\rightarrow$ \CRC{} verification $\rightarrow$ feature extraction $\rightarrow$ \BRAM{} storage.
+		\item Hardware \CRC{} engines that validate both transport-level and source-level data integrity in real time.
+		\item A feature vector format designed explicitly for the \ML{} classification pipeline, with both directly-extracted and \FPGA{}-computed features.
+		\item Dual-port \BRAM{} storage supporting concurrent write (from pipeline) and read (for host export), sized for up to 255 simultaneous beacons.
 		\item Comprehensive simulation testbench coverage across 8 verification scenarios with file-driven stimulus.
 		\item Characterized resource utilization and timing margins, establishing a baseline for Module~3 expansion.
 		\item Pin assignments and constraint files ready for hardware deployment.
 	\end{itemize}
 
-	Module~3 will build directly on these foundations by deploying the RTL to the physical Nexys A7 and integrating it with the STM32 receiver subsystem from Module~1. The primary challenge shifts from design correctness (verified in simulation) to physical integration: the FPGA must now process real UART data from the STM32 at the actual baud rate, handle timing variations and noise that simulation cannot model, and deliver feature vectors reliably to the host machine. Synchronization mismatches, protocol errors, and throughput bottlenecks that were invisible in per-subsystem development are expected to surface during this integration phase---diagnosing and resolving them is the central learning objective of Module~3.
+	Module~3 will build directly on these foundations by deploying the \RTL{} to the physical Nexys A7 and integrating it with the STM32 receiver subsystem from Module~1. The primary challenge shifts from design correctness (verified in simulation) to physical integration: the \FPGA{} must now process real \UART{} data from the STM32 at the actual baud rate, handle timing variations and noise that simulation cannot model, and deliver feature vectors reliably to the host machine. Synchronization mismatches, protocol errors, and throughput bottlenecks that were invisible in per-subsystem development are expected to surface during this integration phase---diagnosing and resolving them is the central learning objective of Module~3.
 
-	The feature BRAM and export interface implemented in Week~3 become the data source for the structured data collection campaigns in Module~3, which produce the labeled RF dataset that drives the entire ML pipeline in Module~4.
+	The feature \BRAM{} and export interface implemented in Week~3 become the data source for the structured data collection campaigns in Module~3, which produce the labeled \RF{} dataset that drives the entire \ML{} pipeline in Module~4.
 
 	\vfill
+	\clearpage
+	\printglossary[type=\acronymtype,title={Acronyms Used}]
+
 	\begin{center}
 		\rule{0.5\textwidth}{0.4pt}\\[6pt]
 		{\small\textcolor{darkgray}{End of Module 2 Lesson Plan}}

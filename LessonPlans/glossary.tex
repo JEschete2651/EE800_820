@@ -1,0 +1,77 @@
+% Shared acronym macro container for EE800/820 lesson plan modules.
+% Usage: type \IDE, \FPGA, \UART, etc. First use is expanded; later uses show acronym only.
+% Requires in each document preamble:
+%   \usepackage[acronym,toc]{glossaries}
+%   \makeglossaries
+%   \input{../glossary}
+% Print used acronyms near end of document:
+%   \printglossary[type=\acronymtype,title={Acronyms Used}]
+
+% Acronym definitions (only used entries appear in the printed glossary).
+\newacronym{ask}{ASK}{amplitude shift keying}
+\newacronym{bga}{BGA}{ball grid array}
+\newacronym{bom}{BOM}{bill of materials}
+\newacronym{bram}{BRAM}{block random access memory}
+\newacronym{crc}{CRC}{cyclic redundancy check}
+\newacronym{css}{CSS}{chirp spread spectrum}
+\newacronym{dma}{DMA}{direct memory access}
+\newacronym{dsp}{DSP}{digital signal processing}
+\newacronym{eda}{EDA}{exploratory data analysis}
+\newacronym{fifo}{FIFO}{first in, first out}
+\newacronym{fpga}{FPGA}{field-programmable gate array}
+\newacronym{fsk}{FSK}{frequency shift keying}
+\newacronym{fsm}{FSM}{finite state machine}
+\newacronym{gpio}{GPIO}{general-purpose input/output}
+\newacronym{hal}{HAL}{hardware abstraction layer}
+\newacronym{i2c}{I\textsuperscript{2}C}{inter-integrated circuit}
+\newacronym{ide}{IDE}{integrated development environment}
+\newacronym{ila}{ILA}{integrated logic analyzer}
+\newacronym{ism}{ISM}{industrial, scientific, and medical}
+\newacronym{isr}{ISR}{interrupt service routine}
+\newacronym{lut}{LUT}{look-up table}
+\newacronym{mcu}{MCU}{microcontroller unit}
+\newacronym{ml}{ML}{machine learning}
+\newacronym{ook}{OOK}{on-off keying}
+\newacronym{per}{PER}{packet error rate}
+\newacronym{rf}{RF}{radio frequency}
+\newacronym{rssi}{RSSI}{received signal strength indicator}
+\newacronym{rtl}{RTL}{register-transfer level}
+\newacronym{snr}{SNR}{signal-to-noise ratio}
+\newacronym{spi}{SPI}{serial peripheral interface}
+\newacronym{uart}{UART}{universal asynchronous receiver/transmitter}
+\newacronym{vhdl}{VHDL}{VHSIC hardware description language}
+
+% Convenience wrappers so you can type \IDE, \RF, etc.
+\providecommand{\ASK}{\gls{ask}}
+\providecommand{\BGA}{\gls{bga}}
+\providecommand{\BOM}{\gls{bom}}
+\providecommand{\BRAM}{\gls{bram}}
+\providecommand{\CRC}{\gls{crc}}
+\providecommand{\CSS}{\gls{css}}
+\providecommand{\DMA}{\gls{dma}}
+\providecommand{\DSP}{\gls{dsp}}
+\providecommand{\EDA}{\gls{eda}}
+\providecommand{\FIFO}{\gls{fifo}}
+\providecommand{\FPGA}{\gls{fpga}}
+\providecommand{\FSK}{\gls{fsk}}
+\providecommand{\FSM}{\gls{fsm}}
+\providecommand{\GPIO}{\gls{gpio}}
+\providecommand{\HAL}{\gls{hal}}
+\providecommand{\IIC}{\gls{i2c}}
+\providecommand{\IDE}{\gls{ide}}
+\providecommand{\ILA}{\gls{ila}}
+\providecommand{\ISM}{\gls{ism}}
+\providecommand{\ISR}{\gls{isr}}
+\providecommand{\LUT}{\gls{lut}}
+\providecommand{\MCU}{\gls{mcu}}
+\providecommand{\ML}{\gls{ml}}
+\providecommand{\OOK}{\gls{ook}}
+\providecommand{\PER}{\gls{per}}
+\providecommand{\RF}{\gls{rf}}
+\providecommand{\RSSI}{\gls{rssi}}
+\providecommand{\RTL}{\gls{rtl}}
+\providecommand{\SNR}{\gls{snr}}
+\providecommand{\SPI}{\gls{spi}}
+\providecommand{\UART}{\gls{uart}}
+\providecommand{\VHDL}{\gls{vhdl}}
+
