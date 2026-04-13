@@ -1,0 +1,99 @@
+% Shared preamble for EE800/820 Module 1 lab handouts.
+% Usage: each handout defines \labid and \labtitleshort, then \input{LabHandout_Preamble}
+% BEFORE \begin{document}. Compiles with a single pdflatex pass (no glossaries tool).
+
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{tcolorbox}
+\usepackage{caption}
+\tcbuselibrary{skins,breakable}
+
+% ── Colors (match Module 1 lesson plan) ──────────────────────
+\definecolor{stevens}{RGB}{163,31,52}
+\definecolor{darkgray}{RGB}{60,60,60}
+\definecolor{lightgray}{RGB}{240,240,240}
+\definecolor{accentblue}{RGB}{30,80,140}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=stevens,
+	urlcolor=accentblue,
+	citecolor=darkgray,
+}
+
+% ── Plain-text acronym macros (no glossaries dependency) ─────
+% Handouts do not carry their own acronym index; they reference
+% the Module 1 lesson plan glossary instead.
+\providecommand{\RF}{RF}
+\providecommand{\FPGA}{FPGA}
+\providecommand{\ML}{ML}
+\providecommand{\SPI}{SPI}
+\providecommand{\UART}{UART}
+\providecommand{\IIC}{I\textsuperscript{2}C}
+\providecommand{\GPIO}{GPIO}
+\providecommand{\MCU}{MCU}
+\providecommand{\IDE}{IDE}
+\providecommand{\HAL}{HAL}
+\providecommand{\ISR}{ISR}
+\providecommand{\FIFO}{FIFO}
+\providecommand{\CRC}{CRC}
+\providecommand{\RSSI}{RSSI}
+\providecommand{\SNR}{SNR}
+\providecommand{\RTL}{RTL}
+\providecommand{\VHDL}{VHDL}
+\providecommand{\FSM}{FSM}
+\providecommand{\CSS}{CSS}
+\providecommand{\LUT}{LUT}
+\providecommand{\ILA}{ILA}
+
+% ── Defaults for header variables (handout overrides these) ──
+\providecommand{\labid}{?}
+\providecommand{\labtitleshort}{Lab Handout}
+
+% ── Running header / footer ──────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{darkgray}{EE800/820 Module 1 --- Lab Handout \labid}}
+\fancyhead[R]{\small\textcolor{darkgray}{\labtitleshort}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Section formatting ───────────────────────────────────────
+\titleformat{\section}{\Large\bfseries\color{stevens}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{darkgray}}{\thesubsection}{0.6em}{}
+
+% ── Box styles ───────────────────────────────────────────────
+\tcbset{
+	infobox/.style={
+		enhanced, colback=blue!3, colframe=accentblue, fonttitle=\bfseries,
+		title=#1, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+	warning/.style={
+		enhanced, colback=red!3, colframe=stevens, fonttitle=\bfseries,
+		title=#1, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+	deliverable/.style={
+		enhanced, colback=gray!5, colframe=darkgray, fonttitle=\bfseries,
+		title=#1, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+}
+
+% ── Title banner (call at top of document body) ──────────────
+\newcommand{\labheader}[2]{%
+	\begin{center}
+		{\LARGE\bfseries\color{stevens} Lab Handout #1}\\[3pt]
+		{\Large\bfseries #2}\\[6pt]
+		{\small\color{darkgray} EE800/820 Capstone --- Module 1: \RF{} Hardware Foundations}
+	\end{center}
+	\vspace{4pt}
+	{\color{darkgray}\rule{\textwidth}{0.4pt}}
+	\vspace{10pt}
+}

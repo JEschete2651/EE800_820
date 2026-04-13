@@ -1,0 +1,126 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-D}
+\newcommand{\labtitleshort}{Two-Node Packet Test}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-D}{Two-Node Packet Transmission and Reception}
+
+\section{Objective}
+Transmit a known payload from one STM32+RFM95W node (Node~A) and verify reception with correct \CRC{}, \RSSI{}, and \SNR{} readings on a second node (Node~B). This is the first time the full \RF{} link is exercised end-to-end and the baseline against which all Module~1 link-budget assumptions are validated.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~1-A, 1-B, 1-C complete for at least \textbf{two} nodes.
+\end{itemize}
+
+\section{Materials}
+\begin{itemize}[leftmargin=2em]
+	\item 2\,$\times$ assembled RFM95W breakouts.
+	\item 2\,$\times$ Nucleo-L476RG boards + USB cables.
+	\item 2\,$\times$ host USB ports (or a powered USB hub).
+	\item Breadboards and jumpers for both nodes.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Configure LoRa modem parameters}
+Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora-params} for this handout; these are the Module~1 reference settings and will also be used in Lab Handouts~1-F and 1-G.
+
+\begin{table}[h!]
+	\centering
+	\caption{Baseline LoRa physical-layer configuration.}
+	\label{tab:lora-params}
+	\begin{tabular}{l l l}
+		\toprule
+		\textbf{Parameter} & \textbf{Value} & \textbf{Register(s)} \\
+		\midrule
+		Carrier frequency & 915.0\,MHz & \texttt{RegFrfMsb/Mid/Lsb} \\
+		Spreading factor & SF7 & \texttt{RegModemConfig2[7:4]} \\
+		Bandwidth & 125\,kHz & \texttt{RegModemConfig1[7:4]} \\
+		Coding rate & 4/5 & \texttt{RegModemConfig1[3:1]} \\
+		Header mode & Explicit & \texttt{RegModemConfig1[0]} \\
+		\CRC{} & On & \texttt{RegModemConfig2[2]} \\
+		Preamble length & 8 symbols & \texttt{RegPreambleMsb/Lsb} \\
+		Sync word & \texttt{0x34} (private) & \texttt{RegSyncWord} \\
+		Output power & +14\,dBm (PA\_BOOST) & \texttt{RegPaConfig} \\
+		Payload length (\texttt{TX}) & 16 bytes & \texttt{RegPayloadLength} \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsection{Step 2 --- Node~A transmitter firmware}
+\begin{enumerate}[leftmargin=2em]
+	\item Starting from your Lab Handout~1-C project, add an initialization routine that programs all registers in Table~\ref{tab:lora-params}, then leaves the modem in \texttt{STANDBY}.
+	\item In the main loop:
+	\begin{enumerate}[leftmargin=1.2em, label=(\alph*)]
+		\item Build a 16-byte test payload. Bytes 0--3: ASCII \texttt{"TEST"}. Bytes 4--7: little-endian 32-bit sequence counter that increments each transmission. Bytes 8--15: arbitrary pattern (e.g., \texttt{0xDE 0xAD 0xBE 0xEF 0xCA 0xFE 0xBA 0xBE}).
+		\item Write the payload to the \texttt{FIFO} at \texttt{FifoTxBaseAddr}.
+		\item Set \texttt{RegPayloadLength = 16}.
+		\item Command \texttt{TX} mode (\texttt{RegOpMode = 0x83}).
+		\item Poll \texttt{RegIrqFlags} for \texttt{TxDone} (bit 3). Clear by writing \texttt{1} to that bit.
+		\item \texttt{printf} the sequence number over the virtual COM port.
+		\item Delay 1000\,ms.
+	\end{enumerate}
+\end{enumerate}
+
+\subsection{Step 3 --- Node~B receiver firmware}
+\begin{enumerate}[leftmargin=2em]
+	\item Use the same initialization, but set \texttt{FifoRxBaseAddr} and put the modem into continuous \mbox{RX} mode (\texttt{RegOpMode = 0x85}).
+	\item In the main loop (or in the \texttt{DIO0} interrupt, if you're ready), poll \texttt{RegIrqFlags} for \texttt{RxDone} (bit 6).
+	\item When \texttt{RxDone} asserts:
+	\begin{enumerate}[leftmargin=1.2em, label=(\alph*)]
+		\item Check \texttt{PayloadCrcError} (bit 5). If set, increment a \CRC{}-error counter and skip the payload; if clear, read the payload.
+		\item Read \texttt{RegRxNbBytes} for the received payload length.
+		\item Read \texttt{RegFifoRxCurrentAddr}, write it to \texttt{RegFifoAddrPtr}, then read \texttt{RxNbBytes} bytes from \texttt{RegFifo}.
+		\item Read \texttt{RegPktRssiValue} and convert: $\text{\RSSI{}}[\text{dBm}] = \text{raw} - 157$ (high-frequency port).
+		\item Read \texttt{RegPktSnrValue} and convert: $\text{\SNR{}}[\text{dB}] = \text{raw}/4$ (signed byte).
+		\item \texttt{printf} the sequence number, \RSSI{}, and \SNR{}.
+		\item Clear \texttt{RegIrqFlags} by writing \texttt{0xFF}.
+	\end{enumerate}
+\end{enumerate}
+
+\subsection{Step 4 --- Run the link}
+\begin{enumerate}[leftmargin=2em]
+	\item Plug both nodes into the host PC.
+	\item Open two serial monitor instances (one per virtual COM port).
+	\item Flash Node~B (receiver) first and confirm it prints an ``awaiting packets'' banner.
+	\item Flash Node~A (transmitter) and confirm it starts incrementing the sequence counter.
+	\item Place the nodes approximately 1\,m apart on the bench with antennas upright.
+\end{enumerate}
+
+\subsection{Step 5 --- Log 100 packets and analyze}
+\begin{enumerate}[leftmargin=2em]
+	\item Capture 100 consecutive receptions on Node~B (copy from the serial monitor or pipe to a file).
+	\item Compute: packet reception rate (received / transmitted), mean \RSSI{}, standard deviation of \RSSI{}, mean \SNR{}, and the count of \CRC{} errors.
+	\item Compare mean \RSSI{} against the Module~1 link budget estimate for 1\,m indoor separation.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] $\geq$95\% packet reception rate at 1\,m indoor line-of-sight.
+	\item[$\square$] Zero \CRC{} errors across 100 consecutive packets.
+	\item[$\square$] Sequence counter values are contiguous on Node~B (no gaps).
+	\item[$\square$] Mean \RSSI{} is within $\pm$6\,dB of the computed link budget.
+	\item[$\square$] Mean \SNR{} is $>$+5\,dB.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Troubleshooting}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{No packets received}: check that both nodes use the same sync word and spreading factor. A one-bit mismatch yields silent failure.
+		\item \textbf{High \CRC{} error rate}: verify \texttt{CrcOn} in \texttt{RegModemConfig2} on both nodes, and confirm the preamble length matches.
+		\item \textbf{Very low \RSSI{} ($<-$90\,dBm at 1\,m)}: usually an antenna problem --- re-check the spring antenna solder joint.
+		\item \textbf{\texttt{TxDone} never asserts}: \texttt{DIO0} mapping wrong, or the modem is in \mbox{FSK} mode instead of LoRa (bit 7 of \texttt{RegOpMode}).
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-D Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Source code for both Node~A (TX) and Node~B (RX).
+		\item Raw serial log of 100 consecutive receptions on Node~B.
+		\item Summary statistics: reception rate, mean \RSSI{}, \RSSI{} standard deviation, mean \SNR{}, \CRC{} error count.
+		\item One-paragraph comparison between measured mean \RSSI{} and the Module~1 link-budget prediction. Explain any discrepancy $>$6\,dB.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

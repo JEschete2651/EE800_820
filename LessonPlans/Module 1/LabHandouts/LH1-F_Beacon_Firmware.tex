@@ -1,0 +1,130 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-F}
+\newcommand{\labtitleshort}{Beacon Firmware}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-F}{Beacon Firmware: State Machine and Multi-Beacon Operation}
+
+\section{Objective}
+Implement production-quality beacon firmware on an STM32+RFM95W node following the Module~1 \FSM{} specification (INIT $\to$ CONFIG $\to$ IDLE $\to$ BUILD $\to$ TX $\to$ LOG). Then validate two beacons operating concurrently on the same 915\,MHz channel using non-colliding transmission schedules.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~1-A, 1-B, 1-C, 1-D complete.
+	\item Two fully working nodes from Lab Handout~1-D (one will be adapted as Beacon~A, the other as Beacon~B; a third node will act as receiver during validation, or you may reuse the LH1-D Node~B firmware as the monitor).
+\end{itemize}
+
+\section{Beacon Packet Format}
+Use the 32-byte format defined in Module~1 Section~4. Reproduced here for convenience:
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{c l l}
+		\toprule
+		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
+		\midrule
+		0 & Start delimiter (\texttt{0x7E}) & 1 \\
+		1 & Beacon ID & 1 \\
+		2--5 & Sequence number (uint32, \mbox{LE}) & 4 \\
+		6--9 & Timestamp (uint32, \mbox{LE}, ms since boot) & 4 \\
+		10 & Spreading factor code & 1 \\
+		11 & \texttt{TX} power (dBm, int8) & 1 \\
+		12--27 & Payload / user data & 16 \\
+		28--29 & Reserved (\texttt{0x00}) & 2 \\
+		30--31 & \CRC{}-16/CCITT-FALSE over bytes 0--29 & 2 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{\FSM{} Specification}
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{INIT}: \HAL{} initialization, clock setup, peripheral configuration.
+	\item \textbf{CONFIG}: reset SX1276, verify \texttt{RegVersion}, program all LoRa registers per Table~\ref{tab:lora-params-f}, put modem in \texttt{STANDBY}.
+	\item \textbf{IDLE}: wait for the next scheduled slot (timer interrupt).
+	\item \textbf{BUILD}: populate the 32-byte packet buffer (increment sequence, stamp timestamp, compute \CRC{}-16).
+	\item \textbf{TX}: write \texttt{FIFO}, command \texttt{TX} mode, wait for \texttt{TxDone}.
+	\item \textbf{LOG}: increment sequence counter, \texttt{printf} a status line, return to IDLE.
+\end{enumerate}
+
+\begin{table}[h!]
+	\centering
+	\caption{LoRa parameters (same as LH1-D for compatibility).}
+	\label{tab:lora-params-f}
+	\begin{tabular}{l l}
+		\toprule
+		\textbf{Parameter} & \textbf{Value} \\
+		\midrule
+		Frequency & 915\,MHz \\
+		Spreading factor & SF7 (Beacon~A), SF10 (Beacon~B) \\
+		Bandwidth & 125\,kHz \\
+		Coding rate & 4/5 \\
+		\CRC{} & On \\
+		Sync word & \texttt{0x34} \\
+		\texttt{TX} power & +14\,dBm (Beacon~A), +10\,dBm (Beacon~B) \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Timer-driven scheduling}
+\begin{enumerate}[leftmargin=2em]
+	\item Configure \texttt{TIM2} in CubeMX as a periodic timer with a 1\,ms tick. Enable the update interrupt.
+	\item Maintain a \texttt{volatile uint32\_t ms\_count} that increments in the \texttt{HAL\_TIM\_PeriodElapsedCallback}.
+	\item Choose a slot interval (Beacon~A: 2000\,ms, Beacon~B: 3000\,ms). Each beacon checks \texttt{ms\_count} against its next scheduled time in IDLE and transitions to BUILD when due.
+\end{enumerate}
+
+\subsection{Step 2 --- Packet builder}
+\begin{enumerate}[leftmargin=2em]
+	\item Implement \texttt{build\_beacon\_packet(uint8\_t *buf, uint32\_t seq, uint8\_t beacon\_id)} that fills bytes 0--29 according to the packet format, computes the \CRC{}-16 over bytes 0--29, and writes it to bytes 30--31.
+	\item Use \CRC{}-16/CCITT-FALSE: polynomial \texttt{0x1021}, init \texttt{0xFFFF}, no reflection, no \mbox{XOR} out. A 20-line C implementation is sufficient; do not bring in a library for this.
+\end{enumerate}
+
+\subsection{Step 3 --- State machine implementation}
+\begin{enumerate}[leftmargin=2em]
+	\item Use an \texttt{enum} and a \texttt{switch} in the main loop. Each state transitions explicitly to the next via a \texttt{state} variable.
+	\item In the \texttt{TX} state, poll \texttt{RegIrqFlags} for \texttt{TxDone}; do \textit{not} block indefinitely --- time out after 500\,ms and transition to a \texttt{FAULT} state that \texttt{printf}s an error.
+	\item In the \texttt{LOG} state, \texttt{printf} a single-line status: \texttt{"[ID=\%02X SEQ=\%lu] TX OK"}.
+\end{enumerate}
+
+\subsection{Step 4 --- Instrument with a \mbox{GPIO} pulse}
+\begin{enumerate}[leftmargin=2em]
+	\item Add a \mbox{GPIO} output pulse at the moment of entering \texttt{TX} state. This gives you a scope trigger for measuring transmission timing.
+	\item A scope or logic analyzer on this pin should show a clean, evenly spaced pulse train at the configured slot interval.
+\end{enumerate}
+
+\subsection{Step 5 --- Single-beacon verification}
+\begin{enumerate}[leftmargin=2em]
+	\item Flash Beacon~A (ID \texttt{0x01}, SF7, 2000\,ms interval).
+	\item Use a second node programmed as receiver (LH1-D Node~B firmware, or a later iteration of it) to confirm reception.
+	\item Verify: 100\% reception over 5 minutes ($\approx$150 packets), sequence numbers contiguous, \CRC{} valid.
+\end{enumerate}
+
+\subsection{Step 6 --- Dual-beacon concurrent operation}
+\begin{enumerate}[leftmargin=2em]
+	\item Flash Beacon~B (ID \texttt{0x02}, SF10, 3000\,ms interval, +10\,dBm).
+	\item Run both beacons simultaneously.
+	\item The receiver must demodulate both, because the spreading factors differ (LoRa is quasi-orthogonal across \mbox{SF} within the same bandwidth).
+	\item Verify: the receiver sees interleaved packets from both beacons, each with its own contiguous sequence counter, over 5 minutes.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Single-beacon run: 100\% reception rate over 150 packets, no \CRC{} errors, contiguous sequence numbers.
+	\item[$\square$] Beacon packet parses correctly on the receiver side (all fields match expected values).
+	\item[$\square$] Scope pulse on the instrumentation \mbox{GPIO} shows stable period (Beacon~A: 2000\,$\pm$5\,ms, Beacon~B: 3000\,$\pm$5\,ms).
+	\item[$\square$] Dual-beacon run: receiver shows interleaved packets from both beacons, each with independently contiguous sequence counters.
+	\item[$\square$] No beacon drops into the \texttt{FAULT} state during a 5-minute run.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-F Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Full source code for the beacon firmware with the \FSM{} clearly structured.
+		\item \CRC{}-16 implementation (standalone function) with a unit test against a known vector.
+		\item Receiver log of 150 single-beacon packets with \RSSI{}/\SNR{} per packet.
+		\item Receiver log of a 5-minute dual-beacon run, showing interleaved packets from both beacons.
+		\item Oscilloscope screenshot of the \mbox{GPIO} instrumentation pulse showing stable period for at least 5 transmissions.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

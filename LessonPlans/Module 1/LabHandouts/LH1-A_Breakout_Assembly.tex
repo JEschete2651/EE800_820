@@ -1,0 +1,110 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-A}
+\newcommand{\labtitleshort}{Breakout Assembly}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-A}{\RF{} Breakout Assembly and First Power-On}
+
+\section{Objective}
+Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} header strip, 915\,MHz spring antenna) into a breadboard-ready, power-verified \RF{} module. By the end of this handout you will have a physically assembled breakout that draws the correct idle current and is ready for \SPI{} bring-up in Lab Handout~1-C.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item No prior lab handouts required.
+	\item Basic through-hole soldering experience (or willingness to practice on scrap first).
+\end{itemize}
+
+\section{Materials}
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l c l}
+		\toprule
+		\textbf{Item} & \textbf{Qty} & \textbf{Notes} \\
+		\midrule
+		Adafruit RFM95W 900\,MHz LoRa breakout & 1 & PID 3072 or equivalent \\
+		0.1\,\textquotedbl{} male header strip (snappable) & 1 & Ships with breakout \\
+		915\,MHz spring (helical) antenna & 1 & Bare coil, single solder lead \\
+		Soldering iron (temperature-controlled) & 1 & 320--350\,$^\circ$C tip \\
+		Rosin-core solder (0.6--0.8\,mm, 60/40 or lead-free) & --- & \\
+		Flux pen or paste (optional) & --- & Recommended for clean joints \\
+		Flush cutters & 1 & For trimming header and antenna leads \\
+		Breadboard & 1 & Used as a soldering jig \\
+		Bench \mbox{DMM} (voltage + current ranges) & 1 & For power-on verification \\
+		Bench power supply \textit{or} Nucleo 3.3\,V rail & 1 & 3.3\,V, current-limited to 100\,mA \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Snap and install the header strip}
+\begin{enumerate}[leftmargin=2em]
+	\item Count the pins on the long edge of the breakout (14 for the RFM9x breakout). Snap off a matching length of header strip.
+	\item Insert the long pins of the header strip down into a breadboard. The short pins point up. This is your soldering jig --- it keeps the header perpendicular to the board while you solder.
+	\item Drop the breakout PCB onto the upward-facing short pins, component-side up. The pins should poke through the row of plated holes along the edge.
+\end{enumerate}
+
+\subsection{Step 2 --- Solder the header pins}
+\begin{enumerate}[leftmargin=2em]
+	\item Heat the iron fully. Apply a small amount of fresh solder to the tip, then wipe on a brass sponge (tinning).
+	\item Solder each header pin one at a time. Touch the iron tip to the junction between the pin and the pad for $\sim$1 second, feed in a small amount of solder, wait $\sim$1 second for it to flow, then remove the solder, then remove the iron.
+	\item A good joint is shiny, concave, and fully wets both the pin and the pad. A bad joint is dull, ball-shaped, or only touches one side.
+	\item Inspect between every 3--4 pins to catch solder bridges before they get buried.
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Common Pitfalls}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Cold joints:} pulling the iron too soon. Count one-thousand-one, one-thousand-two before lifting.
+		\item \textbf{Bridges:} two adjacent pins connected by a blob. Remove with desoldering wick or flux + reheat.
+		\item \textbf{Lifted pads:} from reheating the same joint repeatedly. If you need to redo a joint, wait for it to cool to room temperature first.
+	\end{itemize}
+\end{tcolorbox}
+
+\subsection{Step 3 --- Install the spring antenna}
+\begin{enumerate}[leftmargin=2em]
+	\item Locate the \texttt{ANT} through-hole on the breakout (labeled on the silkscreen, near one corner).
+	\item Insert the single lead of the spring antenna into the \texttt{ANT} hole from the top side. The coil should stand vertical.
+	\item Hold the antenna perpendicular to the board. Solder the lead on the bottom side. Use slightly more solder than a header pin --- this joint is the only mechanical anchor for the coil.
+	\item Trim the excess lead on the bottom side with flush cutters, leaving no more than 1\,mm protruding.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why the spring, not the SMA?}]
+	This course uses the direct-soldered spring antenna instead of the edge-launch \mbox{SMA} option. The spring is shorter, lighter, and eliminates a connector interface that is a common source of intermittent faults during benchtop work. The \mbox{SMA} option is reserved for Module~5 range testing, where the antenna may need to be physically separated from the board.
+\end{tcolorbox}
+
+\subsection{Step 4 --- Visual inspection}
+\begin{enumerate}[leftmargin=2em]
+	\item Hold the board under a bright light and a magnifier (phone camera zoom works).
+	\item Verify: no solder bridges between pins; no cold (dull) joints; no flux residue extending beyond the pads; the antenna coil is mechanically stable and stands upright.
+	\item Clean flux residue with isopropyl alcohol and a soft brush if used.
+\end{enumerate}
+
+\subsection{Step 5 --- First power-on}
+\begin{enumerate}[leftmargin=2em]
+	\item Insert the assembled breakout into a breadboard. Leave at least one empty column on each side for jumper routing.
+	\item Wire \texttt{GND} to the supply ground and \texttt{VIN} to a \textit{current-limited} 3.3\,V source (bench supply set to 100\,mA compliance, or the Nucleo's 3.3\,V rail through a \mbox{DMM} in current mode).
+	\item Apply power. The module should draw approximately \textbf{1\,mA} in idle (post-reset, SX1276 in \texttt{SLEEP} mode). Anything $>$20\,mA at this stage indicates a short; remove power immediately and re-inspect.
+	\item With a \mbox{DMM} in voltage mode, confirm that the \texttt{3V3} test point on the breakout reads $3.30\pm0.15$\,V. This validates the on-board regulator.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] All 14 header pins soldered with clean, shiny fillets.
+	\item[$\square$] No solder bridges between any two adjacent pins.
+	\item[$\square$] Spring antenna mechanically stable, vertical, and electrically continuous to the \texttt{ANT} pad (\mbox{DMM} continuity test from coil tip to \texttt{ANT} pad).
+	\item[$\square$] Idle current draw at 3.3\,V is within 0.5--5\,mA.
+	\item[$\square$] On-board regulator output measures 3.15--3.45\,V.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-A Deliverable}]
+	Submit the following before beginning Lab Handout~1-C:
+	\begin{enumerate}[leftmargin=1.2em]
+		\item A clear photograph of the assembled breakout (top and bottom).
+		\item Measured idle current draw at 3.3\,V, in mA.
+		\item Measured \texttt{3V3} regulator output, in V.
+		\item One-sentence pass/fail statement for each verification checklist item.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

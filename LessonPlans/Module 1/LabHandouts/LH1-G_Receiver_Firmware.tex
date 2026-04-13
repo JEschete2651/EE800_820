@@ -1,0 +1,143 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-G}
+\newcommand{\labtitleshort}{Receiver Firmware}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-G}{Receiver Firmware: ISR-Driven Capture and \UART{} Forwarding}
+
+\section{Objective}
+Implement receiver firmware that captures beacon packets via an \texttt{RxDone} interrupt, queues them in a ring buffer, and forwards them from the main loop to the \FPGA{} over a 43-byte framed \UART{} protocol. This is the software side of the Week~4 deliverable.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~1-A, 1-B, 1-C, 1-D, 1-F complete.
+	\item At least one working beacon from LH1-F as a traffic source.
+\end{itemize}
+
+\section{Forwarding Frame Format}
+The receiver wraps each received beacon in a framed \UART{} message for the \FPGA{}. Total 43 bytes:
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{c l l}
+		\toprule
+		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
+		\midrule
+		0 & Start delimiter (\texttt{0x7E}) & 1 \\
+		1 & Frame length (always 41) & 1 \\
+		2--33 & Original 32-byte beacon packet & 32 \\
+		34--35 & \RSSI{} (int16, \mbox{LE}, dBm $\times$1) & 2 \\
+		36 & \SNR{} (int8, dB $\times$4 per SX1276 scaling) & 1 \\
+		37--40 & Receiver timestamp (uint32, \mbox{LE}, ms) & 4 \\
+		41--42 & \CRC{}-16/CCITT-FALSE over bytes 0--40 & 2 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{Architecture}
+
+\subsection{ISR path}
+\begin{enumerate}[leftmargin=2em]
+	\item DIO0 rising edge triggers an \texttt{EXTI} interrupt.
+	\item \ISR{} reads \texttt{RegIrqFlags}. If \texttt{RxDone} is set and \texttt{PayloadCrcError} is clear:
+	\begin{enumerate}[leftmargin=1.2em, label=(\alph*)]
+		\item Read \texttt{RegFifoRxCurrentAddr}, set \texttt{RegFifoAddrPtr}, read \texttt{RegRxNbBytes} bytes from \texttt{RegFifo}.
+		\item Read \texttt{RegPktRssiValue} and \texttt{RegPktSnrValue}.
+		\item Stamp the current \texttt{ms\_count}.
+		\item Push a struct (\texttt{beacon\_pkt\_t}) containing these fields into a \textit{lock-free single-producer/single-consumer ring buffer} (producer = \ISR{}, consumer = main loop).
+		\item Clear \texttt{RegIrqFlags} by writing \texttt{0xFF}.
+	\end{enumerate}
+\end{enumerate}
+
+\subsection{Main-loop path}
+\begin{enumerate}[leftmargin=2em]
+	\item Check ring buffer head vs.\ tail. If not empty, dequeue one packet.
+	\item Build the 43-byte forwarding frame.
+	\item Compute \CRC{}-16/CCITT-FALSE over bytes 0--40 and place in bytes 41--42.
+	\item Transmit the entire 43-byte frame over \texttt{USART3} (or whichever \UART{} is wired to the Nexys A7) using \texttt{HAL\_UART\_Transmit\_DMA}.
+	\item Increment a \texttt{frames\_forwarded} counter.
+\end{enumerate}
+
+\subsection{Ring buffer sizing}
+A 16-entry ring ($\approx$640 bytes of beacon structs) accommodates roughly 16 back-to-back receptions without overflow. With two beacons at 2 and 3 second intervals, this is $\sim$40\,s of margin against a stalled main loop --- comfortable.
+
+\section{Procedure}
+
+\subsection{Step 1 --- Peripheral configuration}
+\begin{enumerate}[leftmargin=2em]
+	\item Starting from your LH1-F project or a new one, configure:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \texttt{SPI1} (unchanged from LH1-C).
+		\item \texttt{EXTI} on \texttt{PA8} (DIO0), rising-edge trigger.
+		\item \texttt{USART3} at 115200\,8N1 on \texttt{PC4}/\texttt{PC5} (TX/RX), with TX \mbox{DMA} enabled.
+		\item \texttt{USART2} still enabled for \texttt{printf} debug over the ST-LINK virtual COM port.
+		\item \texttt{TIM2} 1\,ms tick (unchanged).
+	\end{itemize}
+\end{enumerate}
+
+\subsection{Step 2 --- Ring buffer implementation}
+\begin{enumerate}[leftmargin=2em]
+	\item Define the packet struct:
+\begin{verbatim}
+typedef struct {
+    uint8_t  raw[32];
+    int16_t  rssi_dbm;
+    int8_t   snr_q4;
+    uint32_t rx_timestamp_ms;
+} beacon_pkt_t;
+\end{verbatim}
+	\item Static ring with power-of-two size: \texttt{static beacon\_pkt\_t ring[16];} and \texttt{volatile uint32\_t head, tail;}.
+	\item \texttt{push}: producer (\ISR{}). Fails silently on overflow and increments a \texttt{dropped} counter.
+	\item \texttt{pop}: consumer (main loop). Returns bool indicating whether a packet was dequeued.
+	\item Use a single \texttt{\_\_DMB()} memory barrier between buffer write and head increment to ensure ordering on Cortex-M4.
+\end{enumerate}
+
+\subsection{Step 3 --- ISR}
+\begin{enumerate}[leftmargin=2em]
+	\item Implement \texttt{HAL\_GPIO\_EXTI\_Callback(uint16\_t GPIO\_Pin)}. Check that the pin matches DIO0.
+	\item Keep the \ISR{} short: FIFO read, \RSSI{}/\SNR{} read, timestamp, \texttt{push} to ring, clear IRQ flags. No \texttt{printf} inside the \ISR{}.
+\end{enumerate}
+
+\subsection{Step 4 --- Frame builder and forwarder}
+\begin{enumerate}[leftmargin=2em]
+	\item In the main loop, call \texttt{pop}. If a packet is present, construct the 43-byte frame as described above.
+	\item Reuse the \CRC{}-16 helper from LH1-F.
+	\item Call \texttt{HAL\_UART\_Transmit\_DMA(\&huart3, frame, 43)}. Track the \mbox{DMA} completion flag; do not overwrite the frame buffer until transmission is complete.
+	\item Also \texttt{printf} a human-readable summary over USART2 for debug: \texttt{"RX beacon=\%02X seq=\%lu rssi=\%d snr=\%d"}.
+\end{enumerate}
+
+\subsection{Step 5 --- Validation without the \FPGA{}}
+\begin{enumerate}[leftmargin=2em]
+	\item Before wiring to the Nexys A7, loopback-test the forwarding \UART{} by connecting \texttt{USART3 TX} to \texttt{USART3 RX} (or to a USB-\UART{} adapter) and capturing frames on a host PC.
+	\item Use a Python script (\texttt{pyserial}) to parse incoming 43-byte frames, verify the start delimiter, validate the \CRC{}-16, and print the extracted beacon \mbox{ID}, sequence number, \RSSI{}, and \SNR{}.
+	\item Run with Beacon~A (and optionally Beacon~B) from LH1-F broadcasting.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{RxDone} interrupt fires on every received packet (\ISR{} entry count matches expected receptions).
+	\item[$\square$] Ring buffer overflows only if you deliberately stall the main loop.
+	\item[$\square$] 43-byte frames appear on \texttt{USART3 TX} for every received beacon.
+	\item[$\square$] Host Python parser validates start delimiter and \CRC{}-16 on 100\% of frames.
+	\item[$\square$] Dual-beacon run: parser sees interleaved \mbox{ID}\,=\,\texttt{0x01} and \mbox{ID}\,=\,\texttt{0x02} frames with independently contiguous sequence numbers.
+	\item[$\square$] Dropped-packet counter remains zero during a 5-minute run.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Concurrency Hazards}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item Access \texttt{head}/\texttt{tail} as \texttt{volatile}. Never read the same index twice in the consumer without rechecking.
+		\item Do not call \HAL{} \texttt{printf} from inside the \ISR{} --- it blocks on \mbox{UART} transmit and will drop \RF{} packets.
+		\item Do not overwrite the \mbox{DMA} source buffer while a prior transmission is still in flight. Use a simple busy flag or a second buffer.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-G Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Full receiver firmware source, including ring buffer and \ISR{}.
+		\item Python parser script (one file) that validates frames from \texttt{USART3}.
+		\item 5-minute dual-beacon log showing zero dropped packets and zero \CRC{} failures in the parser.
+		\item One-paragraph rationale for the ring buffer size you chose, including a worst-case arrival-rate analysis.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

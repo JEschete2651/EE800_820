@@ -1,0 +1,158 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-C}
+\newcommand{\labtitleshort}{SPI Bring-Up}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-C}{\SPI{} Bring-Up: STM32 $\leftrightarrow$ SX1276 Register Access}
+
+\section{Objective}
+Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the SX1276-based RFM95W module. You will read the \texttt{RegVersion} register and receive the expected value \texttt{0x12}, then demonstrate write/read-back and radio mode transitions. This handout is the first point at which firmware actually touches the \RF{} silicon.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~1-A complete (breakout physically assembled).
+	\item Lab Handout~1-B complete (toolchain working, blinky verified).
+\end{itemize}
+
+\section{Materials}
+\begin{itemize}[leftmargin=2em]
+	\item Assembled RFM95W breakout (from LH1-A).
+	\item Nucleo-L476RG + USB cable (from LH1-B).
+	\item Half-size breadboard, 8--10 male--female jumper wires.
+	\item Logic analyzer (optional but strongly recommended for troubleshooting).
+\end{itemize}
+
+\section{Wiring}
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l l l l}
+		\toprule
+		\textbf{RFM95W Pin} & \textbf{Function} & \textbf{Nucleo Pin} & \textbf{Arduino Hdr} \\
+		\midrule
+		\texttt{VIN} & +3.3\,V supply & \texttt{3V3} & 3V3 \\
+		\texttt{GND} & Ground & \texttt{GND} & GND \\
+		\texttt{SCK} & \SPI{} clock & \texttt{PA5} & D13 \\
+		\texttt{MISO} & \SPI{} data in (to \MCU{}) & \texttt{PA6} & D12 \\
+		\texttt{MOSI} & \SPI{} data out (from \MCU{}) & \texttt{PA7} & D11 \\
+		\texttt{CS} & Chip select (active low) & \texttt{PB6} & D10 \\
+		\texttt{RST} & Reset (active low) & \texttt{PA9} & D8 \\
+		\texttt{G0} (\texttt{DIO0}) & Packet-done interrupt & \texttt{PA8} & D7 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\begin{tcolorbox}[warning={Wire Before You Power}]
+	Double-check \texttt{VIN} vs.\ \texttt{GND}. The RFM95W will tolerate 3.3--5\,V on \texttt{VIN} (it has an on-board regulator), but swapping \texttt{VIN} and \texttt{GND} \textit{will} destroy the module. Verify with a \mbox{DMM} before plugging the Nucleo into USB.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Configure peripherals via STM32CubeMX}
+\begin{enumerate}[leftmargin=2em]
+	\item Open the project from Lab Handout~1-B (or create a new one if you prefer to keep blinky separate). Open the CubeMX perspective.
+	\item Enable \textbf{\SPI{}1} in \textbf{Full-Duplex Master} mode.
+	\item Configure \SPI{}1 with the settings in Table~\ref{tab:spi-bringup}.
+	\item Configure \texttt{PB6}, \texttt{PA9}, \texttt{PA8} as \mbox{GPIO} outputs named \texttt{RFM\_CS}, \texttt{RFM\_RST}, \texttt{RFM\_DIO0} (\texttt{DIO0} will become an \texttt{EXTI} input later; leave as plain \mbox{GPIO} input for this handout).
+	\item Enable \textbf{USART2} in asynchronous mode at 115200\,8N1 (for \texttt{printf} redirection to the ST-LINK virtual COM port).
+	\item Generate code.
+\end{enumerate}
+
+\begin{table}[h!]
+	\centering
+	\caption{\SPI{}1 configuration for RFM95W register access.}
+	\label{tab:spi-bringup}
+	\begin{tabular}{l l}
+		\toprule
+		\textbf{Parameter} & \textbf{Value} \\
+		\midrule
+		Mode & Full-Duplex Master \\
+		Data size & 8 bits \\
+		First bit & \mbox{MSB} first \\
+		Prescaler & Set so that \SPI{} clock $\leq$5\,MHz (safe margin below the 10\,MHz max) \\
+		\mbox{CPOL} & 0 (Low) \\
+		\mbox{CPHA} & 1 Edge \\
+		NSS & Software \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsection{Step 2 --- Redirect \texttt{printf} to USART2}
+\begin{enumerate}[leftmargin=2em]
+	\item In \texttt{main.c}, add an override for \texttt{\_\_io\_putchar} that calls \texttt{HAL\_UART\_Transmit(\&huart2, ...)}. A standard snippet:
+\begin{verbatim}
+int __io_putchar(int ch) {
+    HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
+\end{verbatim}
+	\item In the build configuration, ensure the \texttt{--specs=nano.specs} and \texttt{-u \_printf\_float} flags (or equivalent) are set so the reduced-newlib \texttt{printf} links.
+\end{enumerate}
+
+\subsection{Step 3 --- Write a minimal register-read function}
+Implement the following helper:
+\begin{verbatim}
+uint8_t rfm_read_reg(uint8_t addr) {
+    uint8_t tx[2] = { addr & 0x7F, 0x00 };  // bit 7 = 0 => read
+    uint8_t rx[2] = { 0, 0 };
+    HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_RESET);
+    HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_SET);
+    return rx[1];
+}
+\end{verbatim}
+And the matching write helper (bit 7 = 1, followed by the value byte).
+
+\subsection{Step 4 --- Reset the module and read \texttt{RegVersion}}
+\begin{enumerate}[leftmargin=2em]
+	\item In \texttt{main} after \HAL{} init, drive \texttt{RFM\_RST} low for at least 100\,$\mu$s, then high, then wait 10\,ms for the module to come out of reset.
+	\item Call \texttt{rfm\_read\_reg(0x42)} and \texttt{printf} the result.
+	\item Flash and run. Open the serial monitor (115200,8N1).
+	\item You should see \texttt{RegVersion = 0x12}. Any other value indicates a wiring or configuration error.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why 0x12?}]
+	The SX1276 silicon revision register returns \texttt{0x12} for the V1b mask set used in the RFM9x breakouts. This is the single most reliable sanity check for \SPI{} wiring, clock polarity, and reset sequencing: if you read \texttt{0x00} or \texttt{0xFF}, the module is not talking to you; if you read anything else, you have a clock phase or byte-order issue.
+\end{tcolorbox}
+
+\subsection{Step 5 --- Register write / read-back}
+\begin{enumerate}[leftmargin=2em]
+	\item Write the sequence \texttt{0xD9 0x0C 0xCC} to \texttt{RegFrfMsb}, \texttt{RegFrfMid}, \texttt{RegFrfLsb} (address \texttt{0x06}--\texttt{0x08}). This sets the carrier frequency to 906.5\,MHz. Note: the module must be in \texttt{SLEEP} mode before frequency writes take effect.
+	\item Read the same registers back. Verify that all three values match what you wrote.
+\end{enumerate}
+
+\subsection{Step 6 --- Mode transitions}
+\begin{enumerate}[leftmargin=2em]
+	\item Read \texttt{RegOpMode} (\texttt{0x01}). Confirm the low 3 bits reflect the current mode.
+	\item Write \texttt{0x80} to \texttt{RegOpMode} (LoRa mode, \texttt{SLEEP}).
+	\item Write \texttt{0x81} (LoRa mode, \texttt{STANDBY}). Read back and confirm.
+	\item Write \texttt{0x83} (LoRa mode, \texttt{TX}). Read back and confirm. The module will return to \texttt{STANDBY} after any transmission attempt; this is expected.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{RegVersion} reads \texttt{0x12}.
+	\item[$\square$] Write/read-back to \texttt{RegFrf*} registers returns identical values.
+	\item[$\square$] \texttt{RegOpMode} mode bits transition correctly through \texttt{SLEEP}, \texttt{STANDBY}, \texttt{TX}.
+	\item[$\square$] Serial output shows all register values in hex over the ST-LINK virtual COM port.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Troubleshooting}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{\texttt{RegVersion} reads \texttt{0x00}}: \texttt{MISO} not connected, or \texttt{CS} never asserted.
+		\item \textbf{\texttt{RegVersion} reads \texttt{0xFF}}: \texttt{MISO} floating (pull-up). Check the jumper to \texttt{PA6}.
+		\item \textbf{Reads a seemingly-random but repeatable value}: \mbox{CPOL}/\mbox{CPHA} wrong, or bit 7 (read/write) flipped in your address byte.
+		\item \textbf{First read is wrong, subsequent reads correct}: missing reset delay; increase the post-reset wait to 20\,ms.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-C Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Source code for your \texttt{rfm\_read\_reg} / \texttt{rfm\_write\_reg} helpers and the \texttt{main} test sequence.
+		\item Serial monitor log showing \texttt{RegVersion = 0x12}, frequency register write/read-back, and all three mode transitions.
+		\item If a logic analyzer was used: one screenshot of a successful \texttt{RegVersion} read transaction with \texttt{CS}, \texttt{SCK}, \texttt{MOSI}, \texttt{MISO} traces.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

@@ -124,8 +124,8 @@
 		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
 			\centering\small
 			This document presents the lesson plan for the fifth and final module of the capstone
-			project. Students subject the complete end-to-end system---beacon array, \RF{} link,
-			\FPGA{} processing pipeline, and \ML{} classification---to sustained stress tests,
+			project. Students subject the complete end-to-end system---beacon array, Radio Frequency link,
+			Field-Programmable Gate Array processing pipeline, and Machine Learning classification---to sustained stress tests,
 			benchmark total system response time from transmission to classification output,
 			analyze failure modes under adversarial and edge-case conditions, finalize all
 			curriculum documentation and lab guides, and prepare the final project report and
@@ -614,8 +614,8 @@
 			\midrule
 			1 & Lesson Plans (Modules 1--5) & This document set; PDF and \LaTeX{} source. & $\square$ \\
 			2 & Curriculum Sequence & Module timeline and dependency overview. & $\square$ \\
-			3 & Beacon Firmware & STM32CubeIDE project; SPI driver, packet builder, scheduler. & $\square$ \\
-			4 & Receiver Firmware & STM32CubeIDE project; ISR, ring buffer, UART forwarder. & $\square$ \\
+			3 & Beacon Firmware & VS Code STM32 project (standalone CubeIDE also supported); SPI driver, packet builder, scheduler. & $\square$ \\
+			4 & Receiver Firmware & VS Code STM32 project (standalone CubeIDE also supported); ISR, ring buffer, UART forwarder. & $\square$ \\
 			5 & \FPGA{} RTL & Vivado project; all \VHDL{} sources, constraint file, testbenches. & $\square$ \\
 			6 & Host Collection Script & Python; serial receiver, CSV writer, campaign config. & $\square$ \\
 			7 & ML Pipeline Code & Python; \texttt{preprocess.py}, training scripts, inference script. & $\square$ \\
@@ -634,7 +634,7 @@
 
 	\begin{enumerate}[leftmargin=2em]
 		\item \textbf{Hardware Setup:} Step-by-step instructions for assembling the benchtop platform from the BOM, including photos of the wiring, antenna placement, and board connections.
-		\item \textbf{Software Setup:} Installation instructions for STM32CubeIDE, Vivado (WebPACK), Python environments, and all library dependencies. Specify exact version numbers that were tested.
+		\item \textbf{Software Setup:} Installation instructions for VS Code with the official STMicroelectronics extension stack (the Module~1 reference environment; standalone STM32CubeIDE is documented as an alternative), Vivado (WebPACK), Python environments, and all library dependencies. Specify exact version numbers that were tested.
 		\item \textbf{Common Issues:} A troubleshooting guide organized by symptom (e.g., ``FPGA does not receive any UART data'' $\to$ check ground jumper, verify PMOD pin, confirm baud rate).
 		\item \textbf{Adaptation Guidance:} How to modify the curriculum for different hardware (e.g., substituting a different \FPGA{} board, using a different ISM band), different class sizes (scaling from single-student capstone to a multi-student lab), and different time constraints (condensing from 5 modules to 3).
 		\item \textbf{Assessment Guidance:} Suggested rubric modifications for different academic levels (senior undergraduate vs.\ graduate), with notes on which objectives are essential and which are stretch goals.
@@ -867,7 +867,7 @@
 			Physical Obstruction & 1 & Signal blockage for S3e \\
 			\midrule
 			AMD Vivado Design Suite & 2024.1+ & \ILA{} debugging, bitstream verification \\
-			STM32CubeIDE & Latest & Beacon/receiver firmware \\
+			VS Code + STM32 extension stack & Latest & Beacon/receiver firmware (standalone STM32CubeIDE also supported) \\
 			Python 3.10+ & --- & Inference script, data analysis \\
 			All Module~4 Python dependencies & --- & \texttt{pandas}, \texttt{scikit-learn}, \texttt{torch}, etc. \\
 			\LaTeX{} Distribution & --- & Final report typesetting \\

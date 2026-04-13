@@ -1,0 +1,122 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-B}
+\newcommand{\labtitleshort}{STM32 Dev Environment}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-B}{STM32 Development Environment Setup}
+
+\section{Objective}
+Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-L476RG over its on-board ST-LINK/V2.1, and successfully build, flash, and debug a ``blinky'' firmware image. On completion you will have a fully functional STM32 toolchain ready for \SPI{} bring-up in Lab Handout~1-C.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item A Windows, macOS, or Linux development machine with $\geq$10\,GB of free disk space.
+	\item Administrator rights (required for ST-LINK USB driver installation on Windows).
+	\item STM32 Nucleo-L476RG board and a USB Mini-B cable.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Install VS Code}
+\begin{enumerate}[leftmargin=2em]
+	\item Download VS Code from \href{https://code.visualstudio.com/}{code.visualstudio.com} and install with default options.
+	\item Launch VS Code and open the Extensions panel (\texttt{Ctrl+Shift+X}).
+\end{enumerate}
+
+\subsection{Step 2 --- Install the STMicroelectronics extension stack}
+\begin{enumerate}[leftmargin=2em]
+	\item Search the marketplace for \texttt{STM32 VS Code Extension} (publisher: STMicroelectronics). Install it.
+	\item The umbrella extension will auto-install the following sub-extensions. Verify each is present and enabled:
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=1pt]
+		\item \texttt{stm32cube-ide-project-manager}
+		\item \texttt{stm32cube-ide-build-cmake}
+		\item \texttt{stm32cube-ide-build-analyzer}
+		\item \texttt{stm32cube-ide-bundles-manager}
+		\item \texttt{stm32cube-ide-clangd}
+		\item \texttt{stm32cube-ide-debug-core}
+		\item \texttt{stm32cube-ide-debug-stlink-gdbserver}
+		\item \texttt{stm32cube-ide-registers}
+	\end{itemize}
+	\item Recommended supporting extensions (install manually):
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=1pt]
+		\item \texttt{ms-vscode.cpptools-extension-pack}
+		\item \texttt{ms-vscode.cmake-tools}
+		\item \texttt{marus25.cortex-debug}
+		\item \texttt{dan-c-underwood.arm}
+		\item \texttt{eclipse-cdt.serial-monitor}
+	\end{itemize}
+\end{enumerate}
+
+\subsection{Step 3 --- Install the ARM toolchain and \HAL{} packs}
+\begin{enumerate}[leftmargin=2em]
+	\item Open the STM32Cube Bundles Manager from the VS Code command palette (\texttt{Ctrl+Shift+P} $\to$ ``STM32: Bundles Manager'').
+	\item Install the latest ARM GCC toolchain when prompted.
+	\item Install the STM32Cube\mbox{L4} firmware pack (this contains the \HAL{} drivers for the L476RG).
+	\item Wait for the downloads to finish before proceeding.
+\end{enumerate}
+
+\subsection{Step 4 --- Create an empty project targeting the Nucleo-L476RG}
+\begin{enumerate}[leftmargin=2em]
+	\item Command palette $\to$ ``STM32: New Project''.
+	\item Project type: \textbf{Empty}. Board: \textbf{NUCLEO-L476RG}. Toolchain: \textbf{CMake}.
+	\item When prompted, open the integrated STM32CubeMX peripheral configurator. Enable the \textbf{LED2} user \mbox{LED} on \texttt{PA5} as a \mbox{GPIO} output. Leave all other peripherals at defaults.
+	\item Click ``Generate Code''. VS Code will create \texttt{main.c} with the \HAL{} initialization stubs.
+\end{enumerate}
+
+\subsection{Step 5 --- Write and build blinky}
+\begin{enumerate}[leftmargin=2em]
+	\item In the main loop of \texttt{main.c}, add:
+\begin{verbatim}
+HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+HAL_Delay(500);
+\end{verbatim}
+	\item Command palette $\to$ ``CMake: Build''. Confirm the build completes with zero errors.
+	\item Note the ELF output path reported at the end of the build log; you will use it in Step~6.
+\end{enumerate}
+
+\subsection{Step 6 --- Connect the Nucleo and flash}
+\begin{enumerate}[leftmargin=2em]
+	\item Plug the Nucleo into your PC via USB Mini-B. The \texttt{LD1} ST-LINK status \mbox{LED} should turn red, then blink red/green while enumerating.
+	\item On Windows, Device Manager should show ``ST-Link Debug'' and ``STLink Virtual COM Port'' after enumeration. On macOS/Linux, the device appears as \texttt{/dev/cu.usbmodemXXXX} or \texttt{/dev/ttyACMX}.
+	\item Command palette $\to$ ``CMake: Debug'' or press \texttt{F5}. VS Code launches the ST-LINK GDB server, flashes the ELF, halts at \texttt{main}, and waits at the first breakpoint.
+	\item Press \texttt{F5} again (Continue). The green \texttt{LD2} \mbox{LED} on the Nucleo should begin blinking at 1\,Hz.
+\end{enumerate}
+
+\subsection{Step 7 --- Verify the debug features}
+\begin{enumerate}[leftmargin=2em]
+	\item With the target halted, open the Peripheral Registers view (from the \texttt{stm32cube-ide-registers} extension). Expand \texttt{GPIOA} and locate the \texttt{ODR} register. Confirm that single-stepping past the \texttt{TogglePin} call flips bit 5.
+	\item Set a breakpoint inside the main loop. Resume. Confirm the debugger halts on the breakpoint and that variable values inspect correctly.
+	\item Open the Serial Monitor panel (\texttt{eclipse-cdt.serial-monitor}), select the STLink Virtual COM port, set 115200\,8N1. No data yet --- this just verifies the port opens without errors.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] All listed ST extensions are installed and enabled.
+	\item[$\square$] ARM toolchain and STM32Cube\mbox{L4} \HAL{} pack installed via Bundles Manager.
+	\item[$\square$] Empty project for Nucleo-L476RG builds with zero errors.
+	\item[$\square$] ELF flashes successfully over ST-LINK; \texttt{LD2} blinks at 1\,Hz.
+	\item[$\square$] A breakpoint in the main loop halts execution as expected.
+	\item[$\square$] The \texttt{GPIOA->ODR} register view reflects the toggling state.
+	\item[$\square$] Serial Monitor opens the STLink Virtual COM port without errors.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Common Pitfalls}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{ST-LINK not detected on Windows:} install the STSW-LINK009 driver from \texttt{st.com}. A reboot may be required.
+		\item \textbf{Firmware builds but fails to flash:} update the on-board ST-LINK firmware via the ``STM32: Update ST-LINK firmware'' command.
+		\item \textbf{Wrong board selected:} the L476RG has an ARM Cortex-M4 at 80\,MHz; if the build log mentions M0 or M3, you picked a different Nucleo variant.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-B Deliverable}]
+	Submit the following:
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Screenshot of the VS Code Extensions panel showing the installed STM32 stack.
+		\item Screenshot of a successful build log (terminal output).
+		\item Short video (5--10\,s) of \texttt{LD2} blinking on the physical Nucleo after flash.
+		\item Screenshot of the halted debugger with a breakpoint hit in \texttt{main.c}.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

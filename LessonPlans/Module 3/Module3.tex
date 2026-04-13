@@ -124,11 +124,11 @@
 		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
 			\centering\small
 			This document presents the lesson plan for the third module of the capstone project.
-			Students connect the STM32 beacon--receiver subsystem (Module~1) with the \FPGA{} signal
+			Students connect the STM32 beacon--receiver subsystem (Module~1) with the Field-Programmable Gate Array signal
 			processing pipeline (Module~2), diagnose and resolve integration failures that surface
 			when individually tested subsystems operate together on real hardware, characterize
 			end-to-end latency and throughput, and execute structured data collection campaigns
-			that produce the labeled \RF{} dataset for the \ML{} pipeline in Module~4.
+			that produce the labeled Radio Frequency dataset for the Machine Learning pipeline in Module~4.
 		\end{tcolorbox}
 
 		\vfill
@@ -923,7 +923,7 @@
 			Tape Measure & 1 & Physical distance measurement for Campaign C4 \\
 			\midrule
 			AMD Vivado Design Suite & 2024.1+ & Bitstream generation and \ILA{} debugging \\
-			STM32CubeIDE & Latest & Beacon/receiver firmware modification \\
+			VS Code + STM32 extension stack & Latest & Beacon/receiver firmware modification (Module~1 reference environment; standalone STM32CubeIDE also supported) \\
 			Python 3.10+ & --- & Host-side collection script and EDA \\
 			\texttt{pyserial} & $\geq$3.5 & \UART{} communication from Python \\
 			\texttt{pandas} & $\geq$2.0 & Dataset manipulation and merging \\

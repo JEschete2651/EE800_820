@@ -1,0 +1,130 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{1-H}
+\newcommand{\labtitleshort}{FPGA Ingestion \& E2E}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{1-H}{\FPGA{} \UART{} Ingestion and End-to-End Data Flow}
+
+\section{Objective}
+Implement a minimal \UART{} ingestion path on the Nexys A7-100T that receives the 43-byte forwarding frames from the STM32 receiver (LH1-G), detects the start delimiter, extracts the beacon \mbox{ID}, and displays it on the seven-segment display. This closes the Module~1 end-to-end data path: \textbf{beacon $\to$ \RF{} link $\to$ receiver $\to$ \FPGA{}}.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~1-E (Vivado toolchain), 1-F (beacon), and 1-G (receiver) complete.
+	\item The receiver node from LH1-G must be producing valid frames on \texttt{USART3 TX} (validated by the Python parser).
+\end{itemize}
+
+\section{Architecture}
+
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l l}
+		\toprule
+		\textbf{Block} & \textbf{Function} \\
+		\midrule
+		\texttt{uart\_rx} & 115200\,8N1 \UART{} receiver (oversampled) \\
+		\texttt{byte\_fifo} & Small 16-byte \FIFO{} between \texttt{uart\_rx} and frame detector \\
+		\texttt{frame\_detector} & Synchronize on \texttt{0x7E} start, capture 43 bytes, expose beacon \mbox{ID} \\
+		\texttt{seg7\_driver} & Drive the four right-most digits with the beacon \mbox{ID} in hex \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{Wiring}
+Connect the receiver's \texttt{USART3 TX} pin to one of the Nexys A7 \mbox{PMOD} input pins. Common ground is essential.
+\begin{itemize}[leftmargin=2em]
+	\item STM32 \texttt{USART3 TX} (\texttt{PC4}) $\to$ Nexys A7 \texttt{JA[0]} (pin \texttt{C17}, check the \mbox{PMOD} pin mapping in the Nexys A7 reference manual).
+	\item STM32 \texttt{GND} $\to$ Nexys A7 \texttt{GND} (\texttt{JA} \mbox{PMOD} pin 5 or 11).
+\end{itemize}
+
+\begin{tcolorbox}[warning={Voltage Levels}]
+	The STM32 drives 3.3\,V logic and the Nexys A7 \mbox{PMOD} pins are 3.3\,V-tolerant (in fact, 3.3\,V native). No level shifter is required. Do \textit{not} wire the STM32 to an \mbox{LVCMOS18} bank by mistake --- double-check which \mbox{PMOD} you are using.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Project setup}
+\begin{enumerate}[leftmargin=2em]
+	\item In Vivado, create a new project targeting \texttt{xc7a100tcsg324-1} (or reopen the LH1-E project and add the new sources alongside \texttt{loopback\_top.vhd}).
+	\item Add a new top-level entity \texttt{ingest\_top.vhd} with:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \texttt{clk100} (100\,MHz input from the Nexys A7 oscillator).
+		\item \texttt{rst\_n} (active-low reset tied to a pushbutton).
+		\item \texttt{uart\_rx} (single input from the \mbox{PMOD} pin).
+		\item \texttt{seg} (7 outputs for segments) and \texttt{an} (8 outputs for digit anodes).
+	\end{itemize}
+	\item Add the pruned \texttt{Nexys-A7-100T-Master.xdc} with the relevant pins uncommented.
+\end{enumerate}
+
+\subsection{Step 2 --- \UART{} receiver}
+\begin{enumerate}[leftmargin=2em]
+	\item Write or reuse a textbook 115200\,8N1 \UART{} receiver. Clock: 100\,MHz, so the baud-tick divisor is $100\,000\,000/115\,200 \approx 868$. Oversample by 16 and sample at bit midpoints.
+	\item Expose two outputs: \texttt{rx\_data[7:0]} and \texttt{rx\_strobe} (one-cycle pulse on byte received).
+\end{enumerate}
+
+\subsection{Step 3 --- Byte \FIFO{}}
+\begin{enumerate}[leftmargin=2em]
+	\item Instantiate a small synchronous \FIFO{} (16 entries $\times$ 8 bits is plenty). You can hand-roll it in \VHDL{} or instantiate a Xilinx \mbox{FIFO} primitive --- either is fine for this handout.
+	\item Push on \texttt{rx\_strobe}; the frame detector pulls one byte per state tick.
+\end{enumerate}
+
+\subsection{Step 4 --- Frame detector \FSM{}}
+States: \texttt{IDLE}, \texttt{LEN}, \texttt{PAYLOAD}, \texttt{DONE}.
+\begin{enumerate}[leftmargin=2em]
+	\item \texttt{IDLE}: pop bytes and discard until a byte equals \texttt{0x7E}. Transition to \texttt{LEN}.
+	\item \texttt{LEN}: pop one byte. Expect \texttt{41} (0x29). If it doesn't match, return to \texttt{IDLE}. Otherwise, transition to \texttt{PAYLOAD}.
+	\item \texttt{PAYLOAD}: pop 41 more bytes into an internal register bank. Byte index 1 of the original beacon packet (which is offset 3 of the forwarding frame --- start delimiter 0, length 1, beacon bytes start at 2) is the beacon \mbox{ID}. Capture it into a register \texttt{beacon\_id[7:0]}.
+	\item \texttt{DONE}: assert a \texttt{new\_frame} pulse for one cycle, then return to \texttt{IDLE}.
+\end{enumerate}
+For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will add that.
+
+\subsection{Step 5 --- Seven-segment driver}
+\begin{enumerate}[leftmargin=2em]
+	\item Multiplex the four right-most digits at $\sim$1\,kHz per digit (use a clock divider from 100\,MHz).
+	\item Display the captured \texttt{beacon\_id} in hex on digits \texttt{[1:0]}. Leave digits \texttt{[3:2]} blank or use them to show a simple frame counter that increments on \texttt{new\_frame}.
+\end{enumerate}
+
+\subsection{Step 6 --- Synthesize, implement, program}
+\begin{enumerate}[leftmargin=2em]
+	\item Follow the same flow as LH1-E: Synthesis, Implementation, Generate Bitstream, Program.
+	\item Verify zero timing-constraint violations in the implementation report.
+\end{enumerate}
+
+\subsection{Step 7 --- End-to-end run}
+\begin{enumerate}[leftmargin=2em]
+	\item Power on the beacon(s) from LH1-F and the receiver from LH1-G. The STM32 receiver should be \texttt{printf}ing debug output over its virtual COM port.
+	\item Power on the Nexys A7 and program the bitstream.
+	\item Observe the seven-segment display. It should alternate between \texttt{01} and \texttt{02} as each beacon's frames arrive.
+	\item Introduce a deliberate perturbation: turn off Beacon~A. The display should lock to \texttt{02} only. Turn it back on. It should resume alternating.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{uart\_rx} correctly decodes bytes at 115200 baud (verify with ILA or test bench).
+	\item[$\square$] Frame detector synchronizes on the \texttt{0x7E} delimiter and captures 43-byte frames without losing alignment.
+	\item[$\square$] Seven-segment display shows \texttt{01}/\texttt{02} matching the live beacon \mbox{ID}s.
+	\item[$\square$] Removing and restoring a beacon causes the display to respond within 2~seconds.
+	\item[$\square$] Vivado implementation report: zero timing violations.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Troubleshooting}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{No display change}: verify the \mbox{PMOD} pin is correct in the \texttt{.xdc} and that the STM32 ground is tied to the Nexys A7 ground.
+		\item \textbf{Garbage bytes}: baud divisor wrong. Recompute against the actual \texttt{clk100} frequency.
+		\item \textbf{Frame detector stuck in \texttt{IDLE}}: length byte mismatch. Confirm the receiver is sending \texttt{0x29} as byte 1.
+		\item \textbf{Display flickers unreadably}: multiplex rate too slow (increase per-digit frequency to $\geq$500\,Hz).
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 1-H Deliverable --- and Module 1 Final Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item All \VHDL{} sources: \texttt{uart\_rx}, \texttt{byte\_fifo}, \texttt{frame\_detector}, \texttt{seg7\_driver}, \texttt{ingest\_top}.
+		\item Pruned \texttt{.xdc} constraint file.
+		\item Vivado utilization and timing reports.
+		\item Short video (30--60\,s) of the complete end-to-end system running: beacons transmitting, receiver forwarding, Nexys A7 seven-segment display updating with beacon \mbox{ID}s.
+		\item One-page Module~1 retrospective: what worked, what didn't, what you would change before Module~2.
+	\end{enumerate}
+\end{tcolorbox}
+
+\end{document}

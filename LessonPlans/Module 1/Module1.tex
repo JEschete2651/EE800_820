@@ -103,9 +103,9 @@
 		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
 			\centering\small
 			This document presents a lesson plan for the first module of the capstone project,
-			covering \RF{} transceiver selection, hardware platform validation, and the design of the
-			beacon--receiver subsystem that forms the foundation for all subsequent \FPGA{} processing
-			and \ML{} work.
+			covering Radio Frequency transceiver selection, hardware platform validation, and the design of the
+			beacon--receiver subsystem that forms the foundation for all subsequent Field-Programmable Gate Array processing
+			and Machine Learning work.
 		\end{tcolorbox}
 		
 		\vfill
@@ -139,12 +139,12 @@
 	
 	\subsection{Prerequisites}
 	
-	Students beginning this module should have:
+	Students beginning this module should have the background listed below. For students who need to catch up on any item, a recommended primer is noted; all cited works appear in full in Section~\ref{sec:resources}.
 	\begin{itemize}[leftmargin=2em]
-		\item Familiarity with C/C++ embedded programming (\GPIO{}, \SPI{}, \UART{}, and \IIC{})
-		\item Basic understanding of digital modulation (\ASK{}, \FSK{}, and LoRa \CSS{} concepts)
-		\item Experience with \VHDL{} and the \FPGA{} synthesis flow
-		\item Introductory exposure to machine learning (supervised classification)
+		\item Familiarity with C/C++ embedded programming (\GPIO{}, \SPI{}, \UART{}, and \IIC{}) --- see Valvano, \textit{Embedded Systems: Real-Time Interfacing to ARM Cortex-M Microcontrollers}, for peripheral fundamentals, and the STM32L476xx Reference Manual (RM0351) for the specific peripheral registers used in this module.
+		\item Basic understanding of digital modulation (\ASK{}, \FSK{}, and LoRa \CSS{} concepts) --- Sklar, \textit{Digital Communications: Fundamentals and Applications}, covers the modulation theory; Semtech Application Note AN1200.22, ``LoRa Modulation Basics,'' is the concise primer for LoRa-specific \CSS{}.
+		\item Experience with \VHDL{} and the \FPGA{} synthesis flow --- Chu, \textit{\FPGA{} Prototyping by \VHDL{} Examples: Xilinx Artix-7 Edition}, is the primary recommended text; Haskell and Hanna, \textit{Digital Design Using Digilent \FPGA{} Boards: \VHDL{}\,/\,Vivado Edition}, provides a Nexys-board-specific walkthrough of the Vivado toolchain.
+		\item Introductory exposure to machine learning (supervised classification) --- a formal reference is introduced in Module~4; any standard introductory text on supervised classification is sufficient background here.
 		\item Access to the hardware listed in Section~\ref{sec:hardware}
 	\end{itemize}
 	
@@ -287,17 +287,45 @@
 	
 	\subsection{STM32 Firmware Bring-Up}
 	
-	\subsubsection{Development Environment}
-	
+	\subsubsection{Development Environment}\label{sec:stm32_env}
+
+	Two supported workflows are documented. Students may choose either; the course reference environment is the VS Code flow because it unifies the STM32, serial monitor, and (later) documentation/version-control workflow in a single tool.
+
+	\paragraph{Option A --- VS Code with the official STMicroelectronics extension stack (recommended).}
+	Install the \href{https://marketplace.visualstudio.com/items?itemName=stmicroelectronics.stm32-vscode-extension}{\textit{STM32 VS Code Extension}} from the Visual Studio Code marketplace. It is the official ST-maintained port of the STM32CubeIDE toolchain and automatically installs the supporting sub-extensions listed below. No separate CubeIDE installation is required.
 	\begin{itemize}[leftmargin=2em]
-		\item \textbf{\IDE{}:} STM32CubeIDE (free, includes \HAL{} libraries and code generation via STM32CubeMX).
+		\item \textbf{Umbrella extension:} \texttt{stmicroelectronics.stm32-vscode-extension} (pulls the full sub-extension set).
+		\item \textbf{Project management and build:} \texttt{stm32cube-ide-project-manager}, \texttt{stm32cube-ide-build-cmake}, \texttt{stm32cube-ide-build-analyzer}, and \texttt{stm32cube-ide-bundles-manager} (auto-fetches the ARM GCC toolchain and \HAL{} packs).
+		\item \textbf{IntelliSense:} \texttt{stm32cube-ide-clangd} (pre-configured for ARM cross-compilation).
+		\item \textbf{Debug:} \texttt{stm32cube-ide-debug-core} with the \texttt{debug-stlink-gdbserver} back end (the Nucleo-L476RG's on-board ST-LINK/V2.1 is supported out of the box; \texttt{debug-jlink-gdbserver} and \texttt{debug-generic-gdbserver} are also installed for external probes).
+		\item \textbf{Peripheral register view:} \texttt{stm32cube-ide-registers} for live register inspection during debug.
+		\item \textbf{RTOS awareness:} \texttt{stm32cube-ide-rtos} (unused for the Module~1 bare-metal firmware; retained for later modules if an \mbox{RTOS} is introduced).
+		\newpage
+		\item \textbf{Supporting general extensions:}
+		\begin{itemize}[leftmargin=1.5em, topsep=2pt, itemsep=1pt]
+			\item \texttt{ms-vscode.cpptools} (+ extension pack) --- fallback C/C++ language server.
+			\item \texttt{ms-vscode.cmake-tools} --- CMake integration.
+			\item \texttt{marus25.cortex-debug} --- alternate Cortex-M debugger with SVD, RTT, and ITM support.
+			\item \texttt{dan-c-underwood.arm} --- ARM assembly syntax highlighting.
+			\item \texttt{eclipse-cdt.serial-monitor} --- UART monitor for the Nucleo's virtual COM port directly inside VS Code.
+		\end{itemize}
+	\end{itemize}
+
+	With this stack installed, the full workflow --- peripheral configuration (integrated CubeMX), code generation, build, flash over the on-board ST-LINK, single-step debug, peripheral register inspection, and UART monitoring --- runs entirely inside VS Code with no additional tools required.
+
+	\paragraph{Option B --- Standalone STM32CubeIDE.}
+	The classic Eclipse-based \href{https://www.st.com/en/development-tools/stm32cubeide.html}{STM32CubeIDE} (free from ST) remains fully supported. It bundles the \HAL{} libraries and STM32CubeMX code generation in a single installer and may be preferred by students already familiar with Eclipse or those who want CubeMX as a dedicated GUI application.
+
+	\paragraph{Common target details (both options).}
+	\begin{itemize}[leftmargin=2em]
 		\item \textbf{Target \MCU{}:} STM32L476RG (ARM Cortex-M4, 80\,MHz, low-power).
-		\item \textbf{Debug Interface:} On-board ST-LINK/V2-1 (USB).
+		\item \textbf{Debug Interface:} On-board ST-LINK/V2.1 (USB) --- no external programmer required.
+		\item \textbf{Serial console:} Nucleo virtual COM port via the same ST-LINK USB connection (used for debug prints and \RSSI{}/\SNR{} logging).
 	\end{itemize}
 	
 	\subsubsection{SPI Configuration}
 	
-	Using STM32CubeMX, configure the \SPI{} peripheral as follows:
+	Using the integrated STM32CubeMX peripheral configurator (available from either the VS Code extension or standalone STM32CubeIDE --- see Section~\ref{sec:stm32_env}), configure the \SPI{} peripheral as follows:
 	
 	\begin{table}[ht!]
 		\centering
@@ -391,6 +419,7 @@
 		The beacon subsystem is intentionally designed to give students direct control over the \RF{} environment. By parameterizing transmission power, modulation type, spreading factor, and timing, students can systematically vary the input to the \FPGA{} and \ML{} pipeline, creating a structured experimental platform rather than relying on uncontrolled ambient signals.
 	\end{tcolorbox}
 	
+	\newpage
 	\subsection{Packet Format Design}
 	
 	Each beacon transmission must carry sufficient metadata for the receiver and \FPGA{} to identify, classify, and prioritize it. The following packet structure is recommended:
@@ -423,7 +452,7 @@
 		
 		The 17-byte payload region can carry pseudo-random bit sequences for bit-error-rate (BER) testing or structured data patterns that exercise specific aspects of the demodulator.
 	\end{tcolorbox}
-	
+	\newpage
 	\subsection{Transmission Scheduling}
 	
 	When multiple beacons share the same frequency band, uncoordinated transmissions will collide. The scheduling strategy must balance simplicity (suitable for an educational context) with sufficient sophistication to create realistic multi-access scenarios.
@@ -687,9 +716,9 @@
 	
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Recommended Resources}
+	\section{Recommended Resources}\label{sec:resources}
 	% ══════════════════════════════════════════════════════════════
-	
+
 	\subsection{Datasheets and Technical References}
 	
 	\begin{enumerate}[leftmargin=2em]
