@@ -78,7 +78,7 @@
 		
 		{\Huge\bfseries\color{stevens} Lesson Plan: Module~1\par}
 		\vspace{0.5cm}
-		{\LARGE\color{darkgray} \RF{} Module Selection, Hardware Bring-Up,\\[4pt]
+		{\LARGE\color{darkgray} Radio Frequency Module Selection, Hardware Bring-Up,\\[4pt]
 			and Beacon--Receiver Subsystem Design\par}
 		
 		\vspace{1.5cm}
@@ -216,6 +216,7 @@
 		\end{tabularx}
 	\end{table}
 	
+	\newpage
 	\subsection{Candidate Modules}
 	
 	\begin{table}[ht!]
@@ -317,6 +318,7 @@
 		\end{tabular}
 	\end{table}
 	
+	\newpage
 	\subsubsection{Validation Steps}
 	
 	\begin{enumerate}[leftmargin=2em]
@@ -459,29 +461,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\resizebox{0.85\textwidth}{!}{%
-			\begin{tikzpicture}[
-				node distance=2cm and 2.5cm,
-				state/.style={rectangle, draw=stevens, fill=lightgray, thick, rounded corners,
-					minimum width=2.8cm, minimum height=1cm, align=center, font=\small},
-				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray},
-				elabel/.style={font=\scriptsize\itshape, color=accentblue}
-				]
-				\node[state] (init) {INIT};
-				\node[state, right=of init] (config) {CONFIGURE};
-				\node[state, right=of config] (idle) {IDLE\\(Wait for Slot)};
-				\node[state, below=of idle] (build) {BUILD\\PACKET};
-				\node[state, left=of build] (tx) {TRANSMIT};
-				\node[state, left=of tx] (log) {LOG \&\\INCREMENT};
-				
-				\draw[arrow] (init) -- (config) node[midway, above, elabel] {Power-on reset};
-				\draw[arrow] (config) -- (idle) node[midway, above, elabel] {\SPI{} verified};
-				\draw[arrow] (idle) -- (build) node[midway, right, elabel] {Timer expires};
-				\draw[arrow] (build) -- (tx) node[midway, above, elabel] {Packet ready};
-				\draw[arrow] (tx) -- (log) node[midway, above, elabel] {TX complete IRQ};
-				\draw[arrow] (log) -- (idle) node[midway, left, elabel] {Seq++ / reset timer};
-			\end{tikzpicture}%
-		}
+		\includegraphics[width=0.85\textwidth]{Images/BFA.png}
 		\caption{Beacon firmware state machine. The IDLE$\rightarrow$BUILD$\rightarrow$TRANSMIT$\rightarrow$LOG cycle repeats for each scheduled transmission.}
 		\label{fig:beacon_fsm}
 	\end{figure}
@@ -603,47 +583,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\resizebox{0.9\textwidth}{!}{%
-			\begin{tikzpicture}[
-				node distance=1.5cm and 2cm,
-				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
-					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
-				irq/.style={rectangle, draw=accentblue, fill=blue!5, thick,
-					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
-				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray},
-				elabel/.style={font=\scriptsize\itshape, color=accentblue}
-				]
-				% ISR path
-				\node[irq] (dio) {DIO0 IRQ\\(\texttt{RxDone})};
-				\node[block, right=of dio] (read) {Read \FIFO{}\\+ Registers};
-				\node[block, right=of read] (stamp) {Timestamp\\+ Metadata};
-				\node[block, right=of stamp] (enqueue) {Enqueue to\\Ring Buffer};
-				
-				% Main loop path
-				\node[block, below=2cm of dio] (main) {Main Loop\\(IDLE)};
-				\node[block, right=of main] (dequeue) {Dequeue\\Packet};
-				\node[block, right=of dequeue] (frame) {Build\\TX Frame};
-				\node[block, right=of frame] (send) {Send to \FPGA{}\\(\UART{}/\SPI{})};
-				
-				% Arrows - ISR
-				\draw[arrow] (dio) -- (read) node[midway, above, elabel] {IRQ fires};
-				\draw[arrow] (read) -- (stamp);
-				\draw[arrow] (stamp) -- (enqueue);
-				
-				% Arrows - Main
-				\draw[arrow] (main) -- (dequeue) node[midway, above, elabel] {Buffer not empty};
-				\draw[arrow] (dequeue) -- (frame);
-				\draw[arrow] (frame) -- (send);
-				\draw[arrow] (send.south) -- ++(0,-0.6) -| (main.south) node[near start, right, elabel] {Return to idle};
-				
-				% ISR to main connection
-				\draw[arrow, dashed] (enqueue.south) -- ++(0,-0.5) -| (dequeue.north) node[near start, right, elabel] {Ring buffer};
-				
-				% Labels
-				\node[font=\small\bfseries\color{stevens}, above=0.3cm of dio, anchor=south west] {Interrupt Context};
-				\node[font=\small\bfseries\color{stevens}, above=0.3cm of main, anchor=south west] {Main Loop Context};
-			\end{tikzpicture}%
-		}
+		\includegraphics[width=0.9\textwidth]{Images/RFA.png}
 		\caption{Receiver firmware architecture. The ISR captures packets into a ring buffer; the main loop drains the buffer and forwards frames to the \FPGA{}.}
 		\label{fig:rx_fw}
 	\end{figure}
@@ -681,42 +621,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\resizebox{\textwidth}{!}{%
-			\begin{tikzpicture}[
-				node distance=1.5cm and 2.5cm,
-				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
-					minimum width=3cm, minimum height=1.2cm, align=center, font=\small},
-				future/.style={rectangle, draw=darkgray, fill=white, thick, dashed,
-					minimum width=3cm, minimum height=1.2cm, align=center, font=\small\color{darkgray}},
-				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray}
-				]
-				% Nodes
-				\node[block] (beacon1) {STM32 Nucleo\\+ \RF{} Module\\(Beacon 1)};
-				\node[block, below=0.8cm of beacon1] (beacon2) {STM32 Nucleo\\+ \RF{} Module\\(Beacon 2)};
-				\node[block, below=0.8cm of beacon2] (beaconN) {STM32 Nucleo\\+ \RF{} Module\\(Beacon $N$)};
-				
-				\node[block, right=3cm of beacon2] (rx) {STM32 Nucleo\\+ \RF{} Module\\(Receiver)};
-				
-				\node[block, right=3cm of rx] (fpga) {Nexys A7-100T\\FPGA\\(Frame Ingestion)};
-				
-				\node[future, right=3cm of fpga] (ml) {\ML{} Pipeline\\(Module 3)};
-				
-				% Arrows
-				\draw[arrow] (beacon1.east) -- ++(1,0) |- (rx.west);
-				\draw[arrow] (beacon2.east) -- (rx.west);
-				\draw[arrow] (beaconN.east) -- ++(1,0) |- (rx.west);
-				\draw[arrow] (rx.east) -- (fpga.west) node[midway, above, font=\scriptsize] {\UART{} / \SPI{}};
-				\draw[arrow, dashed, color=darkgray!50] (fpga.east) -- (ml.west) node[midway, above, font=\scriptsize\color{darkgray}] {(Module 2+)};
-				
-				% \RF{} labels
-				\node[font=\scriptsize\itshape, color=accentblue] at ($(beacon1.east)!0.5!(rx.west)+(0,0.8)$) {915\,MHz \RF{}};
-				
-				% Grouping
-				\node[draw=stevens, dashed, thick, rounded corners, 
-				fit=(beacon1)(beacon2)(beaconN), 
-				label={[font=\small\bfseries\color{stevens}]above:Beacon Array}] {};
-			\end{tikzpicture}%
-		}
+		\includegraphics[width=\textwidth]{Images/Module1Subsystem.png}
 		\caption{Module~1 subsystem architecture. Solid blocks and arrows indicate components and data paths validated by end of Week~4. The dashed \ML{} Pipeline block indicates a downstream module.}
 		\label{fig:arch}
 	\end{figure}

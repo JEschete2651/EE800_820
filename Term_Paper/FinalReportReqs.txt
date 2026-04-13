@@ -1,0 +1,94 @@
+Requirements:
+
+    The above attachment describes the required sections of the report. Please read it thoroughly and follow it. Otherwise, the report will lose points.
+    Please exactly follow the IEEE format when writing the final report. Reports that do not exactly follow the IEEE format are not accepted, i.e., the report will receive 0 points.
+    References should be published in the last five years in IEEE/ACM journals or conferences. All references must be cited in the report. 
+
+    Notice that just because a paper is included in IEEE Xplore does not make it an IEEE paper. Many non-IEEE or non-ACM conference proceedings are included in IEEE Xplore. So you need to look at the conference or journal names. If they are IEEE/ACM papers, the conference/journal names must have a prefix of ‘IEEE’ or 'ACM'.
+    An individual report should be at least 6 pages. A team-based project report should be at least 8 pages.
+    Team-project reports must include a separate page documenting each team member's major contributions. Team members should submit the same report with all names.
+    A cover page is not required for the final report.
+    Do not copy and paste any single sentence/figure/table from references, the Internet, ChatGPT, or any other sources. Should such a copy/paste be identified, the report will receive 0 points. 
+    All reports must be submitted in PDF format.
+    May 10 is the firm deadline; late submissions are not accepted.
+
+
+Project Title (Bold, Font size 24)
+Author names (Font size 9)
+Department name, Institution name
+Email addresses
+Abstract -- The key components that should be included in the
+abstract are the research problem, the importance and
+challenges of the problem, the solution for solving the problem,
+and the results and brief conclusions. The entire abstract should
+be less than 1/5 page. The Font size is 9.
+Index terms: 4-6 keywords to help people find your paper. The
+Font size is 9.
+I. INTRODUCTION (FONT SIZE 10)
+This section introduces the research problem and the
+background, importance, and challenges of the problem. For a
+short paper like this project report, this section can also present
+the related work and the main contributions.
+At the end of the section, you need to outline how the rest of
+the paper is organized. This will help readers to understand the
+structure of the report.
+This section should be one page. The Font size for this
+section and the remaining report is 10.
+II. PROBLEM STATEMENT
+This section formally defines the research problem. In many
+papers, this section defines the context or system model of the
+problem. The language in this section should be concise,
+accurate, and clear.
+Do not beat around the bush without a focus; just clearly
+define what exactly the problem you are solving in this paper.
+Yes, just one problem you selected from the 800-Project-List.
+Notice that survey papers are not accepted; Analyzing an
+existing work is not accepted.
+This section should be half a page to one page.
+III. YOUR SOLUTION
+This section presents your work. It could be a new model, a
+new algorithm, a new architecture, a new design, a new protocol,
+or a new system. Anything is new. The section title should
+reflect your work.
+When presenting your work, you also need to elaborate on
+the rationale of the new design: why you think your
+model/algorithm/architecture/design/protocol/system can solve
+the problem, and even more importantly, why it performs better
+than others. You may have multiple subsections.
+A. Subsection 1
+This is the most important section of the report. Please make
+sure you describe the novel aspects of your new
+model/algorithm/architecture/design/protocol such that people
+can easily understand it and appreciate it.
+B. Subsection 2
+Section III should be 3-4 pages.
+IV. NUMERICAL RESULTS AND ANALYSIS
+This section provides numerical results to support your
+model/algorithm/architecture/design/protocol in Section III.
+A. Subsection 1
+You may obtain the results through simulations, real-system
+experiments, or theoretical analysis. Very often, people use
+figures and/or tables to present numerical results.
+Each figure/table must be explained thoroughly. Source code
+should not be included in the report. Instead, please submit
+them to your project advisor separately.
+B. Subsection 2
+Notice that you must provide all the details on how you
+obtained the results. This section could be 2-3 pages.
+V. CONCLUSION
+This section summarizes the paper. Please do not copy and
+paste the Abstract. This section could be just one big paragraph.
+Notice that an individual-based project report should be at
+least 6 pages, and a team-based project should be at least 8
+pages.
+REFERENCES
+At least 6 (individual project) or 12 (team project) references
+published in the last five years in IEEE/ACM journals or
+conferences. Do not copy and paste anything from any
+references or other public/private sources.
+All references must be cited in the report.
+Appendix (optional)
+This document describes the main sections of the report. Please
+follow the IEEE format for more details when writing the
+report. Reports not following the IEEE format will not be
+accepted.

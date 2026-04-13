@@ -1,49 +1,41 @@
-# EE800/820: An Educational Framework for AI-Driven RF Signal Processing on FPGA
+# EE800/820: Educational Framework for AI-Driven RF Signal Processing on FPGA
 
-A progressive, hardware-grounded curriculum integrating FPGA digital design, RF communications, embedded firmware, and machine learning into a single unified learning experience.
+This repository collects the working materials for an EE800/820 project that links RF communications, FPGA design, embedded systems, and machine learning into a single instructional pipeline.
 
-**Student:** Jude Eschete
-**Advisor:** Bernard Yett
-**Institution:** Stevens Institute of Technology
-**Semester:** Spring 2026
+Student: Jude Eschete  
+Advisor: Bernard Yett  
+Institution: Stevens Institute of Technology  
+Semester: Spring 2026
 
----
+## Overview
 
-## Project Overview
+The project is organized around a benchtop RF platform in which STM32-based nodes and LoRa radios generate signals that can later be received and processed on a Digilent Nexys A7-100T FPGA. The long-term goal is an educational framework that takes students from subsystem design through data collection, feature extraction, and AI-based classification.
 
-This project develops a five-module educational framework built around a concrete benchtop hardware platform. STM32 microcontrollers paired with RFM95W LoRa transceivers transmit RF signals that are received and processed in real time by a Digilent Nexys A7-100T FPGA, with collected signal data feeding a machine learning classification pipeline. A custom Python engagement simulator provides a physics-grounded, labeled training environment before physical hardware is operational.
+Before the hardware pipeline is fully operational, the repository includes a Python electronic-warfare engagement simulator that models target-to-target communication, threat detection, jamming, counter-jamming, resynchronization, logging, and scenario-level experimentation. That simulator currently serves as the most complete executable artifact in the repo.
 
-The framework targets senior undergraduate and master's-level EE students, making each cross-domain interface an explicit teaching objective rather than an incidental detail.
+## Hardware Platform
 
----
+| Component | Model | Role |
+|-----------|-------|------|
+| FPGA Development Board | Digilent Nexys A7-100T (Artix-7) | Signal processing and future feature extraction |
+| Microcontroller | STM32 Nucleo-L476RG | Beacon firmware and peripheral control |
+| LoRa Transceiver | HopeRF RFM95W (SX1276) | RF transmission in the 915 MHz ISM band |
 
-## Hardware
+## Repository Layout
 
-| Component | Model | Purpose |
-|-----------|-------|---------|
-| FPGA Development Board | Digilent Nexys A7-100T (Artix-7) | Signal processing, feature extraction |
-| Microcontroller | STM32 Nucleo-L476RG | Beacon firmware, receiver interface |
-| LoRa Transceiver | HopeRF RFM95W (SX1276) | RF transmission at 915 MHz ISM band |
-
----
-
-## Repository Structure
-
-```
+```text
+.
 ├── Code/
-│   └── EngagementSim/          # Python EW engagement simulator
-├── Term_Paper/
-│   ├── Midstage/               # Mid-stage report (LaTeX + PDF)
-│   └── Sources/
-│       ├── Datasheets/         # Hardware reference manuals
-│       ├── IEEESources/        # IEEE papers (gitignored)
-│       └── Sources.md          # Annotated bibliography
-├── Weekly_Reports/
-├── .gitignore
+│   ├── EngagementSim/              # Python EW simulator with GUI, logging, tests
+│   └── LoRa_FPGA_FeaturePipeline/  # Vivado FPGA project assets
+├── LessonPlans/                    # Curriculum modules and teaching materials
+├── Notes/                          # Collected notes, URLs, reference images
+├── Proposal/                       # Proposal LaTeX sources
+├── Term_Paper/                     # Midstage report, paper assets, references
+├── Weekly_Reports/                 # Weekly progress reports
+├── ToDo.txt
 └── README.md
 ```
-
----
 
 ## Curriculum Modules
 
@@ -55,8 +47,20 @@ The framework targets senior undergraduate and master's-level EE students, makin
 | 4 | AI-Driven Classification Pipeline |
 | 5 | System Validation and Benchmarking |
 
----
+## Current Project State
+
+The repo is currently split between documentation artifacts and implementation work:
+
+- The Python simulator in `Code/EngagementSim` is functional and includes a GUI, map view, charts, per-asset RF configuration, scenario save/load support, CSV export, logging, and unit tests.
+- The FPGA feature-pipeline work exists as a Vivado project scaffold in `Code/LoRa_FPGA_FeaturePipeline`.
+- The lesson plans, proposal, term paper, and weekly reports document the instructional and research side of the project.
+
+## Recommended Starting Points
+
+- If you want to run software immediately, start with `Code/EngagementSim`.
+- If you want the academic narrative, review `Term_Paper`, `Proposal`, and `Weekly_Reports`.
+- If you want the teaching structure, review `LessonPlans`.
 
 ## Status
 
-🟠 **Mid-Stage** — Mid-stage report complete and to be submitted. Hardware acquired. Engagement simulator implemented. FPGA RTL development in progress.
+Mid-stage development. Hardware has been acquired, the simulator is implemented and tested, and the FPGA/feature-extraction path remains under active development.
