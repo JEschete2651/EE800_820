@@ -1,0 +1,99 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-A}
+\newcommand{\labtitleshort}{Vivado Project Setup}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-A}{Vivado Project Setup and \VHDL{} Skeleton for the Ingestion Pipeline}
+
+\section{Objective}
+Create the Vivado project and directory layout that will host the full Module~2 \RTL{} ingestion pipeline. By the end of this handout you will have a compiling (empty-but-valid) top-level entity, a constraint file limited to the signals we actually use, and a simulation set ready to accept testbenches in Lab Handouts~2-B through 2-G.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~1-E (Vivado toolchain validated on Nexys A7-100T).
+	\item Basic \VHDL{} syntax familiarity.
+\end{itemize}
+
+\section{Materials}
+\begin{itemize}[leftmargin=2em]
+	\item Digilent Nexys A7-100T development board.
+	\item Host PC with Vivado ML Standard installed.
+	\item \texttt{Nexys-A7-100T-Master.xdc} constraint file from Digilent.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Create the project directory}
+\begin{enumerate}[leftmargin=2em]
+	\item On the host PC, create a working directory \texttt{ee800\_m2\_ingest/} with subfolders \texttt{rtl/}, \texttt{sim/}, \texttt{xdc/}, and \texttt{data/}. The \texttt{data/} folder will hold recorded Module~1 byte captures used as testbench stimulus.
+	\item Copy \texttt{Nexys-A7-100T-Master.xdc} into \texttt{xdc/} and rename it \texttt{ingest\_top.xdc}.
+\end{enumerate}
+
+\subsection{Step 2 --- Create the Vivado project}
+\begin{enumerate}[leftmargin=2em]
+	\item Vivado $\to$ \textit{File} $\to$ \textit{Project} $\to$ \textit{New}. Name it \texttt{ingest\_top}, location \texttt{ee800\_m2\_ingest/}.
+	\item Project type: \textbf{\RTL{} Project}. Do not add sources yet.
+	\item Target device: \textbf{xc7a100tcsg324-1}.
+\end{enumerate}
+
+\labfigure{LH2A_project_wizard.png}{0.8\textwidth}{Vivado New Project wizard with target part \texttt{xc7a100tcsg324-1} selected.}{fig:lh2a-wizard}
+
+\subsection{Step 3 --- Add the \VHDL{} top skeleton}
+Create \texttt{rtl/ingest\_top.vhd} with the following entity. Leave the architecture body empty for now --- Lab Handouts 2-B through 2-F will fill it in incrementally.
+\begin{verbatim}
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity ingest_top is
+    Port ( sysclk   : in  STD_LOGIC;                      -- 100 MHz
+           rstn     : in  STD_LOGIC;                      -- active-low reset
+           uart_rxd : in  STD_LOGIC;                      -- from STM32 RX
+           led      : out STD_LOGIC_VECTOR(15 downto 0)); -- status LEDs
+end ingest_top;
+
+architecture rtl of ingest_top is
+begin
+    led <= (others => '0');
+end rtl;
+\end{verbatim}
+
+\subsection{Step 4 --- Prune the constraint file}
+\begin{enumerate}[leftmargin=2em]
+	\item Open \texttt{xdc/ingest\_top.xdc}. Uncomment only: the 100\,MHz system clock (\texttt{E3}), all 16 \mbox{LEDs} (\texttt{H17}--\texttt{V11}), the center pushbutton for reset (\texttt{N17}), and the Pmod JA pin you will wire to the STM32 \texttt{USART} \texttt{TX}.
+	\item Rename the signals in the constraint file to match the top-level port names: \texttt{sysclk}, \texttt{rstn}, \texttt{led[*]}, \texttt{uart\_rxd}.
+	\item Add the clock definition \texttt{create\_clock -period 10.000 -name sysclk [get\_ports sysclk]} if the master \texttt{.xdc} does not already contain it.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why one consolidated top, not one project per week?}]
+	A single \texttt{ingest\_top} accumulates logic across all four Module~2 weeks. This keeps synthesis, timing, and resource numbers comparable across labs, and matches how the design will ship to Module~3. Per-handout testbenches stay isolated by adding them only to the simulation set.
+\end{tcolorbox}
+
+\subsection{Step 5 --- Verify the empty project synthesizes}
+\begin{enumerate}[leftmargin=2em]
+	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Expect zero errors and one or two warnings about unused inputs (\texttt{rstn}, \texttt{uart\_rxd}) --- these are expected and will disappear as logic is added.
+	\item Open the post-synthesis utilization report. Record the baseline \mbox{LUT}/\mbox{FF}/\mbox{BRAM} counts. They should be effectively zero; this is your reference point for resource growth in later labs.
+\end{enumerate}
+
+\labfigure{LH2A_baseline_util.png}{0.8\textwidth}{Post-synthesis utilization of the empty skeleton. All counters should read near zero --- this is the baseline for Module~2 resource tracking.}{fig:lh2a-util}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Directory layout \texttt{rtl/}, \texttt{sim/}, \texttt{xdc/}, \texttt{data/} created.
+	\item[$\square$] Vivado project targets \texttt{xc7a100tcsg324-1}.
+	\item[$\square$] \texttt{ingest\_top.vhd} compiles with no errors.
+	\item[$\square$] Constraint file exposes only \texttt{sysclk}, \texttt{rstn}, \texttt{led[*]}, and \texttt{uart\_rxd}.
+	\item[$\square$] Synthesis completes; baseline utilization recorded.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-A Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{ingest\_top.vhd} and pruned \texttt{ingest\_top.xdc}.
+		\item Screenshot of the Vivado Project Manager showing the hierarchy and project part.
+		\item Baseline post-synthesis utilization screenshot.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

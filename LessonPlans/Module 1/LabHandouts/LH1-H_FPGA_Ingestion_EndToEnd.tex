@@ -31,12 +31,17 @@ Implement a minimal \UART{} ingestion path on the Nexys A7-100T that receives th
 	\end{tabular}
 \end{table}
 
+\labfigure{LH1H_block_diagram.png}{0.9\textwidth}{\FPGA{} ingestion block diagram: \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{frame\_detector} $\to$ \texttt{seg7\_driver}. Key signals (\texttt{rx\_strobe}, \texttt{beacon\_id}, \texttt{new\_frame}) are labeled on the data path.}{fig:lh1h-blocks}
+
+\newpage
 \section{Wiring}
 Connect the receiver's \texttt{USART3 TX} pin to one of the Nexys A7 \mbox{PMOD} input pins. Common ground is essential.
 \begin{itemize}[leftmargin=2em]
 	\item STM32 \texttt{USART3 TX} (\texttt{PC4}) $\to$ Nexys A7 \texttt{JA[0]} (pin \texttt{C17}, check the \mbox{PMOD} pin mapping in the Nexys A7 reference manual).
 	\item STM32 \texttt{GND} $\to$ Nexys A7 \texttt{GND} (\texttt{JA} \mbox{PMOD} pin 5 or 11).
 \end{itemize}
+
+\labfigure{LH1H_pmod_wiring.png}{0.8\textwidth}{STM32 \texttt{USART3 TX} (\texttt{PC4}) wired to Nexys A7 \texttt{JA[0]} (pin \texttt{C17}) with common ground. Annotated photo clarifies which \mbox{PMOD} connector is in use.}{fig:lh1h-pmod}
 
 \begin{tcolorbox}[warning={Voltage Levels}]
 	The STM32 drives 3.3\,V logic and the Nexys A7 \mbox{PMOD} pins are 3.3\,V-tolerant (in fact, 3.3\,V native). No level shifter is required. Do \textit{not} wire the STM32 to an \mbox{LVCMOS18} bank by mistake --- double-check which \mbox{PMOD} you are using.
@@ -79,6 +84,9 @@ States: \texttt{IDLE}, \texttt{LEN}, \texttt{PAYLOAD}, \texttt{DONE}.
 \end{enumerate}
 For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will add that.
 
+\labfigure{LH1H_frame_detector_fsm.png}{0.8\textwidth}{Frame-detector \FSM{}: \texttt{IDLE} $\to$ \texttt{LEN} $\to$ \texttt{PAYLOAD} $\to$ \texttt{DONE}, with transition conditions annotated on each edge.}{fig:lh1h-fsm}
+
+\newpage
 \subsection{Step 5 --- Seven-segment driver}
 \begin{enumerate}[leftmargin=2em]
 	\item Multiplex the four right-most digits at $\sim$1\,kHz per digit (use a clock divider from 100\,MHz).
@@ -91,6 +99,9 @@ For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will a
 	\item Verify zero timing-constraint violations in the implementation report.
 \end{enumerate}
 
+\labfigure{LH1H_timing_report.png}{0.85\textwidth}{Vivado implementation timing summary with positive \mbox{WNS}. Any negative slack must be resolved before programming the board.}{fig:lh1h-timing}
+
+\newpage
 \subsection{Step 7 --- End-to-end run}
 \begin{enumerate}[leftmargin=2em]
 	\item Power on the beacon(s) from LH1-F and the receiver from LH1-G. The STM32 receiver should be \texttt{printf}ing debug output over its virtual COM port.
@@ -99,6 +110,9 @@ For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will a
 	\item Introduce a deliberate perturbation: turn off Beacon~A. The display should lock to \texttt{02} only. Turn it back on. It should resume alternating.
 \end{enumerate}
 
+\labfigure{LH1H_seg7_display.jpg}{0.7\textwidth}{Module~1 capstone shot: Nexys A7 seven-segment display showing a live beacon \mbox{ID} captured from the full \textbf{beacon $\to$ \RF{} link $\to$ receiver $\to$ \FPGA{}} chain.}{fig:lh1h-seg7}
+
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] \texttt{uart\_rx} correctly decodes bytes at 115200 baud (verify with ILA or test bench).
@@ -126,5 +140,7 @@ For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will a
 		\item One-page Module~1 retrospective: what worked, what didn't, what you would change before Module~2.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

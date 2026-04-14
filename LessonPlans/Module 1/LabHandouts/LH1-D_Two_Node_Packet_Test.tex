@@ -22,6 +22,7 @@ Transmit a known payload from one STM32+RFM95W node (Node~A) and verify receptio
 	\item Breadboards and jumpers for both nodes.
 \end{itemize}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Configure LoRa modem parameters}
@@ -64,6 +65,7 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 	\end{enumerate}
 \end{enumerate}
 
+\newpage
 \subsection{Step 3 --- Node~B receiver firmware}
 \begin{enumerate}[leftmargin=2em]
 	\item Use the same initialization, but set \texttt{FifoRxBaseAddr} and put the modem into continuous \mbox{RX} mode (\texttt{RegOpMode = 0x85}).
@@ -80,6 +82,7 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 	\end{enumerate}
 \end{enumerate}
 
+\newpage
 \subsection{Step 4 --- Run the link}
 \begin{enumerate}[leftmargin=2em]
 	\item Plug both nodes into the host PC.
@@ -89,6 +92,11 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 	\item Place the nodes approximately 1\,m apart on the bench with antennas upright.
 \end{enumerate}
 
+\labfigure{LH1D_two_node_bench.jpg}{0.75\textwidth}{Both Nucleo+RFM95W nodes on the bench $\approx$1\,m apart with spring antennas upright. Node~A (TX) on the left, Node~B (RX) on the right.}{fig:lh1d-bench}
+
+\labfigure{LH1D_dual_serial.png}{0.9\textwidth}{Side-by-side serial monitors: Node~A incrementing the sequence counter (left) and Node~B printing matching sequence numbers with \RSSI{}/\SNR{} (right).}{fig:lh1d-serial}
+
+\newpage
 \subsection{Step 5 --- Log 100 packets and analyze}
 \begin{enumerate}[leftmargin=2em]
 	\item Capture 100 consecutive receptions on Node~B (copy from the serial monitor or pipe to a file).
@@ -96,6 +104,9 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 	\item Compare mean \RSSI{} against the Module~1 link budget estimate for 1\,m indoor separation.
 \end{enumerate}
 
+\labfigure{LH1D_rssi_histogram.png}{0.7\textwidth}{Example \RSSI{} histogram across 100 consecutive receptions at 1\,m bench separation. Students generate their own version from the captured log as part of the deliverable.}{fig:lh1d-rssi}
+
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] $\geq$95\% packet reception rate at 1\,m indoor line-of-sight.
@@ -122,5 +133,7 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 		\item One-paragraph comparison between measured mean \RSSI{} and the Module~1 link-budget prediction. Explain any discrepancy $>$6\,dB.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

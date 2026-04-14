@@ -43,10 +43,15 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\end{tabular}
 \end{table}
 
+\labfigure{LH1C_wiring_diagram.png}{0.9\textwidth}{Schematic of the Nucleo-L476RG $\leftrightarrow$ RFM95W wiring. Power, ground, full-duplex \SPI{}1, chip-select, reset, and \texttt{DIO0} interrupt line are all shown.}{fig:lh1c-schematic}
+
+\labfigure{LH1C_breadboard_photo.jpg}{0.75\textwidth}{Physical breadboard build matching the schematic above. Keep jumper leads short to minimize \SPI{} ringing.}{fig:lh1c-breadboard}
+
 \begin{tcolorbox}[warning={Wire Before You Power}]
 	Double-check \texttt{VIN} vs.\ \texttt{GND}. The RFM95W will tolerate 3.3--5\,V on \texttt{VIN} (it has an on-board regulator), but swapping \texttt{VIN} and \texttt{GND} \textit{will} destroy the module. Verify with a \mbox{DMM} before plugging the Nucleo into USB.
 \end{tcolorbox}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Configure peripherals via STM32CubeMX}
@@ -78,6 +83,8 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\end{tabular}
 \end{table}
 
+\labfigure{LH1C_spi_config.png}{0.85\textwidth}{STM32CubeMX \SPI{}1 parameter panel configured per Table~\ref{tab:spi-bringup}: 8-bit data, MSB first, \mbox{CPOL}=0, \mbox{CPHA}=1~Edge, prescaler chosen for $\leq$5\,MHz clock.}{fig:lh1c-cubemx}
+
 \subsection{Step 2 --- Redirect \texttt{printf} to USART2}
 \begin{enumerate}[leftmargin=2em]
 	\item In \texttt{main.c}, add an override for \texttt{\_\_io\_putchar} that calls \texttt{HAL\_UART\_Transmit(\&huart2, ...)}. A standard snippet:
@@ -104,6 +111,7 @@ uint8_t rfm_read_reg(uint8_t addr) {
 \end{verbatim}
 And the matching write helper (bit 7 = 1, followed by the value byte).
 
+\newpage
 \subsection{Step 4 --- Reset the module and read \texttt{RegVersion}}
 \begin{enumerate}[leftmargin=2em]
 	\item In \texttt{main} after \HAL{} init, drive \texttt{RFM\_RST} low for at least 100\,$\mu$s, then high, then wait 10\,ms for the module to come out of reset.
@@ -115,6 +123,8 @@ And the matching write helper (bit 7 = 1, followed by the value byte).
 \begin{tcolorbox}[infobox={Why 0x12?}]
 	The SX1276 silicon revision register returns \texttt{0x12} for the V1b mask set used in the RFM9x breakouts. This is the single most reliable sanity check for \SPI{} wiring, clock polarity, and reset sequencing: if you read \texttt{0x00} or \texttt{0xFF}, the module is not talking to you; if you read anything else, you have a clock phase or byte-order issue.
 \end{tcolorbox}
+
+\labfigure{LH1C_regversion_printf.png}{0.75\textwidth}{Serial monitor output showing the first successful \texttt{RegVersion = 0x12} read. This is the canonical sanity check for the entire \SPI{} stack.}{fig:lh1c-regversion}
 
 \subsection{Step 5 --- Register write / read-back}
 \begin{enumerate}[leftmargin=2em]
@@ -154,5 +164,7 @@ And the matching write helper (bit 7 = 1, followed by the value byte).
 		\item If a logic analyzer was used: one screenshot of a successful \texttt{RegVersion} read transaction with \texttt{CS}, \texttt{SCK}, \texttt{MOSI}, \texttt{MISO} traces.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

@@ -1,0 +1,80 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-E}
+\newcommand{\labtitleshort}{CRC Verification}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-E}{Hardware \CRC{}-8 and \CRC{}-16 Verification}
+
+\section{Objective}
+Replace the \CRC{} stub in the packet parser with two real hardware \CRC{} engines: a \CRC{}-8 over the full receiver frame and a \CRC{}-16 over the embedded beacon payload. Both engines must run in a single clock cycle per byte and must gate downstream processing.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-D (\texttt{pkt\_parser} with a \CRC{} stub).
+\end{itemize}
+
+\section{Background}
+Two \CRC{}s cover two different failure modes:
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{\CRC{}-8} on the receiver forwarding frame detects corruption between the STM32 and the \FPGA{} \UART{}. Polynomial $x^8 + x^2 + x + 1$ (0x07), initial value 0x00.
+	\item \textbf{\CRC{}-16} embedded inside the beacon payload detects over-the-air corruption end-to-end (beacon $\to$ receiver $\to$ \FPGA{}). Polynomial $x^{16} + x^{12} + x^5 + 1$ (0x1021, CRC-CCITT), initial value 0xFFFF.
+\end{itemize}
+
+\begin{tcolorbox}[infobox={Why not one \CRC{}?}]
+	Two \CRC{}s give independent visibility into where corruption happened. If \CRC{}-16 fails but \CRC{}-8 passes, the problem occurred over the air and the receiver delivered the corrupted payload faithfully. If both fail, the serial link itself is suspect. This separation becomes actionable in Module~3 system integration.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Serial \CRC{}-8 module}
+Create \texttt{rtl/crc8\_serial.vhd}. Implement the standard XOR-shift loop over 8 input bits using the 0x07 polynomial. One \texttt{byte\_valid} pulse consumes 8 bits of input and advances the \CRC{} state in 8 cycles, \textit{or} use the fully parallel 8-bit update for one-cycle-per-byte operation. The parallel version is preferred for this pipeline.
+\begin{verbatim}
+-- Parallel CRC-8 (poly 0x07) update:
+-- crc_new = f(crc_old, byte_in)
+-- Synthesize the 8 XOR terms directly in the architecture.
+\end{verbatim}
+
+\subsection{Step 2 --- Parallel \CRC{}-16 module}
+Create \texttt{rtl/crc16\_ccitt.vhd}. Use a pre-generated lookup-free parallel expression from a \CRC{} generator (e.g., OutputLogic or pycrc). Both 2-D \texttt{metadata} and \texttt{payload} byte streams feed the \CRC{}-16 in order.
+
+\subsection{Step 3 --- Hook into the parser}
+\begin{enumerate}[leftmargin=2em]
+	\item Reset \texttt{crc8} to 0x00 and \texttt{crc16} to 0xFFFF on every transition into \texttt{LEN}.
+	\item Update \texttt{crc8} on every byte from \texttt{LEN} through the last \texttt{PAYLOAD} byte (bytes 1--41).
+	\item Update \texttt{crc16} on every byte of the beacon payload only (bytes 10--39; bytes 40--41 are the embedded \CRC{}-16 itself).
+	\item In \texttt{CRC} state: compare \texttt{crc8} against the captured byte 42 and compare \texttt{crc16} against bytes 40--41 of the payload. Both must match to transition to \texttt{VALID}; any mismatch transitions to \texttt{REJECT}.
+\end{enumerate}
+
+\labfigure{LH2E_crc_coverage.png}{0.85\textwidth}{Byte coverage for each \CRC{} engine. \CRC{}-8 covers bytes 1--41; \CRC{}-16 covers bytes 10--39. Bytes 40--41 carry the embedded \CRC{}-16; byte 42 carries the \CRC{}-8.}{fig:lh2e-coverage}
+
+\subsection{Step 4 --- Golden-vector unit tests}
+Generate reference \CRC{} values in Python (\texttt{crcmod} or \texttt{pycrc}) for at least three known frames. Create \texttt{sim/tb\_crc.vhd} that streams the same bytes into each \CRC{} engine and asserts the hardware result matches the Python reference.
+
+\subsection{Step 5 --- Negative tests}
+Flip a single bit in the payload of an otherwise-valid frame and confirm:
+\begin{enumerate}[leftmargin=2em]
+	\item \CRC{}-8 still matches (because the \CRC{}-8 was computed \textit{over} the corrupted bytes by the receiver).
+	\item \CRC{}-16 does not match, and the parser issues \texttt{frame\_reject}.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \CRC{}-8 module matches the Python golden vector for at least three frames.
+	\item[$\square$] \CRC{}-16 module matches the Python golden vector for at least three frames.
+	\item[$\square$] Parser transitions to \texttt{VALID} only when both \CRC{}s match.
+	\item[$\square$] Negative test (single-bit flip in payload) produces \texttt{frame\_reject}.
+	\item[$\square$] Post-synthesis timing for each \CRC{} module has positive slack.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-E Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{crc8\_serial.vhd}, \texttt{crc16\_ccitt.vhd}, and updated \texttt{pkt\_parser.vhd}.
+		\item Python golden-vector script and its output.
+		\item Waveform screenshot of the negative test showing \texttt{frame\_reject} after the corrupted payload.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

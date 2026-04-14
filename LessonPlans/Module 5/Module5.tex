@@ -23,9 +23,9 @@
 \usepackage{caption}
 \usepackage{tikz}
 \usepackage{listings}
-\usepackage[acronym,toc]{glossaries}
+\usepackage[acronym,toc,nopostdot]{glossaries}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, decorations.pathreplacing}
-\makeglossaries%
+\makenoidxglossaries%
 \input{../glossary}
 
 % ── Colors ────────────────────────────────────────────────────
@@ -979,7 +979,7 @@
 
 	\vfill
 	\clearpage
-	\printglossary[type=\acronymtype,title={Acronyms Used}]
+	\printnoidxglossary[type=\acronymtype,title={Glossary}]
 
 	\begin{center}
 		\rule{0.5\textwidth}{0.4pt}\\[6pt]

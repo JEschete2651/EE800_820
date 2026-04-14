@@ -22,15 +22,18 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 	\item Host PC with $\geq$50\,GB free disk space for Vivado.
 \end{itemize}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Install Vivado (first-time only)}
 \begin{enumerate}[leftmargin=2em]
-	\item Download Vivado ML Standard (the free edition that covers Artix-7) from \href{https://www.xilinx.com/support/download.html}{xilinx.com/support/download.html}. Create a free AMD account if you don't already have one.
+	\item Download Vivado ML Standard (the free edition that covers Artix-7) from \\  \href{https://www.xilinx.com/support/download.html}{xilinx.com/support/download.html}. Create a free AMD account if you don't already have one.
 	\item Run the installer. When prompted for device families, select \textbf{Artix-7} and \textbf{7 Series} at minimum; deselecting everything else saves substantial disk space and install time.
 	\item On Windows, let the installer install the cable drivers when prompted at the end.
 	\item Launch Vivado once to verify the license. The free Standard edition does not require a license file for Artix-7 devices.
 \end{enumerate}
+
+\labfigure{LH1E_vivado_installer.png}{0.85\textwidth}{Vivado installer device-family selection screen with \textbf{Artix-7} and \textbf{7~Series} checked. Deselecting other families saves tens of GB.}{fig:lh1e-installer}
 
 \subsection{Step 2 --- Obtain the master constraint file}
 \begin{enumerate}[leftmargin=2em]
@@ -38,6 +41,7 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 	\item Save it locally. You will add it to the project and uncomment only the pins you need.
 \end{enumerate}
 
+\newpage
 \subsection{Step 3 --- Create the Vivado project}
 \begin{enumerate}[leftmargin=2em]
 	\item Vivado $\to$ \textit{File} $\to$ \textit{Project} $\to$ \textit{New}. Name the project \texttt{nexys\_loopback}.
@@ -45,6 +49,8 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 	\item Target device: \textbf{xc7a100tcsg324-1}.
 	\item Finish the wizard.
 \end{enumerate}
+
+\labfigure{LH1E_part_selection.png}{0.85\textwidth}{Vivado ``Default Part'' dialog with \texttt{xc7a100tcsg324-1} highlighted. Any other part will fail implementation on the Nexys A7-100T.}{fig:lh1e-part}
 
 \subsection{Step 4 --- Add the \VHDL{} top module}
 Create a new source file \texttt{loopback\_top.vhd} with the following contents:
@@ -63,6 +69,7 @@ begin
 end Behavioral;
 \end{verbatim}
 
+\newpage
 \subsection{Step 5 --- Add and prune the constraint file}
 \begin{enumerate}[leftmargin=2em]
 	\item Add \texttt{Nexys-A7-100T-Master.xdc} as a constraints source.
@@ -78,6 +85,9 @@ end Behavioral;
 	\item Open the utilization report. You should see \mbox{LUT} usage in the single-digits out of 63{,}400 --- essentially nothing, which confirms the synthesizer optimized the direct assignment.
 \end{enumerate}
 
+\labfigure{LH1E_utilization.png}{0.85\textwidth}{Post-implementation utilization report. Expect single-digit \mbox{LUT} usage out of 63{,}400 --- the synthesizer optimizes the direct assignment to trivial routing.}{fig:lh1e-util}
+
+\newpage
 \subsection{Step 7 --- Program the Nexys A7}
 \begin{enumerate}[leftmargin=2em]
 	\item Connect the Nexys A7 to the host PC via USB. Power the board on. The ``FPGA DONE'' \mbox{LED} will be off initially.
@@ -86,6 +96,8 @@ end Behavioral;
 	\item After a successful program, the ``FPGA DONE'' \mbox{LED} should illuminate.
 \end{enumerate}
 
+\labfigure{LH1E_hw_manager.png}{0.85\textwidth}{Vivado Hardware Manager after Auto Connect, showing the detected XC7A100T on the USB-JTAG link.}{fig:lh1e-hwm}
+
 \subsection{Step 8 --- Verify physical behavior}
 \begin{enumerate}[leftmargin=2em]
 	\item Flip slide switch \texttt{SW0}. \mbox{LED} \texttt{LD0} should turn on.
@@ -93,6 +105,9 @@ end Behavioral;
 	\item Power-cycle the board. The bitstream is volatile --- the \mbox{LED}s should go dark and the DONE \mbox{LED} should turn off.
 \end{enumerate}
 
+\labfigure{LH1E_board_leds.jpg}{0.65\textwidth}{Nexys A7 with two slide switches up and the corresponding \mbox{LED}s lit. The DONE \mbox{LED} should also be illuminated.}{fig:lh1e-board}
+
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Vivado project created targeting \texttt{xc7a100tcsg324-1}.
@@ -118,5 +133,7 @@ end Behavioral;
 		\item Short video or photo sequence showing each switch independently controlling its \mbox{LED}.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

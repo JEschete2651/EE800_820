@@ -1,0 +1,94 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-D}
+\newcommand{\labtitleshort}{Packet Parser FSM}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-D}{Packet Parser Finite State Machine}
+
+\section{Objective}
+Implement the \VHDL{} parser that drains \texttt{byte\_fifo}, locks onto the Module~1 receiver forwarding frame (start delimiter \texttt{0x7E}, length byte, 8-byte metadata, 32-byte payload, 2-byte \CRC{}), and produces registered outputs for each field. By the end of this handout a valid frame will emit a \texttt{frame\_valid} pulse with the parsed fields stable on the same cycle.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-C (Week~1 pipeline integration verified).
+	\item Module~1 receiver frame format reference (43 bytes total).
+\end{itemize}
+
+\section{Background}
+The receiver forwarding frame, defined in Module~1 Table~6, is:
+\begin{center}
+\begin{tabular}{l l l}
+\toprule
+\textbf{Offset} & \textbf{Field} & \textbf{Size} \\
+\midrule
+0  & Start delimiter (\texttt{0x7E}) & 1\,B \\
+1  & Length (total minus delimiter) & 1\,B \\
+2--9   & Receiver metadata (\RSSI{}, \SNR{}, timestamp, flags) & 8\,B \\
+10--41 & Beacon payload                                      & 32\,B \\
+42 & \CRC{}-8 over bytes 0--41                               & 1\,B \\
+\bottomrule
+\end{tabular}
+\end{center}
+Byte 42 is the receiver-level \CRC{}-8; the beacon payload also carries its own \CRC{}-16 internally, which is checked in Lab Handout~2-E.
+
+\section{Procedure}
+
+\subsection{Step 1 --- Define the parser states}
+Create \texttt{rtl/pkt\_parser.vhd}. States: \texttt{HUNT}, \texttt{LEN}, \texttt{META}, \texttt{PAYLOAD}, \texttt{CRC}, \texttt{VALID}, \texttt{REJECT}.
+\begin{itemize}[leftmargin=2em]
+	\item \texttt{HUNT}: pop bytes from the \FIFO{} until one equals \texttt{0x7E}.
+	\item \texttt{LEN}: consume the length byte; verify it equals 42. If not, go to \texttt{REJECT}.
+	\item \texttt{META}: capture 8 bytes into an 8-byte metadata register array.
+	\item \texttt{PAYLOAD}: capture 32 bytes into a 32-byte payload register array.
+	\item \texttt{CRC}: capture the \CRC{}-8 byte. Compare against the running \CRC{} computed across bytes 0--41 (computation module in 2-E; stub it with a placeholder for now).
+	\item \texttt{VALID}: one-cycle pulse \texttt{frame\_valid}, return to \texttt{HUNT}.
+	\item \texttt{REJECT}: one-cycle pulse \texttt{frame\_reject}, return to \texttt{HUNT}.
+\end{itemize}
+
+\labfigure{LH2D_parser_fsm.png}{0.85\textwidth}{Packet parser \FSM{} with the full transition set. Each labeled arc shows the byte or condition that fires the transition.}{fig:lh2d-fsm}
+
+\subsection{Step 2 --- Drive the \FIFO{} correctly}
+The parser must assert \texttt{rd\_en} only when \texttt{empty = 0}. Use a one-cycle pipeline delay between the \texttt{rd\_en} pulse and sampling \texttt{rd\_data}: a synchronous \FIFO{} presents new data one clock after \texttt{rd\_en} is high.
+
+\begin{tcolorbox}[warning={Byte-off-by-one}]
+	The most common parser bug is sampling \texttt{rd\_data} on the same cycle as the \texttt{rd\_en} pulse. That captures the \textit{previous} byte. Verify the intended timing in a short waveform before adding the full state set.
+\end{tcolorbox}
+
+\subsection{Step 3 --- Expose the parsed fields}
+Top-level outputs of \texttt{pkt\_parser}:
+\begin{itemize}[leftmargin=2em]
+	\item \texttt{frame\_valid}, \texttt{frame\_reject} --- one-cycle pulses.
+	\item \texttt{metadata(0 to 7)} --- 8 bytes, stable on the \texttt{frame\_valid} cycle.
+	\item \texttt{payload(0 to 31)} --- 32 bytes, stable on the \texttt{frame\_valid} cycle.
+	\item \texttt{rx\_crc} --- the captured \CRC{}-8 byte (used by 2-E).
+\end{itemize}
+
+\subsection{Step 4 --- Parser testbench}
+Create \texttt{sim/tb\_pkt\_parser.vhd}. Stimulus:
+\begin{enumerate}[leftmargin=2em]
+	\item Pre-fill \texttt{byte\_fifo} with a known-good 43-byte frame followed by a corrupted frame (wrong length byte) and a second known-good frame.
+	\item Assert that \texttt{frame\_valid} fires exactly twice, \texttt{frame\_reject} fires exactly once, and the captured \texttt{payload} bytes match the known-good reference.
+\end{enumerate}
+
+\labfigure{LH2D_tb_waveform.png}{0.85\textwidth}{Testbench waveform showing three frames: valid, rejected, valid. The \texttt{frame\_valid} and \texttt{frame\_reject} pulses occur on the correct cycles.}{fig:lh2d-wave}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Parser compiles under \texttt{ingest\_top} with \texttt{byte\_fifo.rd\_en} driven by the parser.
+	\item[$\square$] Known-good frame produces a \texttt{frame\_valid} pulse on the correct cycle.
+	\item[$\square$] Corrupted length byte produces a \texttt{frame\_reject} pulse and the parser returns to \texttt{HUNT}.
+	\item[$\square$] \texttt{payload} register array matches the reference bytes on \texttt{frame\_valid}.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-D Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{pkt\_parser.vhd} and updated \texttt{ingest\_top.vhd}.
+		\item \texttt{tb\_pkt\_parser.vhd} with three-frame stimulus.
+		\item Waveform screenshot annotating the \texttt{VALID/REJECT/VALID} sequence.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

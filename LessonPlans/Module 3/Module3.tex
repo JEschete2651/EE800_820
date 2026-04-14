@@ -23,9 +23,9 @@
 \usepackage{caption}
 \usepackage{tikz}
 \usepackage{listings}
-\usepackage[acronym,toc]{glossaries}
+\usepackage[acronym,toc,nopostdot]{glossaries}
 \usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, calc, decorations.pathreplacing}
-\makeglossaries%
+\makenoidxglossaries%
 \input{../glossary}
 
 % ── Colors ────────────────────────────────────────────────────
@@ -566,31 +566,7 @@
 
 	\begin{figure}[ht!]
 		\centering
-		\resizebox{0.85\textwidth}{!}{%
-			\begin{tikzpicture}[
-				node distance=1.5cm and 2cm,
-				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
-					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
-				io/.style={rectangle, draw=accentblue, fill=blue!5, thick,
-					minimum width=2.5cm, minimum height=1cm, align=center, font=\small},
-				arrow/.style={-{Stealth[length=3mm]}, thick, color=darkgray},
-				elabel/.style={font=\scriptsize\itshape, color=accentblue}
-				]
-				\node[io] (uart) {USB-\UART{}\\(COM port)};
-				\node[block, right=of uart] (serial) {PySerial\\Reader};
-				\node[block, right=of serial] (parse) {Feature Vector\\Parser};
-				\node[block, right=of parse] (label) {Label\\Attacher};
-				\node[io, right=of label] (csv) {CSV File\\(Dataset)};
-
-				\node[io, below=1cm of label] (config) {Campaign\\Config\\(JSON)};
-
-				\draw[arrow] (uart) -- (serial) node[midway, above, elabel] {raw bytes};
-				\draw[arrow] (serial) -- (parse) node[midway, above, elabel] {32B vectors};
-				\draw[arrow] (parse) -- (label) node[midway, above, elabel] {parsed fields};
-				\draw[arrow] (label) -- (csv) node[midway, above, elabel] {labeled rows};
-				\draw[arrow] (config) -- (label) node[midway, right, elabel] {ground-truth\\labels};
-			\end{tikzpicture}%
-		}
+		\fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}\textit{[Diagram placeholder --- host-side data collection script architecture. USB-UART $\to$ PySerial reader $\to$ feature-vector parser $\to$ label attacher (fed by campaign-config JSON) $\to$ labeled CSV output.]}\vspace{1em}}}
 		\caption{Host-side data collection script architecture. The campaign configuration JSON provides ground-truth labels (experiment ID, sweep variable setting, physical distance) that are attached to each received feature vector.}
 		\label{fig:collection_script}
 	\end{figure}
@@ -1012,7 +988,7 @@
 
 	\vfill
 	\clearpage
-	\printglossary[type=\acronymtype,title={Acronyms Used}]
+	\printnoidxglossary[type=\acronymtype,title={Glossary}]
 
 	\begin{center}
 		\rule{0.5\textwidth}{0.4pt}\\[6pt]

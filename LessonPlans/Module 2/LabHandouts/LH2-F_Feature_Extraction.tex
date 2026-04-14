@@ -1,0 +1,92 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-F}
+\newcommand{\labtitleshort}{Feature Extraction}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-F}{Feature Extraction Datapath and Feature \BRAM{}}
+
+\section{Objective}
+Transform each validated frame into a fixed 32-byte feature vector and store it in a dual-port \BRAM{} indexed by beacon ID. By the end of this handout the pipeline will accumulate features per beacon across multiple frames and expose a read port for the Module~3 host interface.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-E (parser emits \texttt{frame\_valid} only for double-\CRC{}-clean frames).
+\end{itemize}
+
+\section{Feature Vector Layout}
+The feature vector is 32~bytes, aligned to one \BRAM{} row. Fields are:
+\begin{center}
+\begin{tabular}{c l l l}
+\toprule
+\textbf{Offset} & \textbf{Field} & \textbf{Size} & \textbf{Source} \\
+\midrule
+0  & Beacon ID                      & 1\,B  & payload byte 0 \\
+1  & Modulation code                & 1\,B  & payload byte 1 \\
+2  & Spreading factor               & 1\,B  & payload byte 2 \\
+3  & Reserved                       & 1\,B  & --- \\
+4--5   & \RSSI{} (latest)           & 2\,B  & metadata bytes 0--1 \\
+6--7   & \SNR{} (latest)            & 2\,B  & metadata bytes 2--3 \\
+8--11  & Frame count (for this ID)  & 4\,B  & internal counter \\
+12--15 & Last arrival timestamp     & 4\,B  & metadata bytes 4--7 \\
+16--19 & Inter-arrival time (ticks) & 4\,B  & computed \\
+20--23 & \RSSI{} delta              & 4\,B  & computed \\
+24--27 & Priority score             & 4\,B  & computed \\
+28--31 & Reserved / padding         & 4\,B  & --- \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Allocate the \BRAM{}}
+Create \texttt{rtl/feature\_bram.vhd} instantiating an inferred dual-port \BRAM{}: 256 rows $\times$ 256 bits (32~bytes), write port driven by the feature extractor, read port driven by the Module~3 host interface (left stubbed in this lab).
+
+\begin{tcolorbox}[infobox={Why 256 rows?}]
+	Beacon ID is 1 byte, so 256 rows accommodates every possible emitter with no hashing. At 256$\times$32\,B $=$ 8\,KiB, the array fits in exactly two 36-Kb \BRAM{} tiles (out of 135 available), leaving ample headroom for future features.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Feature extractor}
+Create \texttt{rtl/feature\_extract.vhd}. On every \texttt{frame\_valid} pulse:
+\begin{enumerate}[leftmargin=2em]
+	\item Latch the incoming \texttt{payload} and \texttt{metadata}.
+	\item Read the current feature row for the incoming beacon ID from the \BRAM{}.
+	\item Compute inter-arrival time: current timestamp minus stored last timestamp.
+	\item Compute \RSSI{} delta: current \RSSI{} minus stored \RSSI{}.
+	\item Compute priority score: a fixed linear combination of \RSSI{}, \SNR{}, and frame count (weights defined in Module~2 Section~4).
+	\item Assemble the 32-byte vector and write it back to the same row.
+\end{enumerate}
+The read-modify-write cycle takes a fixed three clock cycles; document that latency at the module port.
+
+\labfigure{LH2F_feature_datapath.png}{0.85\textwidth}{Feature extraction datapath. The \BRAM{} read port feeds the compute block; the write port commits the updated vector on the following cycle.}{fig:lh2f-datapath}
+
+\subsection{Step 3 --- Backpressure}
+The parser must not issue a new \texttt{frame\_valid} while the feature extractor is mid-update. Add a \texttt{feat\_busy} signal from the extractor and gate the parser's \texttt{HUNT} $\to$ \texttt{LEN} transition on \texttt{feat\_busy = 0}.
+
+\subsection{Step 4 --- Feature extractor testbench}
+Create \texttt{sim/tb\_feature\_extract.vhd}. Inject three frames for beacon ID 0x10 and two for beacon ID 0x20. After the stimulus, read rows 0x10 and 0x20 through the \BRAM{} read port and verify:
+\begin{enumerate}[leftmargin=2em]
+	\item Frame counts are 3 and 2 respectively.
+	\item Inter-arrival time equals the difference between the second-to-last and last timestamps you injected.
+	\item Priority scores match a Python reference implementation.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \BRAM{} inferred as two 36-Kb tiles in post-synthesis utilization.
+	\item[$\square$] Feature extractor produces the three computed fields matching the Python reference.
+	\item[$\square$] Backpressure (\texttt{feat\_busy}) prevents parser overrun during a burst.
+	\item[$\square$] Frame count, \RSSI{}, and \SNR{} fields update correctly across multiple frames per beacon.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-F Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{feature\_bram.vhd}, \texttt{feature\_extract.vhd}, and updated \texttt{ingest\_top.vhd}.
+		\item Python reference script producing golden feature vectors.
+		\item Waveform plus a dumped \BRAM{} snapshot confirming the stored rows match the reference.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

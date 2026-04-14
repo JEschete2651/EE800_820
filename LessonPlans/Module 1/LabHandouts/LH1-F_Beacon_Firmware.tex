@@ -36,6 +36,7 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 	\end{tabular}
 \end{table}
 
+\newpage
 \section{\FSM{} Specification}
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{INIT}: \HAL{} initialization, clock setup, peripheral configuration.
@@ -45,6 +46,10 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 	\item \textbf{TX}: write \texttt{FIFO}, command \texttt{TX} mode, wait for \texttt{TxDone}.
 	\item \textbf{LOG}: increment sequence counter, \texttt{printf} a status line, return to IDLE.
 \end{enumerate}
+
+\labfigure{LH1F_fsm_diagram.png}{0.8\textwidth}{Beacon \FSM{}: \texttt{INIT} $\to$ \texttt{CONFIG} $\to$ \texttt{IDLE} $\to$ \texttt{BUILD} $\to$ \texttt{TX} $\to$ \texttt{LOG} $\to$ \texttt{IDLE}, with a \texttt{FAULT} branch off the \texttt{TX} timeout path.}{fig:lh1f-fsm}
+
+\labfigure{LH1F_packet_layout.png}{0.9\textwidth}{Byte-level 32-byte beacon packet layout. Fields are color-coded to match the format table.}{fig:lh1f-packet}
 
 \begin{table}[h!]
 	\centering
@@ -65,6 +70,7 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 	\end{tabular}
 \end{table}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Timer-driven scheduling}
@@ -93,6 +99,8 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 	\item A scope or logic analyzer on this pin should show a clean, evenly spaced pulse train at the configured slot interval.
 \end{enumerate}
 
+\labfigure{LH1F_scope_pulse.png}{0.8\textwidth}{Oscilloscope capture of the \texttt{TX}-entry \mbox{GPIO} instrumentation pulse. The period should be rock-steady at the configured slot interval ($\pm$5\,ms).}{fig:lh1f-scope}
+
 \subsection{Step 5 --- Single-beacon verification}
 \begin{enumerate}[leftmargin=2em]
 	\item Flash Beacon~A (ID \texttt{0x01}, SF7, 2000\,ms interval).
@@ -108,6 +116,9 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 	\item Verify: the receiver sees interleaved packets from both beacons, each with its own contiguous sequence counter, over 5 minutes.
 \end{enumerate}
 
+\labfigure{LH1F_dual_beacon_log.png}{0.85\textwidth}{Annotated receiver log during a dual-beacon run: Beacon~A (ID \texttt{0x01}) and Beacon~B (ID \texttt{0x02}) interleaved, each with its own contiguous sequence counter.}{fig:lh1f-duallog}
+
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Single-beacon run: 100\% reception rate over 150 packets, no \CRC{} errors, contiguous sequence numbers.
@@ -126,5 +137,7 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 		\item Oscilloscope screenshot of the \mbox{GPIO} instrumentation pulse showing stable period for at least 5 transmissions.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

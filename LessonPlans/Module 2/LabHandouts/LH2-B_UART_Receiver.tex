@@ -1,0 +1,118 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-B}
+\newcommand{\labtitleshort}{UART Receiver}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-B}{\UART{} Receiver with Oversampling and Clock-Domain Synchronizer}
+
+\section{Objective}
+Implement a 115200-baud \UART{} receiver in \VHDL{} that captures asynchronous bytes from the Module~1 STM32 receiver and delivers them into the Nexys A7's 100~MHz clock domain. By the end of this handout you will have a synthesizable \texttt{uart\_rx} component that emits a one-cycle \texttt{rx\_valid} pulse per received byte, verified in simulation against a known stimulus.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-A (Vivado project skeleton in place).
+	\item Working Module~1 beacon/receiver pair, or a recorded \texttt{.bin} capture of receiver \UART{} output.
+\end{itemize}
+
+\section{Background}
+The STM32 drives the \UART{} line asynchronously; its transmit clock has no relationship to the \FPGA's 100~MHz \texttt{sysclk}. The receiver therefore performs two jobs: (1) cross \texttt{uart\_rxd} safely into the \texttt{sysclk} domain, and (2) recover byte boundaries by oversampling.
+
+\begin{tcolorbox}[infobox={Why 16$\times$ oversampling?}]
+	Sampling each bit 16 times per bit-period and taking the middle sample tolerates about $\pm$3\% of baud-rate mismatch between the transmitter and receiver. At 115200~baud with a 100~MHz system clock, the oversample tick period is $100\,\mathrm{MHz} / (115200 \times 16) \approx 54$ cycles. A simple counter dividing \texttt{sysclk} by 54 produces the sample-enable strobe used by the receiver \FSM{}.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Add the synchronizer}
+Create \texttt{rtl/sync\_2ff.vhd}. This is a two-\FF{} synchronizer that registers \texttt{uart\_rxd} twice before any combinational logic touches it.
+\begin{verbatim}
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity sync_2ff is
+    Port ( clk     : in  STD_LOGIC;
+           rstn    : in  STD_LOGIC;
+           din_a   : in  STD_LOGIC;
+           dout_s  : out STD_LOGIC);
+end sync_2ff;
+
+architecture rtl of sync_2ff is
+    signal ff1, ff2 : STD_LOGIC := '1';
+begin
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rstn = '0' then
+                ff1 <= '1'; ff2 <= '1';
+            else
+                ff1 <= din_a;
+                ff2 <= ff1;
+            end if;
+        end if;
+    end process;
+    dout_s <= ff2;
+end rtl;
+\end{verbatim}
+The idle-high reset value prevents a false start bit during reset release.
+
+\subsection{Step 2 --- Implement the oversample tick generator}
+Inside \texttt{uart\_rx.vhd}, instantiate a 6-bit counter that rolls over at 53 and pulses \texttt{os\_tick} for one cycle at rollover. This is the 16$\times$115200 strobe.
+
+\subsection{Step 3 --- Implement the receive \FSM{}}
+States: \texttt{IDLE}, \texttt{START}, \texttt{DATA}, \texttt{STOP}.
+\begin{itemize}[leftmargin=2em]
+	\item \texttt{IDLE}: wait for \texttt{rxd\_sync} to fall. On fall, advance to \texttt{START} and zero a 4-bit sample counter.
+	\item \texttt{START}: on each \texttt{os\_tick}, increment. At sample 8 (mid-bit), check \texttt{rxd\_sync}. If still low, advance to \texttt{DATA}. If high, return to \texttt{IDLE} (glitch reject).
+	\item \texttt{DATA}: on each \texttt{os\_tick}, count to 16, then sample at mid-bit and shift into an 8-bit \texttt{rx\_shift} register (\mbox{LSB}-first). After 8 bits, advance to \texttt{STOP}.
+	\item \texttt{STOP}: wait one bit-period, assert \texttt{rx\_valid} for one \texttt{sysclk} cycle with \texttt{rx\_data} $=$ \texttt{rx\_shift}, return to \texttt{IDLE}.
+\end{itemize}
+
+\labfigure{LH2B_uart_fsm.png}{0.7\textwidth}{\UART{} receive \FSM{} states, transitions, and the sample points used inside \texttt{START} and \texttt{DATA}.}{fig:lh2b-fsm}
+
+\subsection{Step 4 --- Write the unit testbench}
+Create \texttt{sim/tb\_uart\_rx.vhd}. It should:
+\begin{enumerate}[leftmargin=2em]
+	\item Generate a 100\,MHz \texttt{sysclk}.
+	\item Drive \texttt{uart\_rxd} with a bit-banged stream sending the byte \texttt{0xA5} at exactly 115200\,baud (start bit, 8 data bits \mbox{LSB}-first, stop bit).
+	\item Assert \texttt{rx\_valid} is pulsed exactly once and that \texttt{rx\_data} $=$ \texttt{0xA5} at the pulse.
+\end{enumerate}
+Add it to the simulation set in Vivado and run a 2\,ms behavioral simulation.
+
+\labfigure{LH2B_waveform.png}{0.85\textwidth}{Expected waveform: \texttt{uart\_rxd} start-bit fall, eight data bits, stop bit, and a single \texttt{rx\_valid} pulse aligned with \texttt{rx\_data = 0xA5}.}{fig:lh2b-wave}
+
+\subsection{Step 5 --- Regression against recorded Module~1 data}
+\begin{enumerate}[leftmargin=2em]
+	\item Copy a recorded receiver \texttt{.bin} from Module~1 Week~4 into \texttt{data/}.
+	\item Extend the testbench to read the file via \texttt{std.textio}/\texttt{ieee.std\_logic\_textio}, emit the bytes as a serial bit stream, and log every \texttt{rx\_valid} byte to a text file.
+	\item Diff the simulation log against the original \texttt{.bin}. They must match byte-for-byte.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{sync\_2ff} synthesizes with exactly two flip-flops per bit.
+	\item[$\square$] Oversample tick period is 54 cycles of \texttt{sysclk}.
+	\item[$\square$] Unit testbench recovers \texttt{0xA5} with a single \texttt{rx\_valid} pulse.
+	\item[$\square$] Recorded-data regression matches the source \texttt{.bin} byte-for-byte.
+	\item[$\square$] No Vivado timing warnings for the \texttt{uart\_rxd} input path.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Common Pitfalls}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Sampling at the bit edge:} the \FSM{} must sample at mid-bit (tick 8 of 16), not at tick 0 or 15.
+		\item \textbf{Missing \texttt{set\_false\_path} on the async input:} if Vivado flags a timing arc from \texttt{uart\_rxd}, add \texttt{set\_false\_path -to [get\_pins sync\_2ff/ff1*/D]} in the \texttt{.xdc}.
+		\item \textbf{Wrong bit order:} the \mbox{LSB} arrives first on the wire, not the \mbox{MSB}.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-B Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{uart\_rx.vhd}, \texttt{sync\_2ff.vhd}, and \texttt{tb\_uart\_rx.vhd}.
+		\item Waveform screenshot of the \texttt{0xA5} unit test.
+		\item Log file from the recorded-data regression plus a diff result confirming a byte-for-byte match.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

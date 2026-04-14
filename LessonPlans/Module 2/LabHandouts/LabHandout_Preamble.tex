@@ -1,4 +1,4 @@
-% Shared preamble for Module 1 lab handouts.
+% Shared preamble for Module 2 lab handouts.
 % Usage: each handout defines \labid and \labtitleshort, then \input{LabHandout_Preamble}
 % BEFORE \begin{document}. Compiles with a single pdflatex pass (no glossaries tool).
 
@@ -35,7 +35,7 @@
 	\printnoidxglossary[type=\acronymtype,title={Glossary}]%
 }
 
-% ── Colors (match Module 1 lesson plan) ──────────────────────
+% ── Colors (match Module 2 lesson plan) ──────────────────────
 \definecolor{stevens}{RGB}{163,31,52}
 \definecolor{darkgray}{RGB}{60,60,60}
 \definecolor{lightgray}{RGB}{240,240,240}
@@ -55,7 +55,7 @@
 % ── Running header / footer ──────────────────────────────────
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\textcolor{darkgray}{Module 1 --- Lab Handout \labid}}
+\fancyhead[L]{\small\textcolor{darkgray}{Module 2 --- Lab Handout \labid}}
 \fancyhead[R]{\small\textcolor{darkgray}{\labtitleshort}}
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -109,7 +109,7 @@
 	\begin{center}
 		{\LARGE\bfseries\color{stevens} Lab Handout #1}\\[3pt]
 		{\Large\bfseries #2}\\[6pt]
-		{\small\color{darkgray} Capstone --- Module 1: \RF{} Hardware Foundations}
+		{\small\color{darkgray} Capstone --- Module 2: \FPGA{} \RTL{} Design and Signal Ingestion}
 	\end{center}
 	\vspace{4pt}
 	{\color{darkgray}\rule{\textwidth}{0.4pt}}

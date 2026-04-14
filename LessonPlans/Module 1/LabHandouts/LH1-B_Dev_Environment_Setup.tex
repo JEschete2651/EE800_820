@@ -48,6 +48,8 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	\end{itemize}
 \end{enumerate}
 
+\labfigure{LH1B_vscode_extensions.png}{0.85\textwidth}{VS Code Extensions panel with the full STMicroelectronics extension stack installed. Verify each sub-extension listed above is present and enabled.}{fig:lh1b-ext}
+
 \subsection{Step 3 --- Install the ARM toolchain and \HAL{} packs}
 \begin{enumerate}[leftmargin=2em]
 	\item Open the STM32Cube Bundles Manager from the VS Code command palette (\texttt{Ctrl+Shift+P} $\to$ ``STM32: Bundles Manager'').
@@ -56,6 +58,7 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	\item Wait for the downloads to finish before proceeding.
 \end{enumerate}
 
+\newpage
 \subsection{Step 4 --- Create an empty project targeting the Nucleo-L476RG}
 \begin{enumerate}[leftmargin=2em]
 	\item Command palette $\to$ ``STM32: New Project''.
@@ -63,6 +66,8 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	\item When prompted, open the integrated STM32CubeMX peripheral configurator. Enable the \textbf{LED2} user \mbox{LED} on \texttt{PA5} as a \mbox{GPIO} output. Leave all other peripherals at defaults.
 	\item Click ``Generate Code''. VS Code will create \texttt{main.c} with the \HAL{} initialization stubs.
 \end{enumerate}
+
+\labfigure{LH1B_cubemx_pinout.png}{0.85\textwidth}{Integrated STM32CubeMX pinout view with \texttt{PA5} configured as \texttt{GPIO\_Output} (LD2).}{fig:lh1b-cubemx}
 
 \subsection{Step 5 --- Write and build blinky}
 \begin{enumerate}[leftmargin=2em]
@@ -75,6 +80,7 @@ HAL_Delay(500);
 	\item Note the ELF output path reported at the end of the build log; you will use it in Step~6.
 \end{enumerate}
 
+\newpage
 \subsection{Step 6 --- Connect the Nucleo and flash}
 \begin{enumerate}[leftmargin=2em]
 	\item Plug the Nucleo into your PC via USB Mini-B. The \texttt{LD1} ST-LINK status \mbox{LED} should turn red, then blink red/green while enumerating.
@@ -83,6 +89,9 @@ HAL_Delay(500);
 	\item Press \texttt{F5} again (Continue). The green \texttt{LD2} \mbox{LED} on the Nucleo should begin blinking at 1\,Hz.
 \end{enumerate}
 
+\labfigure{LH1B_blinky_terminal.png}{0.85\textwidth}{VS Code terminal showing a successful CMake build and flash cycle for the blinky image.}{fig:lh1b-build}
+
+\newpage
 \subsection{Step 7 --- Verify the debug features}
 \begin{enumerate}[leftmargin=2em]
 	\item With the target halted, open the Peripheral Registers view (from the \texttt{stm32cube-ide-registers} extension). Expand \texttt{GPIOA} and locate the \texttt{ODR} register. Confirm that single-stepping past the \texttt{TogglePin} call flips bit 5.
@@ -118,5 +127,7 @@ HAL_Delay(500);
 		\item Screenshot of the halted debugger with a breakpoint hit in \texttt{main.c}.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

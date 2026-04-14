@@ -1,0 +1,84 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-C}
+\newcommand{\labtitleshort}{Byte FIFO}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-C}{Byte-Level Receive \FIFO{} and Week-1 Pipeline Integration}
+
+\section{Objective}
+Insert a 64$\times$8 synchronous \FIFO{} between the \UART{} receiver and the (still-to-be-written) packet parser so that downstream logic can stall without losing incoming bytes. Integrate \texttt{uart\_rx} and the \FIFO{} under \texttt{ingest\_top} and verify the combined block against a recorded Module~1 capture.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-B (\texttt{uart\_rx} verified in simulation).
+\end{itemize}
+
+\section{Background}
+
+\begin{tcolorbox}[infobox={Distributed RAM vs.\ block RAM}]
+	For a depth of 64 and a width of 8, Vivado infers distributed \mbox{RAM} using \mbox{LUT} primitives (about 8~\mbox{LUT}s) rather than consuming a block \mbox{RAM} tile. The Artix-7 100T has only 135 \BRAM{} tiles, and they should be reserved for the feature vector memory in Lab Handout~2-F. A distributed-\mbox{RAM} \FIFO{} of this size is essentially free against the 63{,}400-\mbox{LUT} budget.
+\end{tcolorbox}
+
+A depth of 64 is comfortably larger than the 43-byte Module~1 receiver forwarding frame. Even if the parser stalls for a full frame time, no bytes are lost.
+
+\section{Procedure}
+
+\subsection{Step 1 --- Author the \FIFO{}}
+Create \texttt{rtl/byte\_fifo.vhd} with the interface below. Implement it with an inferred distributed-\mbox{RAM} array plus \texttt{wr\_ptr}, \texttt{rd\_ptr}, and \texttt{count} registers. Drive \texttt{full} when \texttt{count = 64} and \texttt{empty} when \texttt{count = 0}.
+\begin{verbatim}
+entity byte_fifo is
+    generic ( DEPTH : integer := 64 );
+    Port ( clk     : in  STD_LOGIC;
+           rstn    : in  STD_LOGIC;
+           wr_en   : in  STD_LOGIC;
+           wr_data : in  STD_LOGIC_VECTOR(7 downto 0);
+           full    : out STD_LOGIC;
+           rd_en   : in  STD_LOGIC;
+           rd_data : out STD_LOGIC_VECTOR(7 downto 0);
+           empty   : out STD_LOGIC);
+end byte_fifo;
+\end{verbatim}
+
+\subsection{Step 2 --- Wire it into \texttt{ingest\_top}}
+\begin{enumerate}[leftmargin=2em]
+	\item Instantiate \texttt{uart\_rx} (from 2-B) and \texttt{byte\_fifo} inside the architecture of \texttt{ingest\_top}.
+	\item Connect \texttt{uart\_rx.rx\_valid} to \texttt{byte\_fifo.wr\_en} and \texttt{uart\_rx.rx\_data} to \texttt{byte\_fifo.wr\_data}.
+	\item Leave \texttt{rd\_en} tied low for now (the parser in 2-D will drive it). Route \texttt{byte\_fifo.empty} to \texttt{led(0)} and \texttt{full} to \texttt{led(1)} so overflow is visible on the board.
+\end{enumerate}
+
+\labfigure{LH2C_week1_datapath.png}{0.85\textwidth}{Week~1 datapath after integration: synchronizer $\to$ \texttt{uart\_rx} $\to$ \texttt{byte\_fifo}, with occupancy \mbox{LEDs} routed to \texttt{led(0)} and \texttt{led(1)}.}{fig:lh2c-datapath}
+
+\subsection{Step 3 --- Integration testbench}
+Create \texttt{sim/tb\_week1\_pipeline.vhd}:
+\begin{enumerate}[leftmargin=2em]
+	\item Instantiate \texttt{ingest\_top} and drive \texttt{uart\_rxd} by streaming every byte of a recorded Module~1 \texttt{.bin} at 115200\,baud.
+	\item Every 5\,$\mu$s, pulse \texttt{rd\_en} and record the \texttt{rd\_data} into a log.
+	\item Compare the log against the original \texttt{.bin} byte-for-byte.
+\end{enumerate}
+
+\subsection{Step 4 --- Overflow stress test}
+\begin{enumerate}[leftmargin=2em]
+	\item Modify the testbench to \textit{never} pulse \texttt{rd\_en}. Stream 65 bytes.
+	\item Confirm that \texttt{full} asserts on byte 64 and that no byte beyond 64 corrupts the pointers --- after reset, the \FIFO{} should return to a clean state.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{byte\_fifo} passes an isolated unit test (write/read of 16 bytes, in order).
+	\item[$\square$] Week~1 integration testbench matches the recorded source file byte-for-byte.
+	\item[$\square$] Overflow test asserts \texttt{full} at the correct count and recovers cleanly after reset.
+	\item[$\square$] Post-synthesis utilization shows 0 \BRAM{} tiles consumed by the \FIFO{} (distributed \mbox{RAM} inferred).
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-C Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{byte\_fifo.vhd} and updated \texttt{ingest\_top.vhd}.
+		\item \texttt{tb\_week1\_pipeline.vhd} plus its output log matching the reference \texttt{.bin}.
+		\item Post-synthesis utilization screenshot annotating \FIFO{} \mbox{LUT} cost and \BRAM{} tile count.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

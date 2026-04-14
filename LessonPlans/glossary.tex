@@ -1,22 +1,48 @@
-% Shared acronym macro container for EE800/820 lesson plan modules.
+% Shared acronym macro container for lesson plan modules.
 % Usage: type \IDE, \FPGA, \UART, etc. First use is expanded; later uses show acronym only.
 % Requires in each document preamble:
-%   \usepackage[acronym,toc]{glossaries}
-%   \makeglossaries
-%   \input{../glossary}
+%   \usepackage[acronym,toc,nopostdot]{glossaries}
+%   \makenoidxglossaries
+%   \input{../glossary}   (or ../../glossary from LabHandouts)
 % Print used acronyms near end of document:
-%   \printglossary[type=\acronymtype,title={Acronyms Used}]
+%   \printnoidxglossary[type=\acronymtype,title={Glossary}]
+
+% ── Custom glossary style: right-aligned page list ───────────
+% Three-column longtable layout: acronym | expansion | pages.
+% The last column is right-justified so page numbers sit flush
+% against the right text margin instead of trailing the
+% description inline. Requires \usepackage{longtable} and
+% \usepackage{array} — both are pulled in automatically by the
+% glossary-long style that ships with the glossaries package.
+\newglossarystyle{glossrightloc}{%
+	\renewenvironment{theglossary}%
+		{\begin{longtable}{@{}p{0.11\textwidth} p{0.62\textwidth} >{\raggedleft\arraybackslash}p{0.20\textwidth}@{}}}%
+		{\end{longtable}}%
+	\renewcommand*{\glossaryheader}{}%
+	\renewcommand*{\glsgroupheading}[1]{}%
+	\renewcommand*{\glossentry}[2]{%
+		\glsentryitem{##1}\textbf{\glstarget{##1}{\glossentryname{##1}}} &
+		\glossentrydesc{##1}\glspostdescription{} & ##2\tabularnewline
+	}%
+	\renewcommand*{\subglossentry}[3]{%
+		 & \glossentrydesc{##2}\glspostdescription{} & ##3\tabularnewline
+	}%
+	\renewcommand*{\glsgroupskip}{}%
+}
+\setglossarystyle{glossrightloc}
 
 % Acronym definitions (only used entries appear in the printed glossary).
 \newacronym{ask}{ASK}{Amplitude Shift Keying}
 \newacronym{bga}{BGA}{Ball Grid Array}
 \newacronym{bom}{BOM}{Bill of Materials}
 \newacronym{bram}{BRAM}{Block Random Access Memory}
+\newacronym{cdc}{CDC}{Clock Domain Crossing}
 \newacronym{crc}{CRC}{Cyclic Redundancy Check}
 \newacronym{css}{CSS}{Chirp Spread Spectrum}
 \newacronym{dma}{DMA}{Direct Memory Access}
 \newacronym{dsp}{DSP}{Digital Signal Processing}
 \newacronym{eda}{EDA}{Exploratory Data Analysis}
+\newacronym{ff}{FF}{Flip-Flop}
 \newacronym{fifo}{FIFO}{First In, First Out}
 \newacronym{fpga}{FPGA}{Field-Programmable Gate Array}
 \newacronym{fsk}{FSK}{Frequency Shift Keying}
@@ -46,11 +72,13 @@
 \providecommand{\BGA}{\gls{bga}}
 \providecommand{\BOM}{\gls{bom}}
 \providecommand{\BRAM}{\gls{bram}}
+\providecommand{\CDC}{\gls{cdc}}
 \providecommand{\CRC}{\gls{crc}}
 \providecommand{\CSS}{\gls{css}}
 \providecommand{\DMA}{\gls{dma}}
 \providecommand{\DSP}{\gls{dsp}}
 \providecommand{\EDA}{\gls{eda}}
+\providecommand{\FF}{\gls{ff}}
 \providecommand{\FIFO}{\gls{fifo}}
 \providecommand{\FPGA}{\gls{fpga}}
 \providecommand{\FSK}{\gls{fsk}}

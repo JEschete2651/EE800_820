@@ -15,6 +15,9 @@ Implement receiver firmware that captures beacon packets via an \texttt{RxDone} 
 	\item At least one working beacon from LH1-F as a traffic source.
 \end{itemize}
 
+\labfigure{LH1G_isr_mainloop_dataflow.png}{0.9\textwidth}{Receiver data flow: \texttt{DIO0} $\to$ \texttt{EXTI} $\to$ \ISR{} (FIFO read, \RSSI{}/\SNR{}, timestamp) $\to$ ring buffer $\to$ main loop (frame build, \CRC{}) $\to$ \mbox{DMA} \UART{} $\to$ \FPGA{}. Producer and consumer live in different execution contexts --- the ring buffer is the sole handoff.}{fig:lh1g-dataflow}
+
+\newpage
 \section{Forwarding Frame Format}
 The receiver wraps each received beacon in a framed \UART{} message for the \FPGA{}. Total 43 bytes:
 \begin{table}[h!]
@@ -34,6 +37,9 @@ The receiver wraps each received beacon in a framed \UART{} message for the \FPG
 	\end{tabular}
 \end{table}
 
+\labfigure{LH1G_frame_layout.png}{0.9\textwidth}{43-byte forwarding frame layout with delimiter, length, beacon payload, \RSSI{}/\SNR{}, timestamp, and trailing \CRC{}-16 highlighted.}{fig:lh1g-frame}
+
+\newpage
 \section{Architecture}
 
 \subsection{ISR path}
@@ -58,9 +64,12 @@ The receiver wraps each received beacon in a framed \UART{} message for the \FPG
 	\item Increment a \texttt{frames\_forwarded} counter.
 \end{enumerate}
 
+\labfigure{LH1G_ring_buffer_diagram.png}{0.75\textwidth}{Single-producer/single-consumer ring buffer: \ISR{} advances \texttt{head}, main loop advances \texttt{tail}. A \texttt{\_\_DMB()} barrier orders the payload write against the head increment.}{fig:lh1g-ring}
+
 \subsection{Ring buffer sizing}
 A 16-entry ring ($\approx$640 bytes of beacon structs) accommodates roughly 16 back-to-back receptions without overflow. With two beacons at 2 and 3 second intervals, this is $\sim$40\,s of margin against a stalled main loop --- comfortable.
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Peripheral configuration}
@@ -106,6 +115,8 @@ typedef struct {
 	\item Also \texttt{printf} a human-readable summary over USART2 for debug: \texttt{"RX beacon=\%02X seq=\%lu rssi=\%d snr=\%d"}.
 \end{enumerate}
 
+\labfigure{LH1G_python_parser_output.png}{0.85\textwidth}{Host-side \texttt{pyserial} parser output: 43-byte frames captured, start delimiter matched, \CRC{}-16 validated, beacon \mbox{ID}/sequence/\RSSI{}/\SNR{} extracted.}{fig:lh1g-parser}
+
 \subsection{Step 5 --- Validation without the \FPGA{}}
 \begin{enumerate}[leftmargin=2em]
 	\item Before wiring to the Nexys A7, loopback-test the forwarding \UART{} by connecting \texttt{USART3 TX} to \texttt{USART3 RX} (or to a USB-\UART{} adapter) and capturing frames on a host PC.
@@ -113,6 +124,7 @@ typedef struct {
 	\item Run with Beacon~A (and optionally Beacon~B) from LH1-F broadcasting.
 \end{enumerate}
 
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] \texttt{RxDone} interrupt fires on every received packet (\ISR{} entry count matches expected receptions).
@@ -139,5 +151,7 @@ typedef struct {
 		\item One-paragraph rationale for the ring buffer size you chose, including a worst-case arrival-rate analysis.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}

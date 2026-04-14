@@ -1,0 +1,94 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{2-H}
+\newcommand{\labtitleshort}{Resource and Timing}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{2-H}{Resource Utilization, Timing Analysis, and Bitstream Sign-Off}
+
+\section{Objective}
+Close Module~2 by running the full \texttt{ingest\_top} design through Vivado implementation, analyzing the resource and timing reports, fixing any remaining negative slack, and producing a signed-off bitstream ready for Module~3 system integration.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~2-G (end-to-end simulation passing all three scenarios).
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Run implementation}
+\begin{enumerate}[leftmargin=2em]
+	\item Flow Navigator $\to$ \textbf{Run Implementation}. Wait for completion.
+	\item If synthesis or implementation errors appear, fix them before proceeding. Warnings about unused signals are acceptable; warnings about inferred latches are not.
+	\item Open the \textbf{Utilization} report. Record \mbox{LUT}, \mbox{FF}, \BRAM{}, and \DSP{} usage.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Expected utilization envelope}]
+	For the reference implementation on the Artix-7 100T, expect roughly: \mbox{LUT} 1--3\,\%, \mbox{FF} 0.5--2\,\%, \BRAM{} 2 tiles, \DSP{} 0. Numbers substantially higher than this usually point at an accidental block-\mbox{RAM} inference or a combinational feedback loop.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Timing report}
+\begin{enumerate}[leftmargin=2em]
+	\item Open \textbf{Report Timing Summary}. Worst Negative Slack (WNS) must be $\geq 0$ for both setup and hold.
+	\item If setup slack is negative, pull up the top 10 failing paths. Typical culprits: the \CRC{} XOR tree (see 2-E), a long combinational compare in the parser \FSM{}, or an unregistered output into \texttt{led}.
+	\item Register any failing output. Re-run implementation and confirm positive slack.
+\end{enumerate}
+
+\labfigure{LH2H_timing_summary.png}{0.85\textwidth}{Vivado Timing Summary report with all four categories (WNS/TNS, WHS/THS, WPWS/TPWS) showing positive slack.}{fig:lh2h-timing}
+
+\subsection{Step 3 --- Clock domain crossings}
+Verify that Vivado's \textbf{Report CDC} shows only the expected crossing: \texttt{uart\_rxd} into \texttt{sysclk} via \texttt{sync\_2ff}. If any unexpected crossings appear, trace them before proceeding.
+
+\subsection{Step 4 --- Generate the bitstream}
+\begin{enumerate}[leftmargin=2em]
+	\item Click \textbf{Generate Bitstream}. The output is \texttt{ingest\_top.bit}.
+	\item Open the \textbf{Power} report. Dynamic power should be under 200\,mW for this design.
+\end{enumerate}
+
+\subsection{Step 5 --- Hardware sanity check}
+\begin{enumerate}[leftmargin=2em]
+	\item Program the Nexys A7 from Hardware Manager.
+	\item Connect the STM32 receiver \UART{} \texttt{TX} to the Pmod JA pin declared in \texttt{ingest\_top.xdc}.
+	\item Power on the beacon/receiver pair. The \texttt{led(0)} \FIFO{}-empty \mbox{LED} should blink as bytes arrive; \texttt{led(1)} (\FIFO{}-full) should stay dark.
+	\item Add an \ILA{} probe on \texttt{frame\_valid} and \texttt{frame\_reject}. Confirm that \texttt{frame\_valid} pulses at roughly the Module~1 beacon rate and \texttt{frame\_reject} is rare.
+\end{enumerate}
+
+\labfigure{LH2H_ila_capture.png}{0.85\textwidth}{\ILA{} capture on hardware: \texttt{frame\_valid} pulses at the beacon transmission rate while \texttt{frame\_reject} stays quiet.}{fig:lh2h-ila}
+
+\subsection{Step 6 --- Archive the sign-off artifacts}
+Collect into a single directory:
+\begin{itemize}[leftmargin=2em]
+	\item \texttt{ingest\_top.bit}.
+	\item The post-implementation utilization, timing, and power reports.
+	\item The Module~2-G regression results (diff files from all three scenarios).
+	\item A one-page summary listing the \mbox{LUT}/\mbox{FF}/\BRAM{} numbers, WNS, and any deviations from the expected envelope.
+\end{itemize}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Implementation completes with zero errors and no inferred-latch warnings.
+	\item[$\square$] WNS and WHS both $\geq 0$.
+	\item[$\square$] Report CDC shows only the \texttt{uart\_rxd} $\to$ \texttt{sysclk} crossing.
+	\item[$\square$] Dynamic power $<$ 200\,mW.
+	\item[$\square$] Hardware \ILA{} capture confirms \texttt{frame\_valid} activity on a live beacon stream.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Common Pitfalls}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Negative hold slack}: almost always a missing register between two ultra-short paths. Add a single flip-flop rather than trying to slow the clock.
+		\item \textbf{Inferred latch warning}: an incomplete \texttt{if}/\texttt{case} in a combinational process. Provide default assignments at the top of every combinational block.
+		\item \textbf{Unexpected \BRAM{} inference}: the parser's 32-byte \texttt{payload} register array accidentally sized above Vivado's distributed-\mbox{RAM} threshold. Force distributed \mbox{RAM} with the \texttt{(*ram\_style = "distributed"*)} attribute.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[deliverable={Lab Handout 2-H Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{ingest\_top.bit} and all post-implementation reports.
+		\item One-page sign-off summary with the required numbers.
+		\item \ILA{} screenshot from live hardware.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

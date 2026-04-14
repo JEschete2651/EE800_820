@@ -12,7 +12,7 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item No prior lab handouts required.
-	\item Basic through-hole soldering experience (or willingness to practice on scrap first).
+	\item Basic through-hole soldering experience.
 \end{itemize}
 
 \section{Materials}
@@ -36,6 +36,7 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	\end{tabular}
 \end{table}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Snap and install the header strip}
@@ -45,6 +46,9 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	\item Drop the breakout PCB onto the upward-facing short pins, component-side up. The pins should poke through the row of plated holes along the edge.
 \end{enumerate}
 
+\labfigure{LH1A_header_seating.jpg}{0.55\textwidth}{RFM95W breakout dry-fit onto the snapped header strip, using the breadboard as a right-angle soldering jig.}{fig:lh1a-header}
+
+\newpage
 \subsection{Step 2 --- Solder the header pins}
 \begin{enumerate}[leftmargin=2em]
 	\item Heat the iron fully. Apply a small amount of fresh solder to the tip, then wipe on a brass sponge (tinning).
@@ -61,6 +65,9 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	\end{itemize}
 \end{tcolorbox}
 
+\labfigure{LH1A_solder_joints.jpg}{0.55\textwidth}{Macro view of finished header joints --- shiny, concave fillets that fully wet pin and pad. Use this as a pass/fail reference.}{fig:lh1a-joints}
+
+\newpage
 \subsection{Step 3 --- Install the spring antenna}
 \begin{enumerate}[leftmargin=2em]
 	\item Locate the \texttt{ANT} through-hole on the breakout (labeled on the silkscreen, near one corner).
@@ -73,6 +80,8 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	This course uses the direct-soldered spring antenna instead of the edge-launch \mbox{SMA} option. The spring is shorter, lighter, and eliminates a connector interface that is a common source of intermittent faults during benchtop work. The \mbox{SMA} option is reserved for Module~5 range testing, where the antenna may need to be physically separated from the board.
 \end{tcolorbox}
 
+\labfigure{LH1A_spring_antenna.jpg}{0.5\textwidth}{Spring antenna soldered vertically into the \texttt{ANT} pad. The coil is the sole mechanical anchor, so use slightly more solder than a header pin.}{fig:lh1a-antenna}
+
 \subsection{Step 4 --- Visual inspection}
 \begin{enumerate}[leftmargin=2em]
 	\item Hold the board under a bright light and a magnifier (phone camera zoom works).
@@ -80,6 +89,7 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	\item Clean flux residue with isopropyl alcohol and a soft brush if used.
 \end{enumerate}
 
+\newpage
 \subsection{Step 5 --- First power-on}
 \begin{enumerate}[leftmargin=2em]
 	\item Insert the assembled breakout into a breadboard. Leave at least one empty column on each side for jumper routing.
@@ -88,6 +98,9 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 	\item With a \mbox{DMM} in voltage mode, confirm that the \texttt{3V3} test point on the breakout reads $3.30\pm0.15$\,V. This validates the on-board regulator.
 \end{enumerate}
 
+\labfigure{LH1A_idle_current.jpg}{0.55\textwidth}{Bench \mbox{DMM} in series with the 3.3\,V rail, reading $\approx$1\,mA idle current. Anything above 20\,mA at this stage indicates a short.}{fig:lh1a-idle}
+
+\newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] All 14 header pins soldered with clean, shiny fillets.
@@ -106,5 +119,7 @@ Transform a bag of loose parts (Adafruit RFM95W breakout, 0.1\,\textquotedbl{} h
 		\item One-sentence pass/fail statement for each verification checklist item.
 	\end{enumerate}
 \end{tcolorbox}
+
+\printhandoutglossary
 
 \end{document}
