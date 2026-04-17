@@ -58,6 +58,10 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	\item Wait for the downloads to finish before proceeding.
 \end{enumerate}
 
+\begin{tcolorbox}[infobox={Optional --- STM32Cube \CLT{}}]
+	If you prefer system-wide command-line access to the ARM toolchain, \texttt{OpenOCD}, and \texttt{STM32\_Programmer\_CLI} (for scripted flashing or \mbox{CI}), install the \href{https://www.st.com/en/development-tools/stm32cubeclt.html}{STM32Cube Command Line Tools} instead of --- or in addition to --- the Bundles Manager download. The STM32 VS Code extension will auto-detect the \CLT{} installation. See the Module~1 development-environment section for details.
+\end{tcolorbox}
+
 \newpage
 \subsection{Step 4 --- Create an empty project targeting the Nucleo-L476RG}
 \begin{enumerate}[leftmargin=2em]

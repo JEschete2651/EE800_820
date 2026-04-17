@@ -316,7 +316,10 @@
 	\paragraph{Option B --- Standalone STM32CubeIDE.}
 	The classic Eclipse-based \href{https://www.st.com/en/development-tools/stm32cubeide.html}{STM32CubeIDE} (free from ST) remains fully supported. It bundles the \HAL{} libraries and STM32CubeMX code generation in a single installer and may be preferred by students already familiar with Eclipse or those who want CubeMX as a dedicated GUI application.
 
-	\paragraph{Common target details (both options).}
+	\paragraph{Optional --- STM32Cube \CLT{}.}
+	The \href{https://www.st.com/en/development-tools/stm32cubeclt.html}{STM32Cube Command Line Tools} package is a single installer that places the ARM GCC toolchain (\texttt{arm-none-eabi-gcc}, \texttt{-gdb}, \texttt{-objcopy}, \ldots), CMake, Ninja, \texttt{OpenOCD}, the ST-LINK GDB server, and \texttt{STM32\_Programmer\_CLI} on the system \texttt{PATH}. It is not required for the in-lab flow --- both options above handle build, flash, and debug entirely through their own integrated tooling --- but installing it is recommended if you intend to (a) script builds or flashing from a shell or CI pipeline, (b) run \texttt{arm-none-eabi-gdb} or \texttt{OpenOCD} outside of VS Code, or (c) keep a single toolchain install that survives \IDE{} upgrades. The official STM32 VS Code extension auto-discovers a \CLT{} installation when present and prefers it over the Bundles Manager download.
+
+	\paragraph{Common target details (all options).}
 	\begin{itemize}[leftmargin=2em]
 		\item \textbf{Target \MCU{}:} STM32L476RG (ARM Cortex-M4, 80\,MHz, low-power).
 		\item \textbf{Debug Interface:} On-board ST-LINK/V2.1 (USB) --- no external programmer required.
