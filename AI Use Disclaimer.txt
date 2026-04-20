@@ -2,7 +2,7 @@ Where AI was used:
 
 LaTeX formats for the Lesson Plans and Lab Handouts. 
 - Content is my own
-- AI Agent gave me the templates and sections, I filled in the content. 
+- AI Agent gave me the templates and section headers, I filled in the content. 
 
 Curriculum Pacing 
 - What modules the course should be broken up into, I don't have an education degree, nor do I have teaching experience, so assistance was needed. 
@@ -13,7 +13,7 @@ Compliance with report format and conten requirements.
 Engagement Simulator Frontend
 - The backend processing code is my own work, but the GUI portion is AI generated content. 
 
-AI Assisted with analyzing and giving feedback of where things were inconsistent. 
+AI Assisted with analyzing and giving feedback of where things were inconsistent. I had it sweep through each module for content checks along with the lab handouts to make sure I stayed consistent. 
 
 Final Report
 - Helping with LaTeX table formatting in IEEE format. 
