@@ -33,3 +33,7 @@ __pycache__/
 engagement.log
 data_stream.log
 logs/
+
+# Personal working notes (not part of the deliverable package)
+FinalReportNeeds.txt
+LabHandoutNotes.txt

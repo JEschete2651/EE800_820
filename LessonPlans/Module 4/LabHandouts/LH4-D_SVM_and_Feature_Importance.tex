@@ -1,0 +1,182 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{4-D}
+\newcommand{\labtitleshort}{SVM and Feature Importance}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{4-D}{Support Vector Machines with Grid Search and Permutation Importance}
+
+\section{Objective}
+Train an \texttt{SVC} classifier (with both linear and \mbox{RBF} kernels) for each of the three tasks, grid-search its hyperparameters over $C$ and $\gamma$, and produce a permutation-importance analysis that gives a \emph{model-agnostic} ranking of which features the classifier relied on. Permutation importance is trustworthy where Gini importance (from LH4-C) can be misleading for correlated features.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~4-B complete (scaled feature matrices available). \mbox{SVM}s \emph{require} scaling --- do not attempt to train on unscaled features.
+	\item Lab Handout~4-C complete (random-forest numbers available for comparison).
+\end{itemize}
+
+\section{Background: Why Both Kernels?}
+The linear kernel gives you interpretable coefficients (one per feature per one-vs-rest binary problem) but can only learn linearly separable decision surfaces. The \mbox{RBF} kernel handles non-linear class boundaries at the cost of interpretability and $O(n^2)$ training time. Comparing the two tells you whether the classes are linearly separable in the chosen feature space:
+
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{Linear $\approx$ RBF accuracy:} the feature space is (nearly) linearly separable; a linear model is the right tool.
+	\item \textbf{RBF $\gg$ Linear:} the decision boundary is curved in this feature space; expect a neural network (LH4-E) to also do well.
+	\item \textbf{Linear $>$ RBF:} the \mbox{RBF} is overfitting on noise (rare, usually indicates a bad $\gamma$).
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Grid search}
+
+\begin{lstlisting}[language=Python, caption={\texttt{train\_svm.py} --- SVM grid search for all three tasks.}]
+import numpy as np, joblib
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, classification_report
+from pathlib import Path
+
+def load_task(task):
+    d = Path(f"artifacts/{task}")
+    X_tr = np.load(d / "X_train.npy");  y_tr = np.load(d / "y_train.npy")
+    X_va = np.load(d / "X_val.npy");    y_va = np.load(d / "y_val.npy")
+    X_te = np.load(d / "X_test.npy");   y_te = np.load(d / "y_test.npy")
+    pre  = joblib.load(d / "preprocessor.pkl")
+    return X_tr, y_tr, X_va, y_va, X_te, y_te, pre
+
+SVM_GRID = [
+    {"kernel": ["linear"], "C": [0.1, 1, 10]},
+    {"kernel": ["rbf"],    "C": [0.1, 1, 10, 100],
+                            "gamma": ["scale", 0.01, 0.1, 1.0]},
+]
+
+def grid_search_svm(task):
+    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+    X_cv = np.concatenate([X_tr, X_va]); y_cv = np.concatenate([y_tr, y_va])
+
+    gs = GridSearchCV(SVC(random_state=42, probability=True),
+                      SVM_GRID, cv=5, scoring="accuracy",
+                      n_jobs=-1, verbose=1)
+    gs.fit(X_cv, y_cv)
+    best = gs.best_estimator_
+    acc_te = accuracy_score(y_te, best.predict(X_te))
+    print(f"[{task}] best params: {gs.best_params_}")
+    print(f"[{task}] CV acc: {gs.best_score_:.3f}  test acc: {acc_te:.3f}")
+    joblib.dump({"model": best, "cv_acc": gs.best_score_,
+                 "test_acc": acc_te, "params": gs.best_params_},
+                f"artifacts/{task}/svm.pkl")
+    return best, X_te, y_te, pre
+
+for t in ["sf", "mod", "beacon"]:
+    grid_search_svm(t)
+\end{lstlisting}
+
+\begin{tcolorbox}[warning={\mbox{SVM} Training Time}]
+	At $n=2{,}500$ samples and full grid search, expect $\sim$2--5 minutes per task on a laptop. If you see one combination hanging for $>$30 minutes, interrupt it --- usually $\gamma = 1.0$ with $C = 100$ on a scaled feature set can produce an extremely slow fit due to near-singular kernel matrix. Remove that corner from the grid and rerun.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Classification report and confusion matrix}
+
+\begin{lstlisting}[language=Python]
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+for task in ["sf", "mod", "beacon"]:
+    d = joblib.load(f"artifacts/{task}/svm.pkl")
+    svm = d["model"]
+    _, _, _, _, X_te, y_te, pre = load_task(task)
+    y_pred = svm.predict(X_te)
+    print(f"\n=== {task} SVM classification report ===")
+    print(classification_report(y_te, y_pred,
+          target_names=[str(c) for c in pre["encoder"].classes_]))
+    cm = confusion_matrix(y_te, y_pred)
+    disp = ConfusionMatrixDisplay(cm,
+           display_labels=[str(c) for c in pre["encoder"].classes_])
+    disp.plot(cmap="Blues", values_format="d")
+    plt.title(f"Confusion matrix --- SVM --- {task}")
+    plt.tight_layout()
+    plt.savefig(f"figs/cm_svm_{task}.png", dpi=150)
+\end{lstlisting}
+
+Look at off-diagonal structure: a confusion matrix where errors cluster on SF7$\leftrightarrow$SF8 (adjacent spreading factors) is physically expected; a matrix where SF7$\leftrightarrow$SF12 dominates is not.
+
+\subsection{Step 3 --- Permutation importance}
+Gini importance from a forest can attribute all the signal to whichever of two correlated features the tree split on first. Permutation importance is model-agnostic and directly measures ``how much does test accuracy drop if I shuffle this column?''
+
+\begin{lstlisting}[language=Python]
+from sklearn.inspection import permutation_importance
+
+def perm_importance(model, X_te, y_te, feature_names, task, n_repeats=20):
+    r = permutation_importance(model, X_te, y_te,
+                               n_repeats=n_repeats, random_state=42,
+                               n_jobs=-1)
+    order = np.argsort(r.importances_mean)[::-1]
+    plt.figure(figsize=(7, 3.5))
+    plt.boxplot(r.importances[order].T, labels=[feature_names[i] for i in order])
+    plt.xticks(rotation=30)
+    plt.ylabel("accuracy drop when shuffled")
+    plt.title(f"Permutation importance --- SVM --- {task}")
+    plt.tight_layout()
+    plt.savefig(f"figs/perm_importance_svm_{task}.png", dpi=150)
+    for i in order:
+        print(f"  {feature_names[i]:20s}  "
+              f"mean={r.importances_mean[i]:+.3f}  "
+              f"std={r.importances_std[i]:.3f}")
+
+for task in ["sf", "mod", "beacon"]:
+    d = joblib.load(f"artifacts/{task}/svm.pkl")
+    _, _, _, _, X_te, y_te, pre = load_task(task)
+    perm_importance(d["model"], X_te, y_te, pre["feature_cols"], task)
+\end{lstlisting}
+
+\subsection{Step 4 --- Cross-check against random forest}
+Rank the features by permutation importance (SVM, from Step~3) and by Gini importance (RF, from LH4-C). If the top two features agree across both rankings, you have high confidence they are the physically meaningful signal. A sharp disagreement is informative:
+
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{RF ranks A highest, SVM ranks B highest:} A and B are correlated; the forest grabs one per split, the SVM weighs whichever correlates with the decision boundary.
+	\item \textbf{Both rankings agree:} the feature genuinely carries discriminative information.
+	\item \textbf{A feature near the bottom of both rankings:} candidate for removal in a compressed feature set (discussed in LH4-H).
+\end{itemize}
+
+\subsection{Step 5 --- Head-to-head summary}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.4}
+	\begin{tabularx}{\textwidth}{l c c c X}
+		\toprule
+		\textbf{Task} & \textbf{RF test acc} & \textbf{SVM test acc} & \textbf{$\Delta$} & \textbf{Winner \& notes} \\
+		\midrule
+		SF Detection     & & & & \\
+		Modulation       & & & & \\
+		Emitter ID       & & & & \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Classical-model head-to-head. Carry this forward into LH4-E so the neural-network results are benchmarked against the stronger of the two.}
+\end{table}
+
+\begin{tcolorbox}[infobox={When the Linear Kernel Wins}]
+	If the linear \mbox{SVM} beats the \mbox{RBF} by more than 1 percentage point on a given task, that is a genuinely useful result: it means (a) a simpler, faster model is preferable for deployment, and (b) the problem is linearly separable in the chosen feature space. Do not over-engineer a non-linear solution where a linear one suffices --- the deployment latency budget in LH4-H will thank you.
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \mbox{SVM} grid search complete for all three tasks.
+	\item[$\square$] Confusion matrix generated and inspected for physical plausibility.
+	\item[$\square$] Permutation importance computed with $\geq$20 repeats per task.
+	\item[$\square$] Cross-check against RF Gini importance performed.
+	\item[$\square$] Head-to-head summary table filled.
+	\item[$\square$] \texttt{svm.pkl} saved for each task.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 4-D Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{artifacts/\{sf,mod,beacon\}/svm.pkl}: saved models, CV/test accuracies, chosen hyperparameters.
+		\item Confusion matrix figure per task.
+		\item Permutation-importance plot per task.
+		\item Head-to-head RF vs.\ SVM summary table with the winner annotated and a one-paragraph discussion of feature-importance agreement/disagreement.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

@@ -1,0 +1,158 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-C}
+\newcommand{\labtitleshort}{First Live Frame}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-C}{First Live Frame --- Systematic Integration Debugging}
+
+\section{Objective}
+Connect the STM32 receiver to the \FPGA{} and work through the four debugging layers (physical interface, baud rate and framing, protocol synchronization, data integrity) until the \mbox{ILA{}} captures the first \texttt{frame\_valid} pulse on live hardware. This handout is the central milestone of Module~3: a validated end-to-end data path spanning all four hardware components (beacon \MCU{} $\to$ \RF{} link $\to$ receiver \MCU{} $\to$ \FPGA{} fabric).
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-A complete (all 8 checklist items passed, wiring plan documented).
+	\item Lab Handout~3-B complete (debug bitstream programmed, \mbox{ILA{}} dashboard verified with 11 probes).
+\end{itemize}
+
+\begin{tcolorbox}[warning={Make Connections Now}]
+	This is the first handout that physically connects boards together. Follow the wiring plan from LH3-A exactly. Common-ground first, then signal. Verify the voltage levels (3.3\,V on both sides) before applying power.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Physical connection}
+\begin{enumerate}[leftmargin=2em]
+	\item With all boards \textbf{powered off}, run a GND jumper wire from the STM32 Nucleo GND header pin to the Nexys A7 PMOD JA pin~5 (or pin~11, both are GND). This is the most important connection.
+	\item Run a signal wire from STM32 \texttt{USART3 TX} (\texttt{PC4}) to Nexys A7 \texttt{JA[0]} (Artix-7 ball \texttt{C17}). Verify the \texttt{.xdc} constraint from LH2-A/LH3-B names this port \texttt{uart\_rxd}.
+	\item Power on the Nexys A7 first (so its \UART{} receiver is active before the STM32 starts transmitting).
+	\item Power on the receiver Nucleo. Then power on both beacon Nucleos.
+\end{enumerate}
+
+\labfigure{LH3C_pmod_wiring.jpg}{0.8\textwidth}{STM32 \texttt{USART3 TX} (\texttt{PC4}) wired to Nexys A7 \texttt{JA[0]} with a dedicated GND jumper. The GND wire (black) must be present; without it, the \UART{} signal levels are referenced to different potentials.}{fig:lh3c-wiring}
+
+\subsection{Step 2 --- Layer~1: Physical interface check}
+\begin{enumerate}[leftmargin=2em]
+	\item In the Vivado \mbox{ILA} dashboard, arm the trigger on \texttt{uart\_rxd\_sync} falling edge (start bit of any byte).
+	\item Wait up to 5 seconds. The receiver transmits a forwarding frame every time it receives a beacon packet (approximately every 2 seconds).
+	\item \textbf{If the trigger fires:} the physical layer is working. Proceed to Step~3.
+	\item \textbf{If the trigger does not fire:} the signal is not reaching the \FPGA{}. Debug:
+	\begin{itemize}[leftmargin=1.2em]
+		\item Confirm the STM32 receiver's \texttt{USART3 TX} is on \texttt{PC4} (check the HAL initialization in LH1-G firmware).
+		\item Confirm the \texttt{.xdc} constraint file maps \texttt{uart\_rxd} to \texttt{C17} and is active (not commented out).
+		\item With a \mbox{DMM} in \mbox{DC} voltage mode, probe the signal wire at the \mbox{PMOD} connector while the STM32 is running. You should see a voltage between 1.5\,V and 3.3\,V (the \mbox{DMM} averages the \mbox{UART} idle/active transitions). A reading of exactly 0\,V means no signal or a broken wire.
+	\end{itemize}
+\end{enumerate}
+
+\subsection{Step 3 --- Layer~2: Baud rate and framing check}
+\begin{enumerate}[leftmargin=2em]
+	\item Arm the trigger on \texttt{rx\_valid} rising edge.
+	\item When the trigger fires, examine the \texttt{rx\_data} waveform. The first byte of a forwarding frame should be \texttt{0x7E}. Check several captures to determine if bytes are decoding correctly or producing garbage.
+	\item Monitor \texttt{rx\_error}. If it asserts on most bytes, the baud rate is mismatched. Compute the expected divisor: for a 100\,MHz \FPGA{} clock and 115200 baud, the divisor is $100{,}000{,}000 / 115{,}200 \approx 868$. Check the \VHDL{} \texttt{uart\_rx} generic.
+	\item If \texttt{rx\_error} asserts intermittently (not on every byte), the STM32 may be configured for 2 stop bits while the \FPGA{} expects 1. Check the HAL \UART{} initialization in the receiver firmware.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Baud Rate Deviation Tolerance}]
+	The Module~2 \UART{} receiver uses $16\times$ oversampling and samples at the bit midpoint, which provides $\pm 3\%$ baud rate tolerance. The STM32L476 derives its \UART{} clock from the \mbox{APB1} bus; if the \mbox{PLL} configuration in the receiver firmware is different from what was used in LH1-G testing, the baud rate may be off. If \texttt{rx\_error} appears on every frame, measure the actual bit period with a logic analyzer or oscilloscope and compute the deviation:
+	\[
+		\text{Deviation (\%)} = \frac{|T_{\text{measured}} - 8.68\,\mu\text{s}|}{8.68\,\mu\text{s}} \times 100
+	\]
+	A deviation above 3\% requires adjusting the STM32 \mbox{APB1} prescaler or the \FPGA{} baud divisor.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 4 --- Layer~3: Protocol synchronization check}
+\begin{enumerate}[leftmargin=2em]
+	\item With \texttt{rx\_valid} triggering and bytes decoding correctly, monitor \texttt{parser\_state}. After detecting \texttt{0x7E}, the parser should transition: \texttt{HUNT} $\to$ \texttt{LENGTH} $\to$ \texttt{META} $\to$ \texttt{PAYLOAD} $\to$ \texttt{CRC\_CHECK} $\to$ \texttt{DONE}.
+	\item If the parser stays in \texttt{HUNT} despite valid bytes arriving, the \texttt{0x7E} start delimiter is never appearing. Set \mbox{ILA} trigger on \texttt{rx\_valid} and examine 50 consecutive \texttt{rx\_data} values. If you see only non-\texttt{7E} bytes, the receiver firmware is transmitting a different frame format than expected by the parser.
+	\item To quickly check: open the receiver debug \UART{} terminal simultaneously and watch one complete packet reception. The forwarding frame format (from Module~1 Table~6) should match what is in the \mbox{ILA} capture. If the receiver firmware was modified since LH1-G, it may have changed the start delimiter or frame structure.
+	\item If the parser advances from \texttt{HUNT} to \texttt{LENGTH} but then returns to \texttt{HUNT}, the length byte does not match the expected value (0x29 = 41 for a 43-byte frame). Capture the byte at offset 1 and compare.
+\end{enumerate}
+
+\labfigure{LH3C_parser_fsm_capture.png}{0.85\textwidth}{\mbox{ILA} capture showing parser \FSM{} state transitions for a live frame: HUNT $\to$ LENGTH $\to$ META $\to$ PAYLOAD $\to$ CRC\_CHECK $\to$ DONE. The \texttt{byte\_counter} signal confirms 43 bytes processed.}{fig:lh3c-fsm}
+
+\subsection{Step 5 --- Layer~4: Data integrity (CRC) check}
+\begin{enumerate}[leftmargin=2em]
+	\item If the parser reaches \texttt{CRC\_CHECK} but then asserts \texttt{frame\_reject} instead of \texttt{frame\_valid}, the \mbox{CRC} is failing.
+	\item Set the \mbox{ILA} trigger on \texttt{frame\_reject} rising edge. Capture the complete 43-byte frame using \mbox{ILA} pre-trigger (set pre-trigger to 45 samples so the full frame precedes the reject event).
+	\item Export the captured bytes from the \mbox{ILA} waveform viewer (\textbf{File $\to$ Export $\to$ ILA Data}) and manually compute \mbox{CRC}-8 over bytes 1--41 in Python:
+	\begin{verbatim}
+def crc8(data, poly=0x07, init=0x00):
+    crc = init
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            crc = ((crc << 1) ^ poly) & 0xFF if (crc & 0x80) else (crc << 1) & 0xFF
+    return crc
+
+# Replace with your captured bytes:
+frame_bytes = [0x01, 0x07, 0x0E, ...]   # bytes 1..41 of the forwarding frame
+computed = crc8(frame_bytes)
+captured_crc = 0xXX  # byte 42 from the ILA capture
+print(f"Computed: {computed:#04x}  Captured: {captured_crc:#04x}  Match: {computed == captured_crc}")
+	\end{verbatim}
+	\item If the computed \mbox{CRC} matches the captured byte~42 but the \FPGA{} still rejects, the \VHDL{} \mbox{CRC} engine has a bug (wrong polynomial, wrong initialization, wrong byte range). Re-run the Module~2 LH2-E testbench against this live frame as stimulus.
+	\item If the computed \mbox{CRC} does \emph{not} match byte~42, the STM32 receiver firmware is computing \mbox{CRC} differently (different polynomial \texttt{0x31} vs \texttt{0x07}, different initialization value, or including/excluding the start delimiter). Compare against the receiver source from LH1-G.
+\end{enumerate}
+
+\begin{tcolorbox}[warning={CRC Polynomial Mismatch is the Most Common Layer-4 Failure}]
+	The STM32L476 hardware \mbox{CRC} peripheral defaults to polynomial \texttt{0x04C11DB7} (CRC-32), not \mbox{CRC}-8. If the LH1-G firmware uses the hardware \mbox{CRC} unit without reconfiguring it, or uses a software \mbox{CRC}-8 with a different polynomial than \texttt{0x07}, the result will never match the Module~2 \VHDL{} \mbox{CRC} engine. Resolve by aligning both sides on polynomial \texttt{0x07}, initialization \texttt{0x00}, input/output no-reflect, covering bytes 1--41.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 6 --- First frame milestone}
+\begin{enumerate}[leftmargin=2em]
+	\item Once all four layers are verified, arm the \mbox{ILA} trigger on \texttt{frame\_valid} rising edge.
+	\item When the trigger fires, examine the captured values for \texttt{beacon\_id}, \texttt{rssi\_out}, and the \texttt{byte\_counter} (should read 43 at the DONE state).
+	\item Simultaneously read the receiver's debug \UART{} terminal. The last reception line should show the same packet.
+	\item Confirm the following match between the \mbox{ILA} capture and the STM32 debug log:
+	\begin{itemize}[leftmargin=1.2em]
+		\item Parsed \texttt{beacon\_id} equals the transmitting beacon's configured \mbox{ID}.
+		\item Parsed \texttt{rssi\_out} is within $\pm$2~dB of the \RSSI{} printed by the receiver.
+		\item Both CRC flags pass: \texttt{frame\_valid} = 1 and \texttt{frame\_reject} = 0.
+	\end{itemize}
+\end{enumerate}
+
+\labfigure{LH3C_first_frame_valid.png}{0.85\textwidth}{\mbox{ILA} capture of the first \texttt{frame\_valid} pulse on live hardware. The \texttt{beacon\_id} and \texttt{rssi\_out} fields are highlighted for comparison against the STM32 receiver debug log.}{fig:lh3c-frame-valid}
+
+\subsection{Step 7 --- Ten-frame field comparison}
+\begin{enumerate}[leftmargin=2em]
+	\item Arm the \mbox{ILA} on \texttt{frame\_valid} and capture 10 consecutive frames. For each, record \texttt{beacon\_id} and \texttt{rssi\_out} from the \mbox{ILA} waveform.
+	\item In the receiver terminal, capture the corresponding 10 reception log lines.
+	\item Build a side-by-side comparison table:
+	\begin{center}
+		\begin{tabular}{c c c c c}
+			\toprule
+			\textbf{Frame \#} & \textbf{FPGA ID} & \textbf{STM32 ID} & \textbf{FPGA RSSI} & \textbf{STM32 RSSI} \\
+			\midrule
+			1 & & & & \\
+			2 & & & & \\
+			$\vdots$ & & & & \\
+			10 & & & & \\
+			\bottomrule
+		\end{tabular}
+	\end{center}
+	\item All beacon \mbox{ID}s should match exactly. \mbox{RSSI} discrepancies up to $\pm$3~dB are acceptable (rounding in the 1-byte unsigned representation). Larger discrepancies indicate a field offset error in the parser or a byte-ordering issue in the \mbox{RSSI{}} extraction.
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Physical layer: \texttt{uart\_rxd\_sync} transitions observed on \mbox{ILA} within 5 seconds of receiver power-on.
+	\item[$\square$] Baud/framing: \texttt{rx\_error} is absent or rare ($<$1\% of bytes); decoded bytes are correct hex values.
+	\item[$\square$] Protocol sync: parser \FSM{} advances through all states on a live frame; \texttt{0x7E} delimiter detected.
+	\item[$\square$] Data integrity: \texttt{frame\_valid} fires; \texttt{frame\_reject} stays low on back-to-back frames.
+	\item[$\square$] Ten-frame comparison: all \texttt{beacon\_id} fields match STM32 log; \RSSI{} within $\pm$3~dB.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-C Deliverable --- Module 3 Integration Milestone}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Integration debug log: for each debugging layer, document the symptoms observed, the diagnostic steps taken, and the root cause and resolution. If a layer had no issues, document that explicitly.
+		\item \mbox{ILA} waveform captures for: (a) the first \texttt{frame\_valid} event, (b) the parser state transitions during a live frame, and (c) at least one diagnosed failure \emph{before} the fix was applied (e.g., the \texttt{frame\_reject} capture used for \mbox{CRC} analysis).
+		\item The 10-frame side-by-side comparison table (filled in).
+		\item Annotated photos of the physical inter-board wiring as it was when the first live frame was captured.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

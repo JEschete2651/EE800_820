@@ -1,0 +1,234 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{4-A}
+\newcommand{\labtitleshort}{Dataset Loading and Validation}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{4-A}{Dataset Loading, Schema Validation, and 10-Check Audit}
+
+\section{Objective}
+Load the \texttt{merged\_dataset.csv} produced by Lab Handout~3-H and subject it to the ten mandatory integrity checks that must pass before any preprocessing, feature engineering, or model training is attempted. This handout establishes the \emph{data contract} the rest of Module~4 relies on: if any of the ten checks fail, you stop and fix the data before proceeding.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-H complete (\texttt{merged\_dataset.csv} and \texttt{data\_dictionary.md} delivered).
+	\item Python 3.10+ with \texttt{pandas}, \texttt{numpy}, and \texttt{pytest} installed.
+	\item Working directory contains \texttt{merged\_dataset.csv} (the Module~3 handoff artifact).
+\end{itemize}
+
+\section{Background: Why Validate Before Training?}
+A single corrupted column, an undetected duplicate, or an unconverted two's-complement field will silently propagate into every downstream model. The failure mode is insidious: training runs complete, accuracy numbers look plausible, and the model learns artifacts of the corruption rather than the underlying physics. The ten-check audit here is not optional paperwork --- each check has a specific failure mode it prevents.
+
+\begin{tcolorbox}[infobox={The Signed-Field Trap}]
+	The \mbox{FPGA} writes \mbox{RSSI}, \mbox{SNR}, \texttt{freq\_error}, and \texttt{rssi\_delta} as two's-complement integers but the \mbox{CSV} stores them as unsigned decimal text. A raw value of $65{,}456$ in the \mbox{CSV} is actually $-80$~dBm after signed decoding. If you skip the sign-fix, the model will learn a fictitious ``high \mbox{RSSI}'' class corresponding to weak signals --- an error that only surfaces when you inspect individual predictions. Check~6 catches this.
+\end{tcolorbox}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Load the dataset}
+Create \texttt{load\_and\_validate.py}. Keep the script small and well-commented: this file is the official gateway between Modules~3 and~4.
+
+\begin{lstlisting}[language=Python, caption={Top of \texttt{load\_and\_validate.py}.}]
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
+EXPECTED_COLS = [
+    "campaign_id", "run_id", "timestamp_host",
+    "beacon_id", "mod_code", "spread_factor",
+    "rssi", "snr", "obs_count", "rx_timestamp",
+    "inter_arrival_ms", "rssi_delta", "priority_score",
+    "distance_m", "label_sf", "label_mod", "mod_code_label",
+    "label_beacon", "label_mismatch", "split",
+]
+
+SIGNED_COLS = ["rssi", "snr", "rssi_delta"]   # two's-complement 16 or 32 bit
+
+# Canonical modulation code mapping, frozen once across Modules 1-5:
+#   1 = LoRa, 2 = FSK, 3 = OOK  (Module 1 Table 4; LH1-F; LH3-F/G/H).
+# Both the self-reported byte (mod_code) and the ground-truth column
+# (mod_code_label) must be drawn from this set. Do not introduce a 0/1
+# alias; the string label_mod ("lora"/"fsk"/"ook") is readability-only.
+VALID_MOD_CODES = {1, 2, 3}
+
+# Expected campaign_id family values (Module 3 LH3-F/G). Sub-campaigns
+# (e.g. C5a/C5b/C5c) appear as distinct strings under the same family.
+EXPECTED_CAMPAIGN_IDS = {
+    "C1", "C2", "C3", "C4", "C5a", "C5b", "C5c", "C5d", "C5e",
+}
+
+def decode_signed(x, bits):
+    """Convert raw unsigned integer to signed integer (two's complement)."""
+    mask_neg = 1 << (bits - 1)
+    mask_all = (1 << bits) - 1
+    return (x & mask_all) - ((x & mask_neg) << 1)
+
+df = pd.read_csv("merged_dataset.csv")
+print(f"Loaded {len(df):,} rows, {len(df.columns)} columns")
+\end{lstlisting}
+
+\subsection{Step 2 --- The ten mandatory checks}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c l X}
+		\toprule
+		\textbf{\#} & \textbf{Check} & \textbf{Failure Indicates} \\
+		\midrule
+		1  & Schema                & Missing or extra column; LH3-H contract violated \\
+		2  & Row count             & Merge was truncated or duplicate rows persist \\
+		3  & Null-value budget     & $>$1\% nulls in any feature column; parser or \UART{} issue \\
+		4  & Duplicate rows        & Same (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{obs\_count}) repeated \\
+		5  & Valid ranges          & \mbox{RSSI}, \mbox{SNR}, SF, or \texttt{mod\_code} outside plausible bounds \\
+		6  & Signed-field decode   & \mbox{RSSI}/\mbox{SNR}/\texttt{rssi\_delta} not yet two's-complement decoded \\
+		7  & Label consistency     & \texttt{label\_sf} $\neq$ \texttt{spread\_factor} (mismatch rate $>$2\%) \\
+		8  & Class balance         & Any class with $<$150 samples (split will under-fill test set) \\
+		9  & Split integrity       & A \texttt{run\_id} leaked across train/val/test partitions \\
+		10 & Sentinel row handling & \texttt{obs\_count == 1} rows present (priority / rssi\_delta undefined) \\
+		\bottomrule
+	\end{tabularx}
+	\caption{The ten-check audit. Every check must pass, or the check itself must be explicitly waived with written justification, before continuing to LH4-B.}
+\end{table}
+
+\subsection{Step 3 --- Implement the checks}
+
+\begin{lstlisting}[language=Python, caption={The ten audit checks (continue in \texttt{load\_and\_validate.py}).}]
+def check_1_schema(df):
+    missing = set(EXPECTED_COLS) - set(df.columns)
+    extra   = set(df.columns) - set(EXPECTED_COLS)
+    assert not missing, f"Missing columns: {missing}"
+    if extra:
+        print(f"[INFO] Extra columns present (not fatal): {extra}")
+
+def check_2_row_count(df, min_rows=2500):
+    assert len(df) >= min_rows, \
+        f"Row count {len(df)} < expected minimum {min_rows}"
+
+def check_3_nulls(df, budget_frac=0.01):
+    frac = df.isna().mean()
+    over = frac[frac > budget_frac]
+    assert over.empty, f"Columns over null budget: {over.to_dict()}"
+
+def check_4_duplicates(df):
+    key = ["run_id", "beacon_id", "obs_count"]
+    dup = df.duplicated(subset=key).sum()
+    assert dup == 0, f"{dup} duplicate (run, beacon, obs) rows"
+
+def check_5_valid_ranges(df):
+    assert df["rssi"].between(-120, 0).all(),  "RSSI out of range"
+    assert df["snr"].between(-20, 15).all(),   "SNR out of range"
+    assert df["label_sf"].between(7, 12).all(), "label_sf out of range"
+    assert df["beacon_id"].between(1, 255).all(), "beacon_id out of range"
+    # Canonical mod_code set (1/2/3). Catches any 0/1 alias drift.
+    bad = set(df["mod_code"].unique()) - VALID_MOD_CODES
+    assert not bad, f"mod_code contains non-canonical values: {bad}"
+    bad = set(df["mod_code_label"].unique()) - VALID_MOD_CODES
+    assert not bad, f"mod_code_label contains non-canonical values: {bad}"
+    # Campaign family check (warn, not fatal --- sub-campaign strings
+    # like C5a/C5b/C5c are allowed; anything else prints for review).
+    unknown = set(df["campaign_id"].unique()) - EXPECTED_CAMPAIGN_IDS
+    if unknown:
+        print(f"[INFO] Non-standard campaign_id values: {unknown}")
+
+def check_6_signed_decode(df):
+    # If rssi is still unsigned, most rows will be large positive numbers.
+    assert df["rssi"].max() <= 0, \
+        "RSSI contains positive values; signed-field decode not applied"
+
+def check_7_label_consistency(df):
+    mismatch_rate = df["label_mismatch"].mean()
+    assert mismatch_rate < 0.02, \
+        f"Label mismatch rate {mismatch_rate:.1%} exceeds 2% threshold"
+
+def check_8_class_balance(df, min_per_class=150):
+    for col in ["label_sf", "label_mod", "label_beacon"]:
+        counts = df[col].value_counts()
+        small = counts[counts < min_per_class]
+        assert small.empty, f"{col} classes under {min_per_class}: {small.to_dict()}"
+
+def check_9_split_integrity(df):
+    # Key leakage on run_id, not campaign_id: a single campaign family
+    # legitimately contains multiple collection runs, and those may be
+    # assigned to different splits. The split must be stable per run_id.
+    leak = (df.groupby("run_id")["split"].nunique() > 1)
+    leaked = leak[leak].index.tolist()
+    assert not leaked, f"Run IDs split across partitions: {leaked}"
+
+def check_10_sentinel(df):
+    n_sentinel = (df["obs_count"] == 1).sum()
+    print(f"[INFO] {n_sentinel} sentinel rows (obs_count==1) present.")
+    print("       These will be dropped in LH4-B preprocessing.")
+
+for fn in [check_1_schema, check_2_row_count, check_3_nulls,
+           check_4_duplicates, check_5_valid_ranges,
+           check_6_signed_decode, check_7_label_consistency,
+           check_8_class_balance, check_9_split_integrity,
+           check_10_sentinel]:
+    fn(df)
+    print(f"[PASS] {fn.__name__}")
+\end{lstlisting}
+
+\begin{tcolorbox}[warning={If Check 6 Fails}]
+	If \texttt{check\_6\_signed\_decode} fires, do \emph{not} patch around it by negating values in the script. Instead: re-run the Module~3 merging script with an explicit signed-decode step (\texttt{decode\_signed(x, bits=16)} for \mbox{RSSI} and \mbox{SNR}, \texttt{bits=32} for \texttt{rssi\_delta}) and regenerate \texttt{merged\_dataset.csv}. The data contract is supposed to hand you already-decoded values; fixing it at the source guarantees every future load is correct.
+\end{tcolorbox}
+
+\subsection{Step 4 --- Dataset summary print-out}
+After the ten checks pass, print a one-screen summary that the rest of Module~4 can paste into reports:
+
+\begin{lstlisting}[language=Python]
+print("\n=== Dataset Summary ===")
+print(f"Total rows:         {len(df):,}")
+print(f"Unique campaigns:   {df['campaign_id'].nunique()}")
+print(f"Splits:             {df['split'].value_counts().to_dict()}")
+print(f"SF classes:         {df['label_sf'].value_counts().sort_index().to_dict()}")
+print(f"Mod classes:        {df['label_mod'].value_counts().to_dict()}")
+print(f"Beacon classes:     {df['label_beacon'].value_counts().sort_index().to_dict()}")
+print(f"Sentinel rows:      {(df['obs_count']==1).sum()}")
+print(f"Label mismatches:   {df['label_mismatch'].sum()}")
+\end{lstlisting}
+
+\subsection{Step 5 --- Persist a validation manifest}
+Write the summary to \texttt{validation\_manifest.json}. LH4-H will read it to confirm that the deployed inference pipeline is consuming the same data contract the models were trained on.
+
+\begin{lstlisting}[language=Python]
+import json, datetime
+manifest = {
+    "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+    "source_file":  "merged_dataset.csv",
+    "row_count":    int(len(df)),
+    "schema":       list(df.columns),
+    "class_counts": {
+        "sf":     df["label_sf"].value_counts().sort_index().to_dict(),
+        "mod":    df["label_mod"].value_counts().to_dict(),
+        "beacon": df["label_beacon"].value_counts().sort_index().to_dict(),
+    },
+    "split_counts": df["split"].value_counts().to_dict(),
+    "checks_passed": 10,
+}
+with open("validation_manifest.json", "w") as f:
+    json.dump(manifest, f, indent=2)
+print("Wrote validation_manifest.json")
+\end{lstlisting}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{merged\_dataset.csv} loads without errors.
+	\item[$\square$] All ten audit checks pass (or waivers are explicitly documented).
+	\item[$\square$] Dataset summary printed and saved.
+	\item[$\square$] \texttt{validation\_manifest.json} written to the Module~4 working directory.
+	\item[$\square$] Sentinel-row count logged (will be consumed by LH4-B).
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 4-A Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{load\_and\_validate.py}: the loader and 10-check audit, runnable from the command line.
+		\item \texttt{validation\_manifest.json}: the machine-readable dataset summary consumed by LH4-H.
+		\item Audit log: a plain-text or \mbox{PDF} capture of the script's output showing all ten \texttt{[PASS]} lines and the dataset summary.
+		\item Any waivers: a list of any check that was downgraded from fatal to warning, with a 2--3 sentence written justification per waiver.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

@@ -1,0 +1,164 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{5-D}
+\newcommand{\labtitleshort}{Benchmarking Matrix and Spec Table}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{5-D}{Benchmarking Matrix (B1--B6), Baseline Regression, and System Specification Table}
+
+\section{Objective}
+Run the six benchmarking operating points, compare the stressed-system performance against the Module~3 and Module~4 baselines, and fill in the final Module~5 system specification table. The deliverable is a single-page spec sheet that any future user of this system can refer to for operating envelope, performance, and expected latency.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~5-C complete (per-stage \mbox{GPIO}-toggle instrumentation working at SF7).
+	\item Module~3 LH3-D measurements on file (\PER{}, latency at SF7/SF10).
+	\item Module~4 LH4-H microbenchmark on file (p99 host inference latency).
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Run the six operating points}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c c c c c X}
+		\toprule
+		\textbf{ID} & \textbf{SF} & \textbf{Beacons} & \textbf{Distance} & \textbf{Power} & \textbf{Key measurement} \\
+		\midrule
+		B1 & SF7  & 1 & 3\,m & +14\,dBm & Minimum latency operating point \\
+		B2 & SF10 & 1 & 3\,m & +14\,dBm & Mid-range latency \\
+		B3 & SF12 & 1 & 3\,m & +14\,dBm & Maximum latency (longest on-air time) \\
+		B4 & SF7  & 2 & 3\,m & +14\,dBm & Multi-beacon latency impact \\
+		B5 & SF7  & 3 & 3\,m & +14\,dBm & High-density latency impact \\
+		B6 & SF7  & 1 & 8\,m & +2\,dBm  & Low-\mbox{SNR} impact on all stages \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+For each operating point, capture 50 $T_{\text{total}}$ measurements with the LH5-C \mbox{GPIO} setup. Report:
+\begin{itemize}[leftmargin=2em]
+	\item Mean, std, min, max, and p99 of $T_{\text{total}}$.
+	\item Per-stage decomposition (six stages from LH5-C).
+	\item The dominant stage (the stage contributing $>$50\% of $T_{\text{total}}$).
+\end{itemize}
+
+\subsection{Step 2 --- Latency histograms}
+Plot two latency histograms:
+\begin{itemize}[leftmargin=2em]
+	\item B1 (lowest latency: SF7, 1 beacon). Annotate mean, std, and p99.
+	\item B3 (highest latency: SF12, 1 beacon). Same annotations.
+\end{itemize}
+
+The two should look qualitatively similar (same shape) but translated along the time axis by the $T_{\text{RF}}$ difference ($\sim$1450\,ms between SF7 and SF12 for a 32-byte payload).
+
+\subsection{Step 3 --- Dominance bar chart}
+For each of the six operating points, draw a stacked bar showing the proportional contribution of each of the six stages. Observation: on every bar, the \mbox{RF} stage should dominate. This is the \emph{visual} form of the architectural conclusion.
+
+\subsection{Step 4 --- Regression check against Module 3 and Module 4 baselines}
+
+\begin{tcolorbox}[warning={Comparability Rules --- Required Normalization}]
+A regression claim is only meaningful if the M3, M4, and M5 numbers were measured at the \emph{same} operating point. Before populating the table, pin down all six axes below; if any differs across modules, either re-measure the earlier number under the current point or explicitly annotate the divergence in the ``Change'' column.
+\begin{enumerate}[leftmargin=1.2em]
+	\item \textbf{Spreading factor} (SF7 for the baseline row).
+	\item \textbf{Beacon count and scheduling mode} (e.g.\ 2 beacons, fixed interval).
+	\item \textbf{Distance} (3\,m for the baseline row).
+	\item \textbf{TX power} (+14\,dBm for the baseline row).
+	\item \textbf{Firmware commit hash} (beacon + receiver + FPGA build) --- record the short SHA used in each module.
+	\item \textbf{Bitstream hash} (the \texttt{.bit} file hash; differs between debug and production builds).
+	\item \textbf{Model artifact version} (the \texttt{mlp.pt} / \texttt{cnn.pt} path + content hash used for the M4 and M5 accuracy numbers).
+\end{enumerate}
+Record these in the row header of the table below or in an ``Operating Point'' cell. Any row without all seven fields pinned is not a regression check; it is an exploration.
+\end{tcolorbox}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l c c c X}
+		\toprule
+		\textbf{Metric} & \textbf{M3} & \textbf{M4} & \textbf{M5} & \textbf{Change / root cause if regressed} \\
+		\midrule
+		\PER{} (2 beacons, SF7)            & & & & \\
+		End-to-end latency (SF7, 3\,m)     & & --- & & \\
+		SF classification accuracy         & --- & & & \\
+		Modulation classification accuracy & --- & & & \\
+		Emitter ID accuracy                & --- & & & \\
+		\FIFO{} peak utilization (2 beacons) & & --- & & \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+Any metric that has drifted $>$5\% from the Module~3 or Module~4 number at the \emph{same} operating point (all seven axes matched) is a regression. Before concluding the system degraded, rule out:
+
+\begin{tcolorbox}[warning={Regression Investigation Order}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \textbf{Hardware:} antenna loose, USB cable partially disconnected, breadboard contact oxidation, beacon battery low. Re-run the LH3-A pre-integration checklist.
+		\item \textbf{Firmware:} beacon or receiver firmware modified during Module~4 development (e.g., baud rate changed for debugging and not reverted).
+		\item \textbf{Bitstream:} \FPGA{} bitstream regenerated with \mbox{ILA{}} probes added/removed, altering timing.
+		\item \textbf{Environment:} new equipment in the lab radiating near 915\,MHz, furniture moved, obstructions introduced between LH3 and LH5.
+	\end{enumerate}
+	Only after all four rule-outs fail should you conclude the system itself degraded. Document the investigation in the deliverable regardless of outcome --- the \emph{absence} of a regression is also a valuable result, proving the system is stable across modules.
+\end{tcolorbox}
+
+\subsection{Step 5 --- Fill the system specification table}
+This is the headline Module~5 artefact:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{X c l}
+		\toprule
+		\textbf{Parameter} & \textbf{Value} & \textbf{Source} \\
+		\midrule
+		Maximum concurrent beacons (\PER{} $<$ 5\%)              & \rule{1.5cm}{0.4pt} & LH5-A (S1) \\
+		Maximum frame rate (\FIFO{} $<$ 75\%)                    & \rule{1.5cm}{0.4pt}\,fps & LH5-A (S1) \\
+		Minimum classifiable \mbox{SNR} (accuracy $>$ 80\%)      & \rule{1.5cm}{0.4pt}\,dB  & LH5-B (S3) \\
+		Maximum classifiable distance (accuracy $>$ 80\%)         & \rule{1.5cm}{0.4pt}\,m   & LH5-B (S3) \\
+		End-to-end latency at SF7 (mean $\pm$ std)                & \rule{1.5cm}{0.4pt}\,ms  & B1 \\
+		End-to-end latency at SF12 (mean $\pm$ std)               & \rule{1.5cm}{0.4pt}\,ms  & B3 \\
+		SF classification accuracy (nominal)                      & \rule{1.5cm}{0.4pt}\%    & B1 \\
+		Modulation classification accuracy (nominal)              & \rule{1.5cm}{0.4pt}\%    & B1 \\
+		Emitter \mbox{ID} classification accuracy (nominal)       & \rule{1.5cm}{0.4pt}\%    & B1 \\
+		Maximum stable run time (tested)                          & \rule{1.5cm}{0.4pt}\,min & LH5-B (S4) \\
+		\FPGA{} resource utilization (\mbox{LUT{}} / FF / \mbox{BRAM{}}) & \rule{1.5cm}{0.4pt}  & Module~2 \\
+		Host inference latency (p99)                              & \rule{1.5cm}{0.4pt}\,ms  & Module~4 \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Module~5 system specification table. Every value is cited back to its source experiment; no assumed or theoretical numbers.}
+\end{table}
+
+\subsection{Step 6 --- Architectural implications paragraph}
+Write a paragraph (150--250 words) addressing:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Which stage dominates $T_{\text{total}}$ at every operating point? (Spoiler: \mbox{RF}.)
+	\item Given this, would moving the Module~4 inference step onto the \FPGA{} materially reduce latency? Quantify your answer using the LH5-D bar chart proportions.
+	\item Under what deployment scenario \emph{would} on-\FPGA{} inference be worthwhile? (The honest answer is: only when the host \mbox{PC} is eliminated entirely, for standalone embedded deployment.)
+	\item Given the \mbox{RF}-dominated architecture, what is the single highest-leverage change for reducing latency? (Usually: smaller payload or lower SF --- both reduce the on-air time, at the cost of payload capacity or range.)
+\end{enumerate}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] All six operating points measured with $\geq$50 samples each.
+	\item[$\square$] B1 and B3 histograms generated.
+	\item[$\square$] Per-stage dominance bar chart generated for all six points.
+	\item[$\square$] Baseline regression table filled; any regressions investigated using the 4-step protocol.
+	\item[$\square$] System specification table filled with every value cited.
+	\item[$\square$] Architectural-implications paragraph written.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 5-D Deliverable --- and Week 2 Final Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item B1--B6 measurement table (one row per operating point, columns for mean / std / p99 / dominant stage).
+		\item Two latency histograms (B1 and B3) with mean / std / p99 annotations.
+		\item Stacked dominance bar chart for all six operating points.
+		\item Baseline regression table with investigation notes for any regression.
+		\item Completed system specification table.
+		\item Architectural-implications paragraph answering the four questions from Step~6.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

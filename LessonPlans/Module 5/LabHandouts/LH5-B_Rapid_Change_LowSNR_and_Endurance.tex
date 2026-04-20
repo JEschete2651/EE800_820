@@ -1,0 +1,173 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{5-B}
+\newcommand{\labtitleshort}{Rapid Change, Low SNR, Endurance (S2--S4)}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{5-B}{S2 Rapid Parameter Change, S3 Low-SNR, and S4 Extended-Duration Stress Tests}
+
+\section{Objective}
+Execute the three remaining stress-test dimensions: S2 evaluates whether the classifier tracks dynamic SF changes from a single beacon; S3 extends the accuracy-vs.-\mbox{SNR} curve from Module~4 into the low-\mbox{SNR} regime --- including an intentionally out-of-distribution obstruction test --- and S4 runs the system for 30 minutes to surface time-dependent failure modes.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~5-A complete (stress test plan written; S1 executed; \texttt{s1\_results.json} in hand).
+	\item Two beacons operational; firmware build environment available for in-situ SF reconfiguration.
+	\item A physical obstruction available for S3e (metal filing cabinet, stack of textbooks, or similar).
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- S2: Rapid Parameter Change}
+Configure two beacons at SF7, +14\,dBm, fixed 2-second interval. Start \texttt{live\_inference.py} and confirm both beacons classified as SF7. Then cycle Beacon~1's SF while Beacon~2 remains at SF7:
+
+\begin{enumerate}[leftmargin=2em]
+	\item $t = 0$: Both beacons at SF7. Verify inference reports SF7 for both.
+	\item $t = 30$\,s: Reflash or reconfigure Beacon~1 to SF10. Observe the number of packets between reflash completion and the first correct SF10 classification. Record whether Beacon~2's classification remains stable at SF7.
+	\item $t = 60$\,s: Change Beacon~1 to SF12. Record the same observations.
+	\item $t = 90$\,s: Return Beacon~1 to SF7. Record the return behaviour.
+	\item Continue for the remainder of 10 minutes, cycling the same sequence every 90 seconds to gather multiple transitions per SF pair.
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Transient Misclassification at SF Boundaries}]
+	The Module~4 Random Forest and MLP classify each feature vector independently --- they have no memory of previous classifications, so there is no ``tracking delay'' inside the model. However, the \FPGA{}'s \texttt{inter\_arrival\_ms} and \texttt{rssi\_delta} features are computed relative to the \emph{previous} observation from the same beacon \mbox{ID}. On the first packet after a transition, \texttt{inter\_arrival\_ms} is computed against the last old-SF packet, whose on-air time is different. This can cause one or two transient misclassifications right at the boundary. Document these and explain them in terms of the Module~2 feature-computation logic --- this is a textbook cross-domain dependency.
+\end{tcolorbox}
+
+\subsection{Step 2 --- S2 analysis}
+Build a table of transitions:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c c c c X}
+		\toprule
+		\textbf{Transition} & \textbf{From} & \textbf{To} & \textbf{Packets until first correct prediction} & \textbf{Notes} \\
+		\midrule
+		1 & SF7  & SF10 & & \\
+		2 & SF10 & SF12 & & \\
+		3 & SF12 & SF7  & & \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+Expected: the ``packets until first correct'' column should be 0, 1, or 2 --- never larger. If you consistently see 3+, revisit the \FPGA{} feature computation: is \texttt{inter\_arrival\_ms} being reset on \texttt{beacon\_id} change, or is it measuring across mismatched SF conditions for more than one packet?
+
+\subsection{Step 3 --- S3: Low-SNR operating conditions}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c c c c X}
+		\toprule
+		\textbf{Config} & \textbf{TX Power} & \textbf{Distance} & \textbf{Expected SNR} & \textbf{Purpose} \\
+		\midrule
+		S3a & +20\,dBm & 3\,m           & High ($>$10\,dB)  & Comfortable baseline \\
+		S3b & +14\,dBm & 5\,m           & Moderate (5--10\,dB) & Nominal operating point \\
+		S3c & +8\,dBm  & 5\,m           & Low (0--5\,dB)    & Beginning of degradation \\
+		S3d & +2\,dBm  & 8\,m           & Very low ($<$0\,dB) & Near receiver sensitivity \\
+		S3e & +2\,dBm  & 8\,m + obstruction & Minimal       & Extreme: partial blockage, out-of-distribution \\
+		\bottomrule
+	\end{tabularx}
+	\caption{S3 low-\mbox{SNR} sweep. Run each configuration for 3 minutes at one beacon, SF7, fixed 1\,s interval.}
+\end{table}
+
+For S3e, place the obstruction physically between the beacon and the receiver. The resulting multipath and shadowing produce \mbox{RSSI}/\mbox{SNR} samples that fall \emph{outside} the Module~3 training data distribution.
+
+\subsection{Step 4 --- S3 degradation curve}
+Plot:
+\begin{itemize}[leftmargin=2em]
+	\item Measured mean \mbox{RSSI} vs.\ configuration (bar or line chart).
+	\item Classification accuracy vs.\ configuration, one line per task.
+	\item Overlay: the Module~4 LH4-G accuracy-vs.-\mbox{SNR} curve, so the Module~5 data extends the existing plot into the low-\mbox{SNR} regime rather than duplicating it.
+\end{itemize}
+
+Then characterise the degradation mode:
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{Graceful:} Accuracy decreases smoothly; misclassifications favour adjacent SFs (SF7 mistaken for SF8).
+	\item \textbf{Catastrophic:} Accuracy drops abruptly to near-random; misclassifications are scattered across all classes.
+\end{itemize}
+
+Either outcome is a valid experimental result. The analysis value is in explaining \emph{which} outcome occurred and tracing it to the training data distribution (Module~3) and feature-engineering decisions (Module~4).
+
+\subsection{Step 5 --- S4: Extended-duration stability run}
+Configure two beacons at SF7, +14\,dBm, 2-second fixed interval (the Module~3 nominal configuration). Start \texttt{live\_inference.py} with logging enabled and let the system run for 30 minutes uninterrupted.
+
+Monitor and record:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l X}
+		\toprule
+		\textbf{Metric} & \textbf{What to watch for} \\
+		\midrule
+		\texttt{obs\_count} trajectory       & Linear growth; any reset or plateau is abnormal \\
+		Sequence-number gap (per beacon)     & Constant gap = one-time desync; growing gap = ongoing loss \\
+		\FIFO{} baseline utilization         & Slow upward creep = throughput deficit \\
+		\FIFO{} overflow alarm (\texttt{led(15)}) & Should never set under nominal load \\
+		Classification accuracy per 5-min window & Should be stable; drift suggests feature drift \\
+		Python inference-script memory        & Should plateau after $\sim$1 minute; linear growth = leak \\
+		Python inference-script \mbox{CPU} usage     & Should be consistent; spikes correlate with \mbox{OS} scheduling \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\subsection{Step 6 --- S4 post-run analysis}
+
+\begin{lstlisting}[language=Python, caption={\texttt{analyse\_s4.py} --- minute-by-minute stability metrics.}]
+import pandas as pd, matplotlib.pyplot as plt
+df = pd.read_csv("s4_log.csv")   # produced by live_inference.py with --log-csv
+df["ts"] = pd.to_datetime(df["timestamp_host"])
+df["minute"] = (df["ts"] - df["ts"].min()).dt.total_seconds() // 60
+
+# Accuracy per minute, per task
+for task in ["sf", "mod", "beacon"]:
+    acc = df.groupby("minute").apply(
+        lambda g: (g[f"pred_{task}"] == g[f"gt_{task}"]).mean())
+    plt.plot(acc.index, acc.values, label=task)
+plt.xlabel("Minute")
+plt.ylabel("Accuracy")
+plt.title("S4 --- per-minute classification accuracy (30 min run)")
+plt.legend()
+plt.tight_layout()
+plt.savefig("figs/s4_accuracy_timeseries.png", dpi=150)
+
+# Sequence-number gap per beacon
+gap = df.groupby("beacon_id").apply(
+    lambda g: (g["seq"].max() - g["seq"].min() + 1) - len(g))
+print("Sequence gap per beacon:")
+print(gap)
+\end{lstlisting}
+
+\begin{tcolorbox}[infobox={What S4 Typically Surfaces}]
+	The 30-minute run is usually clean, but when it is not, the failures are pedagogically valuable:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Memory leak in the Python logger:} often traced to an unbounded list appended once per frame --- a Module~4 code-hygiene issue surfacing only over time.
+		\item \textbf{Slow \FIFO{} creep:} sometimes traced to an occasional extra parser stall during \mbox{UART} framing-error recovery --- a Module~2 issue surfacing only under multi-beacon scheduling.
+		\item \textbf{Accuracy drift:} most often traced to thermal \mbox{RSSI} drift in the receiver SX1276, which shifts the feature distribution away from training --- a Module~1 hardware phenomenon surfacing only in the Module~4 classifier.
+	\end{itemize}
+	Each of these is a Module~5 observation with a non-Module~5 root cause. Capture them for the failure-mode catalog in LH5-E.
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] S2: all three SF transitions executed; transition table filled.
+	\item[$\square$] S3: all five configurations run; degradation-mode labelled (graceful vs.\ catastrophic).
+	\item[$\square$] S3 plot overlays the LH4-G accuracy-vs.-SNR curve.
+	\item[$\square$] S4: 30-minute run completed without manual intervention.
+	\item[$\square$] S4 per-minute accuracy time-series saved.
+	\item[$\square$] Any anomalies from S2/S3/S4 tagged for the LH5-E failure catalog.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 5-B Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item S2 inference log + transition table with the ``packets until first correct'' column filled.
+		\item S3 accuracy-vs.-configuration plot overlaid on the LH4-G Module~4 curve; short paragraph classifying degradation mode.
+		\item S4 log file (\texttt{s4\_log.csv}), 30-minute time-series plots (accuracy, \FIFO{} peak, Python memory), and a one-paragraph stability verdict.
+		\item Updated Week-1 summary table: maximum safe beacon count (from LH5-A), minimum classifiable \mbox{SNR}, SF-transition latency, 30-min stability verdict.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

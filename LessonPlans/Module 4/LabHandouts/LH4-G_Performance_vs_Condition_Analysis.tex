@@ -1,0 +1,193 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{4-G}
+\newcommand{\labtitleshort}{Performance vs.\ Condition Analysis}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{4-G}{Stratified Accuracy by SNR, Distance, and Beacon Count}
+
+\section{Objective}
+Produce the three stratified-accuracy curves that describe how each classifier \emph{degrades} (or does not) as operating conditions worsen: accuracy vs.\ \mbox{SNR}, accuracy vs.\ distance, and accuracy vs.\ simultaneous-beacon count. These curves are the robustness evidence used in the LH4-H final model selection rubric and they reveal which classifier family scales best to realistic deployment conditions.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~4-C through~4-F complete (RF, \mbox{SVM}, \mbox{MLP}, \mbox{CNN} all trained for each task).
+	\item Campaign metadata present in \texttt{merged\_dataset.csv} (\texttt{distance\_m} column filled for C4 rows, \texttt{campaign\_id} C5a--C5e indicating beacon count).
+	\item \texttt{run\_id} column is populated (Module~3 LH3-F schema). The stratified-condition filters below select on \texttt{campaign\_id} for readability, but the underlying train/val/test split was keyed on \texttt{run\_id} (LH4-A Check~9), so no same-run leakage can occur even when a campaign family contains multiple runs.
+\end{itemize}
+
+\begin{tcolorbox}[infobox={Expected campaign\_id Values}]
+This handout assumes the Module~3 canonical set \{C1, C2, C3, C4, C5a, C5b, C5c, C5d, C5e\}. If your \texttt{merged\_dataset.csv} uses different subcampaign labels, map them in \texttt{C5\_MAP} below \emph{and} update the C4 filter. The filters are cosmetic slicers, not leakage guards --- the leakage guard is the \texttt{run\_id}-keyed split from LH4-A.
+\end{tcolorbox}
+
+\section{Background: Average Accuracy Lies}
+Two models can have identical top-line test accuracy while behaving very differently in the operating regime that matters. Model~A might do very well in high-\mbox{SNR} conditions and poorly in low-\mbox{SNR}; model~B might be uniformly mediocre. If the deployment environment is low-\mbox{SNR}-dominated, B is the better choice even though A has the higher headline number. Stratified accuracy surfaces this.
+
+\section{Procedure}
+
+\subsection{Step 1 --- Accuracy vs.\ SNR}
+Bucket the test set by \texttt{snr} into five equal-count bins (quintiles). Compute each model's accuracy per bucket and plot as a line.
+
+\begin{lstlisting}[language=Python, caption={\texttt{stratified\_accuracy.py} --- SNR-stratified evaluation.}]
+import numpy as np, pandas as pd, joblib, torch
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+df = pd.read_csv("merged_dataset.csv")
+df = df[df["obs_count"] > 1].reset_index(drop=True)
+test = df[df["split"] == "test"].reset_index(drop=True)
+
+def bucket_snr(test, n_buckets=5):
+    edges = np.quantile(test["snr"], np.linspace(0, 1, n_buckets + 1))
+    idx = np.digitize(test["snr"], edges[1:-1])
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    return idx, centers, edges
+
+def predict_rf(task, test_df):
+    pre = joblib.load(f"artifacts/{task}/preprocessor.pkl")
+    model = joblib.load(f"artifacts/{task}/rf.pkl")["model"]
+    X = pre["scaler"].transform(
+        test_df[pre["feature_cols"]].to_numpy(dtype=np.float32))
+    y = pre["encoder"].transform(test_df[{
+        "sf": "label_sf", "mod": "label_mod", "beacon": "label_beacon"
+    }[task]])
+    return model.predict(X), y
+
+# Similar helpers for SVM, MLP, CNN. All return (y_pred, y_true).
+
+def accuracy_by_bucket(idx, y_pred, y_true, n_buckets):
+    accs = []
+    for b in range(n_buckets):
+        mask = (idx == b)
+        if mask.sum() == 0:
+            accs.append(np.nan); continue
+        accs.append((y_pred[mask] == y_true[mask]).mean())
+    return accs
+
+task = "sf"   # example; repeat for each task
+idx, centers, edges = bucket_snr(test)
+plt.figure()
+for model_name in ["rf", "svm", "mlp", "cnn"]:
+    y_pred, y_true = predict(model_name, task, test)  # wrapper dispatcher
+    accs = accuracy_by_bucket(idx, y_pred, y_true, len(centers))
+    plt.plot(centers, accs, "-o", label=model_name.upper())
+plt.xlabel("SNR (dB) bucket center")
+plt.ylabel("Test accuracy")
+plt.title(f"Accuracy vs. SNR --- task: {task}")
+plt.legend(); plt.grid(True)
+plt.tight_layout(); plt.savefig(f"figs/acc_vs_snr_{task}.png", dpi=150)
+\end{lstlisting}
+
+\begin{tcolorbox}[infobox={Sample Size per Bucket}]
+	Quintiles give $\sim$20\% of the test set per bucket. With a $\sim$400-row test set, that is $\sim$80 samples per bucket. A single-bucket accuracy of 0.90 at $n=80$ has a 95\% Wilson CI of roughly $[0.82, 0.95]$. Be cautious about interpreting small between-model differences at individual bucket edges --- look for consistent patterns across buckets instead.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Accuracy vs.\ distance}
+Use Campaign~C4 (the distance sweep) exclusively for this plot. Distance is discrete in C4 (1, 3, 5, 8~m), so each distance is its own bucket rather than a quantile.
+
+\begin{lstlisting}[language=Python]
+c4 = df[df["campaign_id"] == "C4"].reset_index(drop=True)
+distances = sorted(c4["distance_m"].unique())
+
+for task in ["sf", "mod", "beacon"]:
+    plt.figure()
+    for model_name in ["rf", "svm", "mlp", "cnn"]:
+        y_pred, y_true = predict(model_name, task, c4)
+        accs = [
+            (y_pred[c4["distance_m"] == d] == y_true[c4["distance_m"] == d]).mean()
+            for d in distances
+        ]
+        plt.plot(distances, accs, "-o", label=model_name.upper())
+    plt.xlabel("Distance (m)")
+    plt.ylabel("Test accuracy")
+    plt.title(f"Accuracy vs. distance --- task: {task}")
+    plt.legend(); plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"figs/acc_vs_distance_{task}.png", dpi=150)
+\end{lstlisting}
+
+\subsection{Step 3 --- Accuracy vs.\ beacon count}
+Use Campaign~C5. Each sub-configuration (C5a through C5e) corresponds to a different active-beacon count (1, 2, 2, 3, 3). Plot accuracy as a function of beacon count, differentiating fixed vs.\ \mbox{ALOHA} scheduling.
+
+\begin{lstlisting}[language=Python]
+C5_MAP = {
+    "C5a": (1, "fixed"),  "C5b": (2, "fixed"), "C5c": (2, "aloha"),
+    "C5d": (3, "fixed"),  "C5e": (3, "aloha"),
+}
+c5 = df[df["campaign_id"].isin(C5_MAP)].reset_index(drop=True)
+
+for task in ["sf", "mod", "beacon"]:
+    rows = []
+    for cid, (n, mode) in C5_MAP.items():
+        sub = c5[c5["campaign_id"] == cid]
+        if len(sub) == 0: continue
+        for model_name in ["rf", "svm", "mlp", "cnn"]:
+            y_pred, y_true = predict(model_name, task, sub)
+            acc = (y_pred == y_true).mean()
+            rows.append({"beacons": n, "mode": mode,
+                         "model": model_name, "acc": acc})
+    rdf = pd.DataFrame(rows)
+    plt.figure()
+    for (mode, model_name), grp in rdf.groupby(["mode", "model"]):
+        style = "--" if mode == "aloha" else "-"
+        plt.plot(grp["beacons"], grp["acc"], style + "o",
+                 label=f"{model_name.upper()} ({mode})")
+    plt.xlabel("Active beacon count")
+    plt.ylabel("Test accuracy")
+    plt.title(f"Accuracy vs. beacon count --- task: {task}")
+    plt.legend(fontsize=8); plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"figs/acc_vs_beacons_{task}.png", dpi=150)
+\end{lstlisting}
+
+\subsection{Step 4 --- Robustness score}
+Define a simple, defensible robustness metric: the \emph{minimum} accuracy across all SNR buckets on the SF task. A model with high average accuracy but terrible worst-case accuracy is a worse deployment candidate than one with slightly lower average and higher worst-case.
+
+\begin{lstlisting}[language=Python]
+robustness = {}
+idx, centers, _ = bucket_snr(test)
+for model_name in ["rf", "svm", "mlp", "cnn"]:
+    y_pred, y_true = predict(model_name, "sf", test)
+    accs = accuracy_by_bucket(idx, y_pred, y_true, len(centers))
+    robustness[model_name] = {
+        "min":  float(np.nanmin(accs)),
+        "mean": float(np.nanmean(accs)),
+        "max":  float(np.nanmax(accs)),
+    }
+print(pd.DataFrame(robustness).T)
+\end{lstlisting}
+
+\subsection{Step 5 --- Narrative discussion (required for the deliverable)}
+Write 2--3 paragraphs addressing:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Which model degrades most gracefully as \mbox{SNR} drops? Is this the same model that has the highest average accuracy?
+	\item Does the \mbox{CNN}'s temporal input give it an advantage in the multi-beacon regime (C5d, C5e), where packets from different beacons interleave unpredictably?
+	\item Is there a model family whose accuracy curves become noticeably steeper (degrade faster) in the high-distance or high-contention regime? What does that suggest about how it would perform in a field deployment with obstructed line-of-sight?
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Watch for Small-Bucket Artefacts}]
+	If a distance or beacon-count bucket has $<$30 samples, do not plot a single accuracy point --- the variance is too high and the plot will mislead. Either merge it with an adjacent bucket, or annotate the point with an error bar computed from a Wilson CI. If you cannot meaningfully report a bucket, state that explicitly in the discussion.
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] SNR-stratified accuracy plotted for all three tasks.
+	\item[$\square$] Distance-stratified accuracy plotted (C4 data only).
+	\item[$\square$] Beacon-count stratified accuracy plotted with fixed/\mbox{ALOHA} distinguished.
+	\item[$\square$] Worst-case-bucket robustness table computed for at least the SF task.
+	\item[$\square$] Narrative discussion (Step~5) written.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 4-G Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Three stratified-accuracy figures per task (SNR, distance, beacon-count) = 9 figures total.
+		\item Worst-case robustness table: min, mean, max bucket-accuracy per model on the SF task.
+		\item A ``robustness ranking'' per task: order the four models (RF, SVM, MLP, CNN) from most to least robust, with one sentence justifying each position.
+		\item 2--3 paragraph narrative discussion addressing the three questions in Step~5.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

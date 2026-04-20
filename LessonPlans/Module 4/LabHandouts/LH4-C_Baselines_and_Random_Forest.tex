@@ -1,0 +1,219 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{4-C}
+\newcommand{\labtitleshort}{Baselines and Random Forest}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{4-C}{DummyClassifier, Decision Tree, and Random Forest with Grid Search}
+
+\section{Objective}
+Establish a three-rung classical baseline for each classification task: a majority-class \texttt{DummyClassifier}, a single \texttt{DecisionTreeClassifier} with fixed depth, and a grid-searched \texttt{RandomForestClassifier}. Every subsequent model in Module~4 must beat the random-forest number; if a neural network cannot outperform the forest, the feature representation --- not the model family --- is the problem.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~4-B complete (\texttt{artifacts/\{sf,mod,beacon\}/} present).
+	\item \texttt{scikit-learn $\geq$ 1.3}.
+	\item \texttt{statsmodels $\geq$ 0.14} (for \texttt{proportion\_confint}; used in Step~4 Wilson CI). Install with \texttt{pip install statsmodels}. If \texttt{statsmodels} cannot be installed, use the dependency-free fallback in the Step~4 sidebar.
+\end{itemize}
+
+\section{Background: Why These Three Baselines?}
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{DummyClassifier} (majority class) establishes the \emph{lower bound}. Any model below this number is actively harmful.
+	\item \textbf{Single decision tree} (\texttt{max\_depth=5}) gives a \emph{legible} model whose splits you can read. If the chosen feature on the root split makes no physical sense, that is an early warning sign.
+	\item \textbf{Random forest} with moderate grid search is the \emph{strong classical benchmark}. Tree ensembles are the best-performing classical family on tabular \mbox{RF} feature data in the published literature; beating them with a neural network on a few thousand samples is the harder direction.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Load the preprocessed artifacts}
+
+\begin{lstlisting}[language=Python, caption={Common loader used by LH4-C through LH4-F.}]
+import numpy as np
+import joblib
+from pathlib import Path
+
+def load_task(task):
+    d = Path(f"artifacts/{task}")
+    X_tr = np.load(d / "X_train.npy");  y_tr = np.load(d / "y_train.npy")
+    X_va = np.load(d / "X_val.npy");    y_va = np.load(d / "y_val.npy")
+    X_te = np.load(d / "X_test.npy");   y_te = np.load(d / "y_test.npy")
+    pre  = joblib.load(d / "preprocessor.pkl")
+    return X_tr, y_tr, X_va, y_va, X_te, y_te, pre
+\end{lstlisting}
+
+\subsection{Step 2 --- Dummy and decision-tree baselines}
+
+\begin{lstlisting}[language=Python]
+from sklearn.dummy import DummyClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+def baselines(task):
+    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+
+    # Rung 1: Dummy
+    dum = DummyClassifier(strategy="most_frequent").fit(X_tr, y_tr)
+    acc_dum = accuracy_score(y_te, dum.predict(X_te))
+
+    # Rung 2: Single tree, depth 5
+    dt = DecisionTreeClassifier(max_depth=5, random_state=42).fit(X_tr, y_tr)
+    acc_dt = accuracy_score(y_te, dt.predict(X_te))
+
+    print(f"[{task}] Dummy acc = {acc_dum:.3f}")
+    print(f"[{task}] Tree-5 acc = {acc_dt:.3f}")
+    return dum, dt, acc_dum, acc_dt
+
+for t in ["sf", "mod", "beacon"]:
+    baselines(t)
+\end{lstlisting}
+
+Expected pattern: Dummy accuracy near $1/C$ (where $C$ is the number of classes), decision tree well above dummy but noticeably below random forest.
+
+\subsection{Step 3 --- Random forest grid search}
+Use a focused grid. Exhaustively searching a wide grid on a few thousand samples is time wasted --- the forest is relatively flat in its hyperparameter landscape.
+
+\begin{lstlisting}[language=Python]
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+
+RF_GRID = {
+    "n_estimators":     [100, 300, 600],
+    "max_depth":        [None, 10, 20],
+    "min_samples_leaf": [1, 3],
+    "max_features":     ["sqrt", "log2"],
+}
+
+def grid_search_rf(task):
+    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+    # Concatenate train+val for CV; test is held out.
+    X_cv = np.concatenate([X_tr, X_va]); y_cv = np.concatenate([y_tr, y_va])
+
+    rf = RandomForestClassifier(random_state=42, n_jobs=-1)
+    gs = GridSearchCV(rf, RF_GRID, cv=5, scoring="accuracy",
+                      n_jobs=-1, verbose=1)
+    gs.fit(X_cv, y_cv)
+    best = gs.best_estimator_
+    acc_te = accuracy_score(y_te, best.predict(X_te))
+    print(f"[{task}] RF best params: {gs.best_params_}")
+    print(f"[{task}] RF CV acc = {gs.best_score_:.3f}, test acc = {acc_te:.3f}")
+    return best, gs, acc_te
+
+for t in ["sf", "mod", "beacon"]:
+    grid_search_rf(t)
+\end{lstlisting}
+
+\begin{tcolorbox}[infobox={Why 5-Fold Stratified CV?}]
+	With $\sim$2{,}500 samples split 70/15/15, the validation set is only $\sim$375 rows. Hyperparameter choices tuned against a set that small are noisy. Concatenating train and val for a 5-fold stratified cross-validation averages over five independent validation folds, giving each hyperparameter combination an effective sample size of the entire non-test data. The test split remains genuinely untouched for final reporting.
+\end{tcolorbox}
+
+\subsection{Step 4 --- Wilson score confidence interval}
+Report the test accuracy with a 95\% Wilson confidence interval --- not a standard-normal interval, which can produce negative probabilities for small $n$ or extreme $p$.
+
+\begin{tcolorbox}[infobox={Dependency-Free Wilson Fallback}]
+If \texttt{statsmodels} is not available, drop in this closed-form implementation --- it matches \texttt{proportion\_confint(method="wilson")} to within numerical tolerance:
+\begin{verbatim}
+from math import sqrt
+from scipy.stats import norm  # scipy is already required by sklearn
+
+def wilson_ci(n_correct, n_total, alpha=0.05):
+    if n_total == 0:
+        return 0.0, 1.0
+    p = n_correct / n_total
+    z = norm.ppf(1 - alpha / 2)
+    denom = 1 + z * z / n_total
+    center = (p + z * z / (2 * n_total)) / denom
+    half = z * sqrt(p * (1 - p) / n_total
+                    + z * z / (4 * n_total * n_total)) / denom
+    return max(0.0, center - half), min(1.0, center + half)
+\end{verbatim}
+\end{tcolorbox}
+
+\begin{lstlisting}[language=Python]
+from statsmodels.stats.proportion import proportion_confint
+
+def wilson_ci(n_correct, n_total, alpha=0.05):
+    lo, hi = proportion_confint(n_correct, n_total,
+                                alpha=alpha, method="wilson")
+    return lo, hi
+
+# Example for one task:
+y_pred = best.predict(X_te)
+n_correct = (y_pred == y_te).sum()
+lo, hi = wilson_ci(n_correct, len(y_te))
+print(f"Test acc {n_correct}/{len(y_te)} = {n_correct/len(y_te):.3f} "
+      f"[95% CI {lo:.3f}, {hi:.3f}]")
+\end{lstlisting}
+
+\subsection{Step 5 --- Feature importance from the best forest}
+
+\begin{lstlisting}[language=Python]
+import matplotlib.pyplot as plt
+
+def plot_importance(model, feature_names, task):
+    imp = model.feature_importances_
+    order = np.argsort(imp)[::-1]
+    plt.figure(figsize=(7, 3.5))
+    plt.bar(range(len(imp)), imp[order])
+    plt.xticks(range(len(imp)), [feature_names[i] for i in order], rotation=30)
+    plt.ylabel("Gini importance")
+    plt.title(f"Random Forest feature importance --- task: {task}")
+    plt.tight_layout()
+    plt.savefig(f"figs/rf_importance_{task}.png", dpi=150)
+
+plot_importance(best, pre["feature_cols"], t)
+\end{lstlisting}
+
+For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. Any wildly different ordering is worth investigating.
+
+\subsection{Step 6 --- Save the winning forests}
+
+\begin{lstlisting}[language=Python]
+import joblib
+for task in ["sf", "mod", "beacon"]:
+    best, gs, acc_te = grid_search_rf(task)
+    joblib.dump({"model": best,
+                 "test_acc": acc_te,
+                 "cv_acc":   gs.best_score_,
+                 "params":   gs.best_params_},
+                f"artifacts/{task}/rf.pkl")
+\end{lstlisting}
+
+\subsection{Step 7 --- Baseline summary table}
+Fill in a summary table that every subsequent model must improve on:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.4}
+	\begin{tabularx}{\textwidth}{l c c c X}
+		\toprule
+		\textbf{Task} & \textbf{Dummy} & \textbf{Tree-5} & \textbf{RF best} & \textbf{Wilson 95\% CI (RF)} \\
+		\midrule
+		SF Detection     & & & & \\
+		Modulation       & & & & \\
+		Emitter ID       & & & & \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Baselines from Steps 2--5. Carry this table forward; every model in LH4-D through LH4-F is benchmarked against the RF column.}
+\end{table}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Dummy, tree, and random-forest accuracies computed for all three tasks.
+	\item[$\square$] Grid search complete; best parameters recorded.
+	\item[$\square$] Wilson 95\% CI reported for each random-forest test accuracy.
+	\item[$\square$] Feature importance plot generated for each task.
+	\item[$\square$] \texttt{rf.pkl} saved for each task.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 4-C Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Filled baseline summary table (three rows, four accuracy columns, CI column).
+		\item Three feature-importance bar plots (one per task), each with a 2--3 sentence interpretation.
+		\item \texttt{artifacts/\{sf,mod,beacon\}/rf.pkl}: the grid-searched random forests, their CV/test accuracies, and chosen hyperparameters.
+		\item One short paragraph per task discussing whether the top-ranked features match the physical expectation (e.g., \mbox{RSSI}/\mbox{SNR} dominating SF detection).
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

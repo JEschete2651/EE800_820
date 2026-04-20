@@ -1,0 +1,247 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{5-F}
+\newcommand{\labtitleshort}{Curriculum Package and Instructor Guide}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{5-F}{Curriculum Package Assembly, Verification, and Instructor's Guide}
+
+\section{Objective}
+Assemble the complete, self-contained curriculum package that a future instructor or student can use without contacting the original developer, and write the instructor's guide that shepherds them through hardware setup, software setup, common issues, and curriculum adaptation. This handout produces the primary external artefact of the project.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~5-E complete (failure mode catalog available; the ``common issues'' section of the instructor's guide will cite it).
+	\item All prior module deliverables present on disk in their final form (lesson plan PDFs, firmware projects, Vivado projects, Python code, trained models, labeled dataset).
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Verify package contents}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c l X c}
+		\toprule
+		\textbf{\#} & \textbf{Item} & \textbf{Description} & \textbf{Verified?} \\
+		\midrule
+		1  & Lesson Plans (Modules 1--5)   & PDF + LaTeX source for each module           & $\square$ \\
+		2  & Lab Handouts (LH1--LH5)        & PDF + LaTeX source for all 40 handouts       & $\square$ \\
+		3  & Curriculum Sequence            & Module timeline and dependency overview      & $\square$ \\
+		4  & Beacon Firmware                & VS Code STM32 project; buildable from clean \mbox{OS} & $\square$ \\
+		5  & Receiver Firmware              & VS Code STM32 project; buildable from clean \mbox{OS} & $\square$ \\
+		6  & \FPGA{} \mbox{RTL{}}           & Vivado project; all \mbox{VHDL} sources, XDC, testbenches & $\square$ \\
+		7  & Host Collection Script         & Python \texttt{collect.py} with campaign-config \mbox{JSON}s & $\square$ \\
+		8  & ML Pipeline Code               & \texttt{preprocess.py}, training scripts, \texttt{inference.py} & $\square$ \\
+		9  & Trained Models                 & \texttt{.pkl} / \texttt{.pt} files for RF, SVM, MLP, CNN-1D & $\square$ \\
+		10 & Labeled Dataset                & \texttt{merged\_dataset.csv} + \texttt{data\_dictionary.md} & $\square$ \\
+		11 & Engagement Simulator           & Python simulator code + sample output        & $\square$ \\
+		12 & Hardware \mbox{BOM}            & Part numbers, vendors, costs                 & $\square$ \\
+		13 & Instructor's Guide             & The document written in Step~3 of this handout & $\square$ \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+Verification is not just presence --- for each item, confirm it is usable:
+
+\begin{itemize}[leftmargin=2em]
+	\item For firmware projects (\#4, \#5): clone to a scratch directory, open in VS Code, and build. No missing \mbox{SDK} references, no unresolved \texttt{\#include}s, no hardcoded paths pointing to the original developer's machine.
+	\item For the Vivado project (\#6): open in Vivado, run Synthesis. It must complete without warnings about missing files or unconstrained ports beyond those already documented.
+	\item For the Python code (\#7, \#8, \#11): create a fresh conda or venv environment from a \texttt{requirements.txt}, install, and run the scripts on the packaged dataset. If a script requires a \mbox{USB} device, provide a \texttt{--replay} mode or a dummy input for package-integrity testing.
+	\item For the trained models (\#9): \texttt{joblib.load()} / \texttt{torch.load()} succeeds and \texttt{predict()} on a sample feature row returns a sensible class.
+	\item For the dataset (\#10): \texttt{pd.read\_csv()} + the LH4-A ten-check audit passes.
+\end{itemize}
+
+\subsubsection*{Package manifest (required for archive integrity)}
+Generate a machine-readable \texttt{package\_manifest.json} at the root of the package. It records a SHA-256 hash, size, and version pin for every shipped artefact, so anyone unpacking the archive can verify nothing was silently corrupted or swapped. Run this once at the end of packaging; commit the resulting manifest into the package itself.
+
+\begin{lstlisting}[language=Python, caption={Reference manifest generator (\texttt{make\_manifest.py}).}]
+import hashlib, json, os, subprocess, sys
+from pathlib import Path
+
+ROOT = Path("capstone_package").resolve()
+IGNORE = {"__pycache__", ".git", ".vscode", "build", "dist"}
+
+def sha256(p: Path, buf=1 << 20):
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(buf), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def walk(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in IGNORE]
+        for fn in filenames:
+            p = Path(dirpath) / fn
+            rel = p.relative_to(root).as_posix()
+            yield rel, p
+
+def git_rev():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=ROOT, text=True).strip()
+    except Exception:
+        return None
+
+entries = []
+for rel, p in walk(ROOT):
+    entries.append({
+        "path":   rel,
+        "bytes":  p.stat().st_size,
+        "sha256": sha256(p),
+    })
+
+manifest = {
+    "package":    "ee-rf-classifier-capstone",
+    "git_commit": git_rev(),
+    "file_count": len(entries),
+    "total_bytes": sum(e["bytes"] for e in entries),
+    "files":      sorted(entries, key=lambda e: e["path"]),
+}
+(ROOT / "package_manifest.json").write_text(
+    json.dumps(manifest, indent=2))
+print(f"Wrote {ROOT / 'package_manifest.json'} "
+      f"({manifest['file_count']} files)")
+\end{lstlisting}
+
+\textbf{Verification:} after generating the manifest, re-compute the hash of one large file (e.g.\ \texttt{Data/merged\_dataset.csv}) with an external tool (\texttt{sha256sum}, \texttt{Get-FileHash}, etc.) and confirm it matches the manifest entry. This proves the manifest generator itself is trustworthy before the package ships.
+
+\subsection{Step 2 --- Directory layout}
+
+\begin{lstlisting}[caption={Canonical package layout. Top-level files are the entry points a future user will reach for first.}]
+capstone_package/
+|-- README.md                       # one-page project overview + entry points
+|-- InstructorGuide.pdf             # the document from Step 3 of this handout
+|-- LICENSE                         # if applicable
+|-- LessonPlans/
+|   |-- Module1.pdf / .tex
+|   |-- Module2.pdf / .tex
+|   |-- Module3.pdf / .tex
+|   |-- Module4.pdf / .tex
+|   |-- Module5.pdf / .tex
+|   |-- glossary.tex
+|   |-- Module 1/LabHandouts/       # same structure Modules 1-5
+|   |-- ...
+|-- Firmware/
+|   |-- beacon/                     # VS Code STM32 project
+|   |-- receiver/                   # VS Code STM32 project
+|-- FPGA/
+|   |-- ingest_top/                 # Vivado project folder
+|   |-- bitstreams/                 # ingest_top_debug.bit, ingest_top_prod.bit
+|-- Host/
+|   |-- collect.py
+|   |-- preprocess.py
+|   |-- train_rf.py / train_svm.py / train_mlp.py / train_cnn.py
+|   |-- inference.py
+|   |-- live_inference.py
+|   |-- requirements.txt
+|   |-- campaign_configs/*.json
+|-- Data/
+|   |-- merged_dataset.csv
+|   |-- data_dictionary.md
+|   |-- simulator_output.csv        # if available
+|   |-- validation_manifest.json
+|-- Models/
+|   |-- sf/rf.pkl, svm.pkl, mlp.pt, cnn.pt, preprocessor.pkl
+|   |-- mod/...
+|   |-- beacon/...
+|-- Simulator/
+|   |-- (engagement simulator code)
+|-- Hardware/
+|   |-- BOM.md
+|   |-- wiring_diagram.png
+|   |-- pin_assignments.md
+\end{lstlisting}
+
+\subsection{Step 3 --- Write the instructor's guide}
+The instructor's guide (\texttt{InstructorGuide.pdf}) has five sections:
+
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{Hardware Setup} (2--3 pages). Assembly instructions for the benchtop platform from the \mbox{BOM}. Include photos of the finished wiring, antenna placement, board-to-board connections, and \mbox{PMOD} pinout. A future student replicating the project should not need to ask ``where does this wire go''.
+	\item \textbf{Software Setup} (2--3 pages). Version-pinned installation instructions for:
+	\begin{itemize}[leftmargin=1.2em]
+		\item VS Code with the official STMicroelectronics extension stack (Module~1 reference environment; standalone STM32CubeIDE documented as an alternative).
+		\item AMD/Xilinx Vivado Design Suite (WebPACK edition, 2024.1 or later).
+		\item Python 3.10+ with \texttt{requirements.txt} shipped in the package.
+		\item Serial terminal software (any cross-platform option).
+	\end{itemize}
+	Give exact tested version numbers and note any version mismatches observed during the project.
+	\item \textbf{Common Issues} (2--3 pages). A symptom-indexed troubleshooting guide. Draft from the LH5-E failure mode catalog: for each entry, give the symptom as it appears to a new user, then the diagnostic procedure and fix. Example:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Symptom:} ``\FPGA{} \mbox{LED(15)} stays on after programming.'' Diagnosis: \FIFO{} overflow latched during a startup burst. Fix: reset the board; if it recurs, reduce the beacon transmit rate or enlarge the \FIFO{} depth in Module~2.
+		\item \textbf{Symptom:} ``Classifier reports SF7 for every packet, even after reconfiguring the beacon.'' Diagnosis: probably label leakage via \texttt{spread\_factor} in the feature set (LH4-B forbidden list regression). Fix: re-run LH4-B with the correct FORBIDDEN map and retrain.
+	\end{itemize}
+	\item \textbf{Adaptation Guidance} (1--2 pages). How to scale the curriculum for different contexts:
+	\begin{itemize}[leftmargin=1.2em]
+		\item Different \FPGA{} board (port \mbox{XDC}, re-check clock constraints).
+		\item Different \mbox{ISM} band (sub-GHz 868\,MHz, 433\,MHz regional variants).
+		\item Compressed schedule (which modules can merge; which cannot).
+		\item Multi-student version (task allocation across a 3--4 person team).
+	\end{itemize}
+	\item \textbf{Assessment Guidance} (1 page). The Module~1--5 rubric with notes on which objectives are essential vs.\ stretch, and suggested grading modifications for senior undergrad vs.\ graduate cohorts.
+\end{enumerate}
+
+\subsection{Step 4 --- Write the top-level README}
+
+\begin{lstlisting}[caption={\texttt{README.md} --- first thing any new user sees. Keep it under one page printed.}]
+# Capstone: AI-Driven RF Signal Processing
+
+End-to-end teaching framework that builds, from scratch, a system that
+classifies Radio-Frequency beacon transmissions in real time:
+
+ STM32 beacons  ->  STM32 receiver  ->  FPGA pipeline  ->  ML classifier
+
+## Start here
+- Read `InstructorGuide.pdf` if you are teaching the course.
+- Read `LessonPlans/Module1.pdf` if you are a student beginning the work.
+- Read `Hardware/BOM.md` before ordering parts.
+
+## Repo layout
+See `InstructorGuide.pdf` section "Package Layout" for the full tree.
+
+## Prerequisites
+- STM32 Nucleo-L476RG x3 + RFM95W x3 + 915 MHz antennas.
+- Digilent Nexys A7-100T.
+- Host PC with VS Code (STMicro extensions), Vivado 2024.1+, Python 3.10+.
+
+## Verified environment
+Windows 11, Vivado 2024.1, VS Code 1.95, Python 3.11. See
+`Host/requirements.txt` for pinned Python library versions.
+
+## Current status
+All lesson plans + 40 lab handouts + curriculum package completed. Runtime
+envelope in `LessonPlans/Module 5/` `SystemSpecification.pdf`.
+\end{lstlisting}
+
+\subsection{Step 5 --- Self-test on a clean machine}
+The final verification --- and the one that catches everything the in-situ tests missed --- is to install the package on a \emph{second machine} that was not used during development. If a second machine is unavailable, create a fresh Windows \mbox{VM} or a cleaned Docker container (for the Python portion). Go through the instructor's guide step by step. Every instruction that is unclear, wrong, or missing becomes a change to the guide.
+
+\begin{tcolorbox}[infobox={Why a Clean-Machine Test Matters}]
+	In-place testing always overstates portability because the original developer has years of accumulated environment configuration (driver installs, path entries, \mbox{SDK} caches, hardware quirks) that new users do not. The clean-machine test is the only way to find these hidden assumptions. Expect at least 3--5 issues on the first pass; fix them, and run the test again until the guide is followable in one sitting by a user who has never seen the project.
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] All 13 package items present and usability-verified.
+	\item[$\square$] Package laid out per the canonical directory tree.
+	\item[$\square$] \texttt{InstructorGuide.pdf} written with all five sections.
+	\item[$\square$] Top-level \texttt{README.md} concise and accurate.
+	\item[$\square$] Clean-machine test completed; issues surfaced and fixed.
+	\item[$\square$] Common Issues section cross-references the LH5-E failure catalog.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 5-F Deliverable --- and Week 3 Final Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Full \texttt{capstone\_package/} directory (or archive) laid out per Step~2.
+		\item \texttt{InstructorGuide.pdf}: 8--12 pages, all five sections.
+		\item \texttt{README.md} at the package root.
+		\item Clean-machine test log: list of issues surfaced, with disposition (fixed / documented / deferred).
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

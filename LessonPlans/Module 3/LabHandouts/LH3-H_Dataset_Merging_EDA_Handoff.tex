@@ -1,0 +1,293 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-H}
+\newcommand{\labtitleshort}{Dataset Merging and EDA}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-H}{Dataset Merging, Exploratory Data Analysis, and Module~4 Handoff}
+
+\section{Objective}
+Merge all campaign \mbox{CSV} files into a single, clean, labeled dataset; perform the five required exploratory data analysis (\mbox{EDA}) visualizations; document the distribution shift between simulation data and hardware-collected data; and produce the data dictionary that serves as the Module~4 data contract. The merged dataset is the primary deliverable of Module~3.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-G complete (all five campaigns C1--C5 executed and validated).
+	\item Python with \texttt{pandas}, \texttt{matplotlib}, \texttt{seaborn}, and \texttt{scipy} installed.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Merging script}
+Create \texttt{merge\_dataset.py}. The script must concatenate all campaign CSVs, verify schema consistency, remove duplicates, flag label mismatches, and add a stratified train/val/test split column.
+
+\begin{lstlisting}[language=Python, caption={Dataset merging script (\texttt{merge\_dataset.py}).}]
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import hashlib
+
+CAMPAIGN_FILES = [
+    "c1_pwr02.csv", "c1_pwr08.csv", "c1_pwr14.csv", "c1_pwr20.csv",
+    "c2_sf07.csv", "c2_sf08.csv", "c2_sf09.csv",
+    "c2_sf10.csv", "c2_sf11.csv", "c2_sf12.csv",
+    "c3_lora.csv", "c3_fsk.csv",
+    "c4_1m.csv", "c4_3m.csv", "c4_5m.csv", "c4_8m.csv",
+    "c5a.csv", "c5b.csv", "c5c.csv", "c5d.csv", "c5e.csv",
+]
+
+EXPECTED_COLS = [
+    "campaign_id", "run_id", "timestamp_host",
+    "beacon_id", "mod_code", "spread_factor",
+    "rssi", "snr", "obs_count", "rx_timestamp",
+    "inter_arrival_ms", "rssi_delta", "priority_score",
+    "distance_m", "label_sf", "label_mod", "mod_code_label",
+    "label_beacon",
+]
+
+# Canonical modulation codes (Module 1/2 spec): 1=LoRa, 2=FSK, 3=OOK.
+MOD_LABEL_TO_CODE = {"lora": 1, "fsk": 2, "ook": 3}
+
+def stratified_split(df, label_col, fracs=(0.70, 0.15, 0.15), seed=42):
+    """Assign split at the run_id level, stratified by label_col.
+
+    Keying on run_id (not campaign_id) prevents leakage when a single
+    campaign family contains multiple collection runs.
+    """
+    rng = np.random.default_rng(seed=seed)
+    splits = []
+    for label_val, grp in df.groupby(label_col):
+        runs = grp["run_id"].unique()
+        n = len(runs)
+        n_train = max(1, round(n * fracs[0]))
+        n_val   = max(1, round(n * fracs[1]))
+        shuffled = rng.permutation(runs)
+        train_r = set(shuffled[:n_train])
+        val_r   = set(shuffled[n_train:n_train + n_val])
+        for idx, row in grp.iterrows():
+            if row["run_id"] in train_r:
+                splits.append((idx, "train"))
+            elif row["run_id"] in val_r:
+                splits.append((idx, "val"))
+            else:
+                splits.append((idx, "test"))
+    split_map = {idx: s for idx, s in splits}
+    return df.index.map(split_map)
+
+dfs = []
+for fname in CAMPAIGN_FILES:
+    p = Path(fname)
+    if not p.exists():
+        print(f"[WARN] Missing: {fname}")
+        continue
+    df = pd.read_csv(p)
+    # Schema check
+    missing = set(EXPECTED_COLS) - set(df.columns)
+    if missing:
+        raise ValueError(f"{fname} missing columns: {missing}")
+    dfs.append(df)
+
+merged = pd.concat(dfs, ignore_index=True)
+print(f"Total rows before dedup: {len(merged)}")
+
+# Dedup at (run_id, beacon_id, obs_count) granularity. run_id is required;
+# deduping on campaign_id alone would collapse distinct runs of the same
+# campaign family into one.
+merged = merged.drop_duplicates(
+    subset=["run_id", "beacon_id", "obs_count"])
+print(f"Total rows after dedup:  {len(merged)}")
+
+# Flag label mismatches (self-reported vs. config) using canonical
+# Module 1/2 integer mod codes: 1=LoRa, 2=FSK, 3=OOK. mod_code_label is
+# written directly from the campaign config by LH3-F collect.py.
+merged["label_mismatch"] = (
+    (merged["spread_factor"] != merged["label_sf"]) |
+    (merged["mod_code"] != merged["mod_code_label"])
+).astype(int)
+n_mismatch = merged["label_mismatch"].sum()
+print(f"Label mismatches: {n_mismatch} ({100*n_mismatch/len(merged):.1f}%)")
+
+# Stratified split by SF label (primary classification target), keyed on run_id
+merged["split"] = stratified_split(merged, "label_sf")
+
+merged.to_csv("merged_dataset.csv", index=False)
+print(f"Saved: merged_dataset.csv  ({len(merged)} rows)")
+print(merged["split"].value_counts())
+\end{lstlisting}
+
+\begin{tcolorbox}[warning={Stratification at the run\_id Level}]
+	Split at the \emph{run\_id} level, not at \texttt{campaign\_id} or at the individual-sample level. Samples inside one run share channel conditions and hardware state; splitting samples randomly leaks channel context into the test set. Splitting on \texttt{campaign\_id} alone is also unsafe: one campaign family can contain several distinct collection runs. Keying on \texttt{run\_id} (one value per invocation of \texttt{collect.py}) is the only way to keep splits genuinely independent.
+\end{tcolorbox}
+
+\begin{tcolorbox}[infobox={Canonical Modulation Code Mapping}]
+Modulation is represented throughout Modules~1--5 using the integer codes \textbf{1=LoRa, 2=FSK, 3=OOK} (Module~1 Table~4). The \texttt{mod\_code} feature vector byte, the \texttt{mod\_code\_label} config column, and any Module~4 integer checks use this mapping. The string alias \texttt{label\_mod} (``lora''/``fsk''/``ook'') is retained only for readability and never used in a numeric check. Do not introduce a 0/1 alias.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 2 --- Verify merged dataset statistics}
+After running \texttt{merge\_dataset.py}, confirm:
+\begin{itemize}[leftmargin=2em]
+	\item Total rows $\geq$ 2{,}500 (C1: 800, C2: 1200, C3: 600, C4: 800, C5: $\sim$1500 = 4900 theoretical; expect some \PER{}-driven shortfall).
+	\item Rows per campaign ID roughly as expected from the target packet counts.
+	\item \texttt{split} column contains ``train'', ``val'', and ``test'' at approximately 70/15/15\%.
+	\item \texttt{label\_mismatch} rate $<$ 2\%. A higher rate indicates a firmware configuration error.
+\end{itemize}
+
+\subsection{Step 3 --- EDA Visualization 1: RSSI by TX power (C1)}
+\begin{lstlisting}[language=Python]
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+
+df = pd.read_csv("merged_dataset.csv")
+c1 = df[df["campaign_id"] == "C1"]
+sns.violinplot(data=c1, x="label_sf", y="rssi")  # label_sf holds tx_power for C1
+# (Or use a custom grouping column if you stored sweep_value separately.)
+plt.xlabel("TX Power (dBm)")
+plt.ylabel("RSSI (dBm)")
+plt.title("Campaign C1: RSSI Distribution by TX Power")
+plt.savefig("eda1_rssi_by_txpower.png", dpi=150)
+\end{lstlisting}
+Expected: distributions shift right (higher RSSI, less negative) as TX power increases. The distributions should overlap slightly at adjacent power levels, indicating the system is sensitive to 6\,dB power steps but not perfectly separable by power alone.
+
+\subsection{Step 4 --- EDA Visualization 2: RSSI vs.\ distance with FSPL overlay (C4)}
+\begin{lstlisting}[language=Python]
+import numpy as np
+
+c4 = df[df["campaign_id"] == "C4"]
+distances = [1, 3, 5, 8]
+means = c4.groupby("distance_m")["rssi"].mean()
+stds  = c4.groupby("distance_m")["rssi"].std()
+
+# FSPL model: RSSI(d) = P_tx - 20*log10(d) - 20*log10(f_Hz) + 147.55
+f_hz  = 915e6
+p_tx  = 14  # dBm
+d_range = np.linspace(0.5, 10, 200)
+fspl = p_tx - 20*np.log10(d_range) - 20*np.log10(f_hz) + 147.55
+
+plt.figure()
+plt.errorbar(means.index, means.values, yerr=stds.values,
+             fmt="o", capsize=5, label="Measured mean RSSI")
+plt.plot(d_range, fspl, "--", label="FSPL model (+14 dBm, 915 MHz)")
+plt.xlabel("Distance (m)")
+plt.ylabel("RSSI (dBm)")
+plt.title("Campaign C4: RSSI vs. Distance")
+plt.legend()
+plt.savefig("eda2_rssi_vs_distance.png", dpi=150)
+\end{lstlisting}
+
+\subsection{Step 5 --- EDA Visualization 3: Feature correlation matrix}
+\begin{lstlisting}[language=Python]
+numeric_cols = ["rssi", "snr", "inter_arrival_ms", "rssi_delta",
+                "obs_count", "priority_score", "spread_factor"]
+corr = df[numeric_cols].corr()
+sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0)
+plt.title("Feature Correlation Matrix (Full Dataset)")
+plt.tight_layout()
+plt.savefig("eda3_correlation_matrix.png", dpi=150)
+\end{lstlisting}
+Identify and discuss in your report: which feature pairs are strongly correlated ($|r| > 0.7$), and whether any correlations might cause problems for a linear classifier.
+
+\newpage
+\subsection{Step 6 --- EDA Visualization 4: Inter-arrival time by scheduling mode (C5b vs.\ C5c)}
+\begin{lstlisting}[language=Python]
+c5b = df[df["campaign_id"] == "C5b"]["inter_arrival_ms"]
+c5c = df[df["campaign_id"] == "C5c"]["inter_arrival_ms"]
+plt.figure()
+plt.hist(c5b, bins=40, alpha=0.6, label="C5b Fixed Interval")
+plt.hist(c5c, bins=40, alpha=0.6, label="C5c ALOHA")
+plt.xlabel("Inter-arrival Time (ms)")
+plt.ylabel("Count")
+plt.title("Inter-arrival Time: Fixed vs. ALOHA Scheduling")
+plt.legend()
+plt.savefig("eda4_interarrival_scheduling.png", dpi=150)
+\end{lstlisting}
+Expected: C5b produces a tight peak at the configured interval; C5c produces a broader distribution spanning [1000, 3000]\,ms. This distributional difference is a learnable feature for scheduling-mode classification in Module~4.
+
+\subsection{Step 7 --- EDA Visualization 5: Class balance}
+\begin{lstlisting}[language=Python]
+fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+for ax, col, title in zip(axes,
+    ["label_sf", "label_mod", "label_beacon"],
+    ["SF Label", "Modulation Label", "Beacon ID Label"]):
+    df[col].value_counts().sort_index().plot(kind="bar", ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel(col)
+    ax.set_ylabel("Count")
+plt.tight_layout()
+plt.savefig("eda5_class_balance.png", dpi=150)
+\end{lstlisting}
+Flag any class with fewer than 150 samples; the 70/15/15 split will produce fewer than 30 test samples for that class, which is insufficient for reliable evaluation.
+
+\subsection{Step 8 --- Distribution shift analysis}
+Compare at least two features between the engagement simulator (from earlier in the project) and the hardware dataset from this module. If simulator output \mbox{CSV} files are available, load them alongside the hardware dataset.
+
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{\mbox{RSSI} shift:} Compute mean and standard deviation of \mbox{RSSI} for equivalent conditions (same distance, same power level). The simulator uses a clean \mbox{FSPL} model; hardware \mbox{RSSI} includes multipath, antenna pattern irregularities, and receiver front-end noise.
+	\item \textbf{Inter-arrival time shift:} Compare the inter-arrival time histograms. The simulator's tick-based engine produces near-exact timing; hardware timing includes STM32 interrupt jitter and \UART{} buffering.
+	\item For each comparison, state: the direction of the shift (e.g., ``hardware \mbox{RSSI} is 4~dB lower on average''), the likely physical cause, and the implication for Module~4 (\emph{``a classifier trained on simulator data may underestimate the variability of hardware \mbox{RSSI}, leading to overconfident probability estimates''}).
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why Distribution Shift Matters for Module~4}]
+	Module~4 will train classifiers on the hardware dataset collected here and evaluate them on held-out hardware data. But it will also run an experiment: train on simulator data, evaluate on hardware data, and measure the accuracy drop. The distribution shift documented in this step provides the empirical explanation for that drop. Without this analysis, the Module~4 sim-to-real gap experiment has no interpretive foundation.
+\end{tcolorbox}
+
+\subsection{Step 9 --- Data dictionary}
+Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{merged\_dataset.csv}:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l l l X}
+		\toprule
+		\textbf{Column} & \textbf{Type} & \textbf{Units / Valid Range} & \textbf{Description} \\
+		\midrule
+		\texttt{campaign\_id} & string & C1--C5e & Experiment family identifier \\
+		\texttt{run\_id} & string & unique per run & One collect.py invocation (ISO-timestamped) --- split-leakage key \\
+		\texttt{timestamp\_host} & ISO 8601 & UTC & Host reception time \\
+		\texttt{beacon\_id} & uint8 & 1--255 & FPGA-parsed beacon identifier \\
+		\texttt{mod\_code} & uint8 & 1=LoRa, 2=FSK, 3=OOK & Self-reported modulation (canonical M1/M2 codes) \\
+		\texttt{mod\_code\_label} & uint8 & 1=LoRa, 2=FSK, 3=OOK & Ground-truth modulation code (canonical) \\
+		\texttt{spread\_factor} & uint8 & 7--12 (LoRa); 0 (non-LoRa) & Self-reported SF \\
+		\texttt{rssi} & int16 & $-120$ to $0$~dBm & Received signal strength \\
+		\texttt{snr} & int16 & $-20$ to $+15$~dB & Signal-to-noise ratio \\
+		\texttt{obs\_count} & uint32 & $\geq 1$ & FPGA per-beacon frame count \\
+		\texttt{rx\_timestamp} & uint32 & ms & Receiver-side STM32 tick \\
+		\texttt{inter\_arrival\_ms} & uint32 & ms & FPGA-computed inter-arrival time \\
+		\texttt{rssi\_delta} & int32 & dBm & FPGA-computed RSSI change \\
+		\texttt{priority\_score} & uint32 & --- & FPGA-computed priority \\
+		\texttt{distance\_m} & float & 0.5--10~m & Measured beacon--receiver separation \\
+		\texttt{label\_sf} & uint8 & 7--12 & Ground-truth spreading factor \\
+		\texttt{label\_mod} & string & ``lora''/``fsk''/``ook'' & Human-readable modulation label (alias of \texttt{mod\_code\_label}) \\
+		\texttt{label\_beacon} & uint8 & 1--3 & Ground-truth beacon identity \\
+		\texttt{label\_mismatch} & uint8 & 0 / 1 & 1 if self-reported $\neq$ config label \\
+		\texttt{split} & string & ``train'' / ``val'' / ``test'' & Dataset partition \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{merged\_dataset.csv} contains $\geq$2{,}500 rows with the correct schema and a \texttt{split} column.
+	\item[$\square$] \texttt{label\_mismatch} rate $<$ 2\%.
+	\item[$\square$] Train/val/test split is approximately 70/15/15\%; no class has fewer than 30 test samples.
+	\item[$\square$] All five \mbox{EDA} plots generated and saved as \texttt{.png} files.
+	\item[$\square$] Distribution shift analysis includes at least two quantitative comparisons (mean/std or histogram divergence).
+	\item[$\square$] Data dictionary covers all columns with units and valid ranges.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-H Deliverable --- and Module 3 Final Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{merged\_dataset.csv}: the complete labeled dataset with stratified split column.
+		\item \texttt{merge\_dataset.py}: the merging script.
+		\item Dataset summary: total rows, rows per campaign, rows per class (SF, modulation, beacon \mbox{ID}), label mismatch count, \mbox{CRC} failure count.
+		\item All five \mbox{EDA} plots (\texttt{eda1\_} through \texttt{eda5\_}), each with a 2--3 sentence interpretive caption.
+		\item Distribution shift analysis: at least two quantitative comparisons between simulation data and hardware-collected data with physical interpretation.
+		\item \texttt{data\_dictionary.md}: complete column documentation.
+		\item Known limitations section: indoor multipath effects, distance measurement uncertainty, any collection anomalies (power interruptions, firmware crashes, beacon desynchronization), and any campaigns that fell short of their target packet count.
+		\item One-page Module~3 retrospective: what worked, what integration failures were most instructive, and what you would change before a second data collection campaign.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

@@ -1,0 +1,245 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{4-E}
+\newcommand{\labtitleshort}{MLP Classifier}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{4-E}{Multi-Layer Perceptron with Early Stopping and Calibration}
+
+\section{Objective}
+Implement, train, and evaluate a small fully-connected neural network (8$\to$64$\to$32$\to$C) in \texttt{PyTorch} for each of the three classification tasks. Use early stopping on the validation loss, apply dropout for regularisation, and compare the \mbox{MLP}'s test accuracy against the random-forest and \mbox{SVM} benchmarks from LH4-C/D. The \mbox{MLP} represents the first ``deep'' model in the project and its job is to demonstrate whether added representational capacity helps on this tabular feature set.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~4-D complete (\mbox{SVM} and RF benchmark numbers recorded).
+	\item \texttt{PyTorch $\geq$ 2.0} installed. \mbox{GPU} is optional --- the model is small enough to train on \mbox{CPU} in under a minute per task.
+\end{itemize}
+
+\section{Architecture}
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l X}
+		\toprule
+		\textbf{Layer} & \textbf{Shape / Parameters} \\
+		\midrule
+		Input           & $B \times F$ ($F$ = number of features for the task, typically 6--7) \\
+		Linear + ReLU   & $F \to 64$ \\
+		Dropout         & $p = 0.3$ \\
+		Linear + ReLU   & $64 \to 32$ \\
+		Dropout         & $p = 0.3$ \\
+		Linear          & $32 \to C$ (number of classes) \\
+		LogSoftmax      & applied by \texttt{CrossEntropyLoss} internally \\
+		\bottomrule
+	\end{tabularx}
+	\caption{MLP architecture. Total parameter count is well under 10{,}000 per task --- small enough that overfitting is controlled by dropout and early stopping rather than depth/width.}
+\end{table}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Model and training loop}
+
+\begin{lstlisting}[language=Python, caption={\texttt{train\_mlp.py} --- compact training loop with early stopping.}]
+import numpy as np, torch, joblib
+import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
+from pathlib import Path
+
+class MLP(nn.Module):
+    def __init__(self, n_features, n_classes, hidden=(64, 32), p=0.3):
+        super().__init__()
+        layers = []
+        prev = n_features
+        for h in hidden:
+            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(p)]
+            prev = h
+        layers.append(nn.Linear(prev, n_classes))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+def load_task(task):
+    d = Path(f"artifacts/{task}")
+    return (np.load(d/"X_train.npy"), np.load(d/"y_train.npy"),
+            np.load(d/"X_val.npy"),   np.load(d/"y_val.npy"),
+            np.load(d/"X_test.npy"),  np.load(d/"y_test.npy"),
+            joblib.load(d/"preprocessor.pkl"))
+
+def train_one(task, epochs=200, patience=15, lr=1e-3, batch_size=32):
+    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+    n_classes = len(pre["encoder"].classes_)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = MLP(X_tr.shape[1], n_classes).to(device)
+    opt   = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.CrossEntropyLoss()
+
+    tr_ds = TensorDataset(torch.from_numpy(X_tr).float(),
+                          torch.from_numpy(y_tr).long())
+    tr_ld = DataLoader(tr_ds, batch_size=batch_size, shuffle=True)
+
+    X_va_t = torch.from_numpy(X_va).float().to(device)
+    y_va_t = torch.from_numpy(y_va).long().to(device)
+
+    best_val, best_state, bad = float("inf"), None, 0
+    history = {"train_loss": [], "val_loss": [], "val_acc": []}
+
+    for ep in range(epochs):
+        model.train()
+        total = 0.0
+        for xb, yb in tr_ld:
+            xb, yb = xb.to(device), yb.to(device)
+            opt.zero_grad()
+            logits = model(xb)
+            loss = loss_fn(logits, yb)
+            loss.backward(); opt.step()
+            total += loss.item() * len(xb)
+        tr_loss = total / len(tr_ds)
+
+        model.eval()
+        with torch.no_grad():
+            val_logits = model(X_va_t)
+            val_loss = loss_fn(val_logits, y_va_t).item()
+            val_acc  = (val_logits.argmax(1) == y_va_t).float().mean().item()
+
+        history["train_loss"].append(tr_loss)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+
+        if val_loss < best_val - 1e-4:
+            best_val, best_state, bad = val_loss, {k: v.clone()
+                                for k, v in model.state_dict().items()}, 0
+        else:
+            bad += 1
+            if bad >= patience:
+                print(f"[{task}] Early stop at epoch {ep} "
+                      f"(best val_loss={best_val:.4f})")
+                break
+
+    model.load_state_dict(best_state)
+    # Test evaluation
+    model.eval()
+    with torch.no_grad():
+        X_te_t = torch.from_numpy(X_te).float().to(device)
+        y_te_t = torch.from_numpy(y_te).long().to(device)
+        acc_te = (model(X_te_t).argmax(1) == y_te_t).float().mean().item()
+
+    torch.save({"state_dict": model.state_dict(),
+                "n_features": X_tr.shape[1], "n_classes": n_classes,
+                "test_acc": acc_te, "history": history},
+               f"artifacts/{task}/mlp.pt")
+    print(f"[{task}] MLP test acc = {acc_te:.3f}")
+    return model, history, acc_te
+
+for t in ["sf", "mod", "beacon"]:
+    train_one(t)
+\end{lstlisting}
+
+\subsection{Step 2 --- Learning curves}
+Plot training and validation loss as functions of epoch. The two should track each other; validation loss rising while training loss falls is the canonical overfitting signature.
+
+\begin{lstlisting}[language=Python]
+import matplotlib.pyplot as plt
+for task in ["sf", "mod", "beacon"]:
+    h = torch.load(f"artifacts/{task}/mlp.pt")["history"]
+    fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
+    ax[0].plot(h["train_loss"], label="train")
+    ax[0].plot(h["val_loss"],   label="val")
+    ax[0].set_xlabel("Epoch"); ax[0].set_ylabel("Loss"); ax[0].legend()
+    ax[0].set_title(f"{task} --- loss curves")
+    ax[1].plot(h["val_acc"]); ax[1].set_xlabel("Epoch")
+    ax[1].set_ylabel("Val accuracy"); ax[1].set_title(f"{task} --- val acc")
+    plt.tight_layout(); plt.savefig(f"figs/mlp_curves_{task}.png", dpi=150)
+\end{lstlisting}
+
+\subsection{Step 3 --- Probability calibration}
+A classifier that outputs a 90\% probability for a class should be correct 90\% of the time it does so. Plot a reliability diagram (binned empirical frequency vs.\ predicted probability).
+
+\begin{lstlisting}[language=Python]
+from sklearn.calibration import calibration_curve
+def calibration_plot(model, X_te, y_te, n_classes, task):
+    # Place input tensors on the same device as the model to avoid a
+    # runtime device-mismatch error on GPU hosts.
+    model.eval()
+    device = next(model.parameters()).device
+    X_t = torch.from_numpy(X_te).float().to(device)
+    with torch.no_grad():
+        probs = torch.softmax(model(X_t), dim=1).cpu().numpy()
+    pred = probs.argmax(axis=1)
+    max_prob = probs.max(axis=1)
+    correct = (pred == y_te).astype(int)
+    frac_pos, mean_pred = calibration_curve(correct, max_prob,
+                                            n_bins=10, strategy="quantile")
+    plt.figure()
+    plt.plot([0, 1], [0, 1], "--", color="gray", label="perfect")
+    plt.plot(mean_pred, frac_pos, "o-", label="MLP")
+    plt.xlabel("Predicted confidence (top-1 prob)")
+    plt.ylabel("Empirical accuracy")
+    plt.title(f"Reliability diagram --- {task}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f"figs/mlp_reliability_{task}.png", dpi=150)
+\end{lstlisting}
+
+If the curve sits above the diagonal, the model is \emph{under}-confident (real accuracy is higher than reported probability); if below, it is \emph{over}-confident. For deployment, over-confidence is the dangerous case.
+
+\begin{tcolorbox}[infobox={Why Calibration Matters for Spectrum Monitoring}]
+	The downstream consumer of this classifier's output is a decision process that may weight SF-probability estimates when doing multi-beacon tracking. An over-confident classifier will repeatedly assert wrong labels with high probability, pushing the tracking system toward false associations. A well-calibrated classifier --- even one with slightly lower raw accuracy --- produces more useful probability estimates for downstream fusion.
+\end{tcolorbox}
+
+\subsection{Step 4 --- MLP vs.\ classical benchmarks}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.4}
+	\begin{tabularx}{\textwidth}{l c c c X}
+		\toprule
+		\textbf{Task} & \textbf{RF} & \textbf{SVM} & \textbf{MLP} & \textbf{Notes} \\
+		\midrule
+		SF Detection     & & & & \\
+		Modulation       & & & & \\
+		Emitter ID       & & & & \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Three-way comparison. The \mbox{MLP} is only ``worth it'' for a task where its test accuracy clearly exceeds both classical benchmarks and its reliability curve is at least as good as the \mbox{SVM}'s.}
+\end{table}
+
+\subsection{Step 5 --- Random-seed robustness}
+Train the \mbox{MLP} four times for \emph{each} task (SF, modulation, emitter ID) with seeds 0, 1, 2, 3. Report mean and standard deviation of the test accuracy per task. If the std exceeds $\sim$0.02 on any task, that model is unstable; consider more regularisation or additional data augmentation before promoting it.
+
+\begin{lstlisting}[language=Python]
+robustness = {}
+for task in ["sf", "mod", "beacon"]:
+    accs = []
+    for seed in range(4):
+        torch.manual_seed(seed); np.random.seed(seed)
+        _, _, acc = train_one(task)
+        accs.append(acc)
+    robustness[task] = (float(np.mean(accs)), float(np.std(accs)))
+    print(f"{task:>6} MLP test acc: "
+          f"{np.mean(accs):.3f} +/- {np.std(accs):.3f}")
+\end{lstlisting}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \mbox{MLP} trained to completion (or early stop) on all three tasks.
+	\item[$\square$] Loss curves show no pathological gap between train and val loss.
+	\item[$\square$] Reliability diagrams generated; any systematic miscalibration noted.
+	\item[$\square$] Three-way comparison table filled.
+	\item[$\square$] Seed-robustness: at least 4 independent runs per task, with std reported.
+	\item[$\square$] \texttt{mlp.pt} saved for each task.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 4-E Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{artifacts/\{sf,mod,beacon\}/mlp.pt}: saved state dict, training history, and test accuracy.
+		\item Loss-curve figure per task.
+		\item Reliability diagram per task.
+		\item Three-way benchmark table with winner column and 2--3 sentence commentary on why the \mbox{MLP} does or does not surpass the classical benchmarks.
+		\item Seed-robustness table: mean $\pm$ std test accuracy over $\geq$4 runs per task.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

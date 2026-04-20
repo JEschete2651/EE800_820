@@ -16,22 +16,23 @@ Implement production-quality beacon firmware on an STM32+RFM95W node following t
 \end{itemize}
 
 \section{Beacon Packet Format}
-Use the 32-byte format defined in Module~1 Section~4. Reproduced here for convenience:
+Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reproduced here verbatim --- do not reorder or resize fields; downstream parsers in Module~2 and beyond index these offsets directly:
 \begin{table}[h!]
 	\centering
 	\begin{tabular}{c l l}
 		\toprule
 		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
 		\midrule
-		0 & Start delimiter (\texttt{0x7E}) & 1 \\
-		1 & Beacon ID & 1 \\
-		2--5 & Sequence number (uint32, \mbox{LE}) & 4 \\
-		6--9 & Timestamp (uint32, \mbox{LE}, ms since boot) & 4 \\
-		10 & Spreading factor code & 1 \\
-		11 & \texttt{TX} power (dBm, int8) & 1 \\
-		12--27 & Payload / user data & 16 \\
-		28--29 & Reserved (\texttt{0x00}) & 2 \\
-		30--31 & \CRC{}-16/CCITT-FALSE over bytes 0--29 & 2 \\
+		0--1 & Preamble sync (\texttt{0xAE5A}, big-endian) & 2 \\
+		2 & Beacon ID (\texttt{0x01}--\texttt{0xFF}) & 1 \\
+		3--4 & Sequence number (uint16, \mbox{LE}) & 2 \\
+		5 & \texttt{TX} power (dBm, uint8) & 1 \\
+		6 & Modulation code: \texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{} & 1 \\
+		7 & Spreading factor (LoRa SF 7--12; \texttt{0x00} if non-LoRa) & 1 \\
+		8 & Bandwidth code (\texttt{0x00}=125\,kHz, \texttt{0x01}=250\,kHz, \dots) & 1 \\
+		9--12 & Timestamp (uint32, \mbox{LE}, ms since boot) & 4 \\
+		13--29 & Payload / user data & 17 \\
+		30--31 & \CRC{}-16/CCITT-FALSE over bytes 0--29 (MSB-first) & 2 \\
 		\bottomrule
 	\end{tabular}
 \end{table}
@@ -82,7 +83,8 @@ Use the 32-byte format defined in Module~1 Section~4. Reproduced here for conven
 
 \subsection{Step 2 --- Packet builder}
 \begin{enumerate}[leftmargin=2em]
-	\item Implement \texttt{build\_beacon\_packet(uint8\_t *buf, uint32\_t seq, uint8\_t beacon\_id)} that fills bytes 0--29 according to the packet format, computes the \CRC{}-16 over bytes 0--29, and writes it to bytes 30--31.
+	\item Implement \texttt{build\_beacon\_packet(uint8\_t *buf, uint16\_t seq, uint8\_t beacon\_id, uint8\_t mod\_code, uint8\_t sf, uint8\_t bw\_code, int8\_t tx\_power\_dbm)} that fills bytes 0--29 according to the packet format (preamble \texttt{0xAE5A} at 0--1, ID at 2, sequence at 3--4, TX power at 5, modulation code at 6, SF at 7, bandwidth code at 8, timestamp at 9--12, payload at 13--29), computes the \CRC{}-16 over bytes 0--29, and writes it MSB-first to bytes 30--31.
+	\item Modulation code is fixed per beacon build: \texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{}. These codes are the canonical ground-truth labels used by the Module~3 datasets and the Module~4 classifier --- do not invent a 0/1 alias.
 	\item Use \CRC{}-16/CCITT-FALSE: polynomial \texttt{0x1021}, init \texttt{0xFFFF}, no reflection, no \mbox{XOR} out. A 20-line C implementation is sufficient; do not bring in a library for this.
 \end{enumerate}
 

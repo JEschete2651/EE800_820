@@ -1,0 +1,123 @@
+% Shared preamble for Module 5 lab handouts.
+% Usage: each handout defines \labid and \labtitleshort, then \input{LabHandout_Preamble}
+% BEFORE \begin{document}. Compiles with a single pdflatex pass (no glossaries tool).
+
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\graphicspath{{Images/}{../Images/}}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{tcolorbox}
+\usepackage{caption}
+\usepackage{listings}
+\tcbuselibrary{skins,breakable}
+
+% ── Glossary (per-document, built from shared glossary.tex) ──
+\usepackage[acronym,nomain,nopostdot]{glossaries}
+\makenoidxglossaries
+\input{../../glossary}
+\newcommand{\printhandoutglossary}{%
+	\clearpage
+	\printnoidxglossary[type=\acronymtype,title={Glossary}]%
+}
+
+% ── Colors (match Module 5 lesson plan) ──────────────────────
+\definecolor{stevens}{RGB}{163,31,52}
+\definecolor{darkgray}{RGB}{60,60,60}
+\definecolor{lightgray}{RGB}{240,240,240}
+\definecolor{accentblue}{RGB}{30,80,140}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=stevens,
+	urlcolor=accentblue,
+	citecolor=darkgray,
+}
+
+% ── Listings style (Python used throughout Module 5) ─────────
+\lstset{
+	basicstyle=\small\ttfamily,
+	keywordstyle=\color{accentblue}\bfseries,
+	commentstyle=\color{darkgray}\itshape,
+	stringstyle=\color{stevens},
+	numbers=left,
+	numberstyle=\tiny\color{darkgray},
+	numbersep=8pt,
+	frame=single,
+	framerule=0.4pt,
+	rulecolor=\color{darkgray},
+	backgroundcolor=\color{lightgray},
+	breaklines=true,
+	tabsize=4,
+	showstringspaces=false,
+	captionpos=b
+}
+
+\providecommand{\labid}{?}
+\providecommand{\labtitleshort}{Lab Handout}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{darkgray}{Module 5 --- Lab Handout \labid}}
+\fancyhead[R]{\small\textcolor{darkgray}{\labtitleshort}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\Large\bfseries\color{stevens}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{darkgray}}{\thesubsection}{0.6em}{}
+
+\tcbset{
+	infobox/.style={
+		enhanced, colback=blue!3, colframe=accentblue, fonttitle=\bfseries,
+		title={#1}, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+	warning/.style={
+		enhanced, colback=red!3, colframe=stevens, fonttitle=\bfseries,
+		title={#1}, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+	deliverable/.style={
+		enhanced, colback=gray!5, colframe=darkgray, fonttitle=\bfseries,
+		title={#1}, coltitle=white, breakable, left=6pt, right=6pt, top=4pt, bottom=4pt
+	},
+}
+
+\newcommand{\labfigure}[4]{%
+	\begin{figure}[h!]
+		\centering
+		\IfFileExists{Images/#1}{%
+			\includegraphics[width=#2]{#1}%
+		}{%
+			\IfFileExists{../Images/#1}{%
+				\includegraphics[width=#2]{#1}%
+			}{%
+				\fbox{\begin{minipage}[c][2.2in][c]{#2}
+					\centering\color{darkgray}\small
+					\textbf{[Figure placeholder]}\\[4pt]
+					\texttt{\detokenize{#1}}\\[4pt]
+					\textit{#3}
+				\end{minipage}}%
+			}%
+		}
+		\caption{#3}
+		\label{#4}
+	\end{figure}%
+}
+
+\newcommand{\labheader}[2]{%
+	\begin{center}
+		{\LARGE\bfseries\color{stevens} Lab Handout #1}\\[3pt]
+		{\Large\bfseries #2}\\[6pt]
+		{\small\color{darkgray} Capstone --- Module 5: System Validation, Stress Testing, and Final Delivery}
+	\end{center}
+	\vspace{4pt}
+	{\color{darkgray}\rule{\textwidth}{0.4pt}}
+	\vspace{10pt}
+}

@@ -19,7 +19,7 @@ Implement receiver firmware that captures beacon packets via an \texttt{RxDone} 
 
 \newpage
 \section{Forwarding Frame Format}
-The receiver wraps each received beacon in a framed \UART{} message for the \FPGA{}. Total 43 bytes:
+The receiver wraps each received beacon in a framed \UART{} message for the \FPGA{}. Total 43 bytes. This layout is the canonical spec from the Module~1 lesson plan (Table~6) and is consumed verbatim by the Module~2 parser; do not reorder fields.
 \begin{table}[h!]
 	\centering
 	\begin{tabular}{c l l}
@@ -27,17 +27,22 @@ The receiver wraps each received beacon in a framed \UART{} message for the \FPG
 		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
 		\midrule
 		0 & Start delimiter (\texttt{0x7E}) & 1 \\
-		1 & Frame length (always 41) & 1 \\
-		2--33 & Original 32-byte beacon packet & 32 \\
-		34--35 & \RSSI{} (int16, \mbox{LE}, dBm $\times$1) & 2 \\
-		36 & \SNR{} (int8, dB $\times$4 per SX1276 scaling) & 1 \\
-		37--40 & Receiver timestamp (uint32, \mbox{LE}, ms) & 4 \\
-		41--42 & \CRC{}-16/CCITT-FALSE over bytes 0--40 & 2 \\
+		1 & Frame length (always \texttt{0x29} = 41) & 1 \\
+		2--5 & \mbox{RX} timestamp (uint32, \mbox{LE}, ms) & 4 \\
+		6 & \RSSI{} (int8, dBm, two's complement) & 1 \\
+		7 & \SNR{} (int8, dB, 0.25\,dB resolution) & 1 \\
+		8--9 & Frequency error (int16, \mbox{LE}, Hz) & 2 \\
+		10--41 & Beacon payload (32-byte beacon packet) & 32 \\
+		42 & Frame \CRC{}-8/ITU (poly \texttt{0x07}) over bytes 1--41 & 1 \\
 		\bottomrule
 	\end{tabular}
 \end{table}
 
-\labfigure{LH1G_frame_layout.png}{0.9\textwidth}{43-byte forwarding frame layout with delimiter, length, beacon payload, \RSSI{}/\SNR{}, timestamp, and trailing \CRC{}-16 highlighted.}{fig:lh1g-frame}
+\begin{tcolorbox}[infobox={Length-Field Rule}]
+The frame-length byte is defined as the count of bytes \emph{excluding the start delimiter and the trailing \CRC{}}. For a 43-byte frame, byte[1] must equal \texttt{0x29} (41 decimal). The beacon payload's embedded \CRC{}-16/CCITT (beacon bytes 30--31) lands at frame offsets 40--41 and is \emph{not} the frame \CRC{}; the frame \CRC{}-8 is at offset 42.
+\end{tcolorbox}
+
+\labfigure{LH1G_frame_layout.png}{0.9\textwidth}{43-byte forwarding frame layout: delimiter, length, metadata (timestamp, \RSSI{}, \SNR{}, freq.\ error), embedded 32-byte beacon payload, and trailing \CRC{}-8 at byte 42.}{fig:lh1g-frame}
 
 \newpage
 \section{Architecture}
@@ -59,7 +64,7 @@ The receiver wraps each received beacon in a framed \UART{} message for the \FPG
 \begin{enumerate}[leftmargin=2em]
 	\item Check ring buffer head vs.\ tail. If not empty, dequeue one packet.
 	\item Build the 43-byte forwarding frame.
-	\item Compute \CRC{}-16/CCITT-FALSE over bytes 0--40 and place in bytes 41--42.
+	\item Compute the frame \CRC{}-8/ITU (poly \texttt{0x07}, init \texttt{0x00}) over bytes 1--41 and place it in byte 42. The embedded beacon \CRC{}-16 (already in the 32-byte payload from LH1-F) is copied through unchanged at frame offsets 40--41.
 	\item Transmit the entire 43-byte frame over \texttt{USART3} (or whichever \UART{} is wired to the Nexys A7) using \texttt{HAL\_UART\_Transmit\_DMA}.
 	\item Increment a \texttt{frames\_forwarded} counter.
 \end{enumerate}
@@ -89,10 +94,11 @@ A 16-entry ring ($\approx$640 bytes of beacon structs) accommodates roughly 16 b
 	\item Define the packet struct:
 \begin{verbatim}
 typedef struct {
-    uint8_t  raw[32];
-    int16_t  rssi_dbm;
-    int8_t   snr_q4;
-    uint32_t rx_timestamp_ms;
+    uint8_t  raw[32];          /* 32-byte beacon payload as received */
+    uint32_t rx_timestamp_ms;  /* ms tick at RxDone */
+    int8_t   rssi_dbm;         /* RegPktRssiValue, converted to int8 dBm */
+    int8_t   snr_q025;         /* RegPktSnrValue, 0.25 dB resolution */
+    int16_t  freq_error_hz;    /* from RegFei (signed, Hz) */
 } beacon_pkt_t;
 \end{verbatim}
 	\item Static ring with power-of-two size: \texttt{static beacon\_pkt\_t ring[16];} and \texttt{volatile uint32\_t head, tail;}.
@@ -104,23 +110,23 @@ typedef struct {
 \subsection{Step 3 --- ISR}
 \begin{enumerate}[leftmargin=2em]
 	\item Implement \texttt{HAL\_GPIO\_EXTI\_Callback(uint16\_t GPIO\_Pin)}. Check that the pin matches DIO0.
-	\item Keep the \ISR{} short: FIFO read, \RSSI{}/\SNR{} read, timestamp, \texttt{push} to ring, clear IRQ flags. No \texttt{printf} inside the \ISR{}.
+	\item Keep the \ISR{} short: FIFO read, \RSSI{}/\SNR{}/frequency-error read, timestamp, \texttt{push} to ring, clear IRQ flags. No \texttt{printf} inside the \ISR{}.
 \end{enumerate}
 
 \subsection{Step 4 --- Frame builder and forwarder}
 \begin{enumerate}[leftmargin=2em]
 	\item In the main loop, call \texttt{pop}. If a packet is present, construct the 43-byte frame as described above.
-	\item Reuse the \CRC{}-16 helper from LH1-F.
+	\item Implement a byte-wide \CRC{}-8/ITU routine (poly \texttt{0x07}, init \texttt{0x00}, no reflect, xorout \texttt{0x00}) and apply it to bytes 1--41; write the result to byte 42. The LH1-F \CRC{}-16 helper still produces the embedded beacon \CRC{} inside the payload --- do not reuse it for the frame \CRC{}.
 	\item Call \texttt{HAL\_UART\_Transmit\_DMA(\&huart3, frame, 43)}. Track the \mbox{DMA} completion flag; do not overwrite the frame buffer until transmission is complete.
 	\item Also \texttt{printf} a human-readable summary over USART2 for debug: \texttt{"RX beacon=\%02X seq=\%lu rssi=\%d snr=\%d"}.
 \end{enumerate}
 
-\labfigure{LH1G_python_parser_output.png}{0.85\textwidth}{Host-side \texttt{pyserial} parser output: 43-byte frames captured, start delimiter matched, \CRC{}-16 validated, beacon \mbox{ID}/sequence/\RSSI{}/\SNR{} extracted.}{fig:lh1g-parser}
+\labfigure{LH1G_python_parser_output.png}{0.85\textwidth}{Host-side \texttt{pyserial} parser output: 43-byte frames captured, start delimiter matched, frame \CRC{}-8 validated (and embedded beacon \CRC{}-16 independently checked), beacon \mbox{ID}/sequence/\RSSI{}/\SNR{} extracted.}{fig:lh1g-parser}
 
 \subsection{Step 5 --- Validation without the \FPGA{}}
 \begin{enumerate}[leftmargin=2em]
 	\item Before wiring to the Nexys A7, loopback-test the forwarding \UART{} by connecting \texttt{USART3 TX} to \texttt{USART3 RX} (or to a USB-\UART{} adapter) and capturing frames on a host PC.
-	\item Use a Python script (\texttt{pyserial}) to parse incoming 43-byte frames, verify the start delimiter, validate the \CRC{}-16, and print the extracted beacon \mbox{ID}, sequence number, \RSSI{}, and \SNR{}.
+	\item Use a Python script (\texttt{pyserial}) to parse incoming 43-byte frames, verify the start delimiter and byte[1]=\texttt{0x29}, validate the frame \CRC{}-8 over bytes 1--41, independently validate the embedded beacon \CRC{}-16 over payload bytes 0--29, and print the extracted beacon \mbox{ID}, sequence number, \RSSI{}, and \SNR{}.
 	\item Run with Beacon~A (and optionally Beacon~B) from LH1-F broadcasting.
 \end{enumerate}
 
@@ -130,7 +136,7 @@ typedef struct {
 	\item[$\square$] \texttt{RxDone} interrupt fires on every received packet (\ISR{} entry count matches expected receptions).
 	\item[$\square$] Ring buffer overflows only if you deliberately stall the main loop.
 	\item[$\square$] 43-byte frames appear on \texttt{USART3 TX} for every received beacon.
-	\item[$\square$] Host Python parser validates start delimiter and \CRC{}-16 on 100\% of frames.
+	\item[$\square$] Host Python parser validates start delimiter, byte[1]=\texttt{0x29}, frame \CRC{}-8, and embedded beacon \CRC{}-16 on 100\% of frames.
 	\item[$\square$] Dual-beacon run: parser sees interleaved \mbox{ID}\,=\,\texttt{0x01} and \mbox{ID}\,=\,\texttt{0x02} frames with independently contiguous sequence numbers.
 	\item[$\square$] Dropped-packet counter remains zero during a 5-minute run.
 \end{itemize}

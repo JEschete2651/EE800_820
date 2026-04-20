@@ -1,0 +1,136 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-E}
+\newcommand{\labtitleshort}{Throughput and Stress Test}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-E}{Throughput Characterization and Multi-Beacon Stress Test}
+
+\section{Objective}
+Determine the system's throughput ceiling and \FIFO{} behavior under increasing beacon load, identify the pipeline's performance bottleneck, and generate the production bitstream (without \mbox{ILA}) that will be used for all data collection in Lab Handouts~3-F through 3-H.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-D complete (\PER{} and latency characterized for a single beacon).
+	\item Both beacons powered and configured with known \mbox{ID}s and transmission intervals.
+\end{itemize}
+
+\section{Background: Throughput Analysis}
+
+The theoretical maximum frame rate is constrained by the \UART{} link between the STM32 receiver and the \FPGA{}:
+\[
+	\text{Throughput}_{\text{max}} = \frac{\text{Baud Rate}}{\text{Bits per Frame}} = \frac{115{,}200}{43 \times 10} = 268~\text{fps}
+\]
+In practice, the beacon \RF{} on-air time imposes a much lower ceiling. At SF7 with 2-second intervals and two staggered beacons, the expected frame rate is about 1~fps --- far below the \UART{} ceiling. The stress test is therefore about finding the \RF{}-imposed limit and verifying the \FIFO{} does not overflow when transmissions cluster.
+
+\section{Procedure}
+
+\subsection{Step 1 --- FIFO utilization visibility}
+\begin{enumerate}[leftmargin=2em]
+	\item Map the 6-bit \texttt{fifo\_count} signal to \texttt{led(5:0)} on the Nexys A7 (a simple binary display). This provides real-time \FIFO{} occupancy visible without the \mbox{ILA}.
+	\item Map \texttt{fifo\_full} (or the \FIFO{} overflow flag from LH3-D) to \texttt{led(15)} as a latching alarm: once set on overflow, it stays set until reset is pressed.
+	\item Re-synthesize and re-implement. This does not require a full debug bitstream; use the \texttt{g\_DEBUG = true} version for now (you will generate the production bitstream in Step~8).
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why Map FIFO to LEDs?}]
+	The \mbox{ILA{}} requires a JTAG connection and Vivado running on the host PC. During a 5-minute stress test it is impractical to watch the \mbox{ILA} continuously. The \mbox{LED} display provides a zero-overhead real-time indicator: you can see at a glance whether the \FIFO{} is filling up, and the overflow alarm \mbox{LED} tells you if you missed a burst at any point during the run.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Single-beacon baseline}
+\begin{enumerate}[leftmargin=2em]
+	\item Power only Beacon~A: SF7, +14~dBm, 2-second fixed interval.
+	\item Run for 5 minutes. Record: packets transmitted ($N_{\text{tx}}$), \FPGA{} valid frames ($N_{\text{valid}}$), \PER{}, peak \FIFO{} occupancy (\texttt{led(5:0)} peak), overflow alarm status.
+	\item This is the performance baseline row in the table below.
+\end{enumerate}
+
+\subsection{Step 3 --- Two beacons, fixed staggered intervals}
+\begin{enumerate}[leftmargin=2em]
+	\item Power on Beacon~B: SF7, +14~dBm, 3-second fixed interval (staggered so transmissions do not coincide).
+	\item Run for 5 minutes. Record the same metrics as Step~2 (sum $N_{\text{tx}}$ and $N_{\text{valid}}$ across both beacons).
+	\item Expected frame rate: $1/2 + 1/3 \approx 0.83$~fps. Expected \FIFO{} peak: low (no burst clustering).
+\end{enumerate}
+
+\subsection{Step 4 --- Two beacons, ALOHA mode}
+\begin{enumerate}[leftmargin=2em]
+	\item Reconfigure both beacons for random-access \mbox{ALOHA} mode (if your firmware from LH1-F supports it): Beacon~A transmits after a random delay uniformly distributed in [1,3]\,s; Beacon~B independently in [1,3]\,s.
+	\item Run for 5 minutes. ALOHA causes occasional simultaneous transmissions that collide on the \RF{} channel. Record \PER{} and watch for any increase in the \FIFO{} overflow alarm.
+	\item If the firmware does not have an \mbox{ALOHA} mode, simulate it by manually offsetting the two beacons' power-on times by 0 seconds (so they start synchronized) and observing the collision behavior.
+\end{enumerate}
+
+\subsection{Step 5 --- Three beacons, fixed staggered}
+\begin{enumerate}[leftmargin=2em]
+	\item Power on a third beacon (Beacon~C, \mbox{ID} = \texttt{0x03}): SF7, +14~dBm, 1-second fixed interval. Set Beacon~A to 1-second, Beacon~B to 1-second, all three staggered by $\sim$333\,ms.
+	\item Run for 5 minutes. Expected frame rate: 3~fps. This begins to tax the \UART{} link more meaningfully.
+	\item Watch \texttt{led(5:0)} during this run. If the \FIFO{} count exceeds 75\% (48 of 64 entries), flag this as a risk.
+\end{enumerate}
+
+\subsection{Step 6 --- Three beacons, ALOHA mode}
+\begin{enumerate}[leftmargin=2em]
+	\item Configure all three beacons for \mbox{ALOHA}: random delay uniformly in [0.5, 2]\,s each.
+	\item Run for 5 minutes. This is the maximum contention configuration and the most likely to produce \FIFO{} overflow under burst conditions.
+	\item If the overflow alarm (\texttt{led(15)}) sets during this run, note the \mbox{LED} state at the time and record when in the run it occurred.
+\end{enumerate}
+
+\begin{table}[h!]
+	\centering
+	\caption{Stress test results table (fill in during Steps~2--6).}
+	\renewcommand{\arraystretch}{1.4}
+	\begin{tabularx}{\textwidth}{c l c c c c c}
+		\toprule
+		\textbf{Config} & \textbf{Mode} & \textbf{Interval} & \textbf{$N_{\text{tx}}$} & \textbf{\PER{}} & \textbf{FIFO Peak} & \textbf{Overflow?} \\
+		\midrule
+		1 beacon  & Fixed   & 2\,s        & & & & \\
+		2 beacons & Fixed   & 2\,s / 3\,s & & & & \\
+		2 beacons & ALOHA   & [1,3]\,s    & & & & \\
+		3 beacons & Fixed   & 1\,s each   & & & & \\
+		3 beacons & ALOHA   & [0.5,2]\,s  & & & & \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\subsection{Step 7 --- Bottleneck identification and mitigation proposal}
+\begin{enumerate}[leftmargin=2em]
+	\item Examine the stress test table. If \FIFO{} overflow occurred, identify the configuration that triggered it. The bottleneck is the link between the overflow source and the pipeline stage that cannot drain fast enough.
+	\item For a \FIFO{}-dominated bottleneck, propose at least one mitigation: increase the \FIFO{} depth from 64 to 256 entries (uses one additional \mbox{BRAM} tile), upgrade the receiver-to-\FPGA{} link from \UART{} to \mbox{SPI} (faster), or reduce the inter-frame overhead in the receiver firmware (shorter frame gaps).
+	\item Document the bottleneck and proposed mitigation in one paragraph. You do not need to implement the mitigation for this handout.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why Not Just Increase the FIFO Depth?}]
+	A deeper \FIFO{} delays overflow but does not eliminate the root cause. If the peak ingress rate (bytes/s from the \UART{}) permanently exceeds the egress rate (bytes/s the parser can process), no finite \FIFO{} depth will prevent eventual overflow. In practice, the Module~2 parser processes one byte per clock cycle at 100\,MHz, which is $\gg$115200 baud. The actual risk is transient bursts from multiple simultaneous receptions, not a sustained throughput mismatch. Increasing the \FIFO{} depth from 64 to 256 entries is sufficient for the three-beacon configurations in this module.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 8 --- Generate the production bitstream}
+\begin{enumerate}[leftmargin=2em]
+	\item In \texttt{ingest\_top.vhd} (or the top-level instantiation), set \texttt{g\_DEBUG = false}. This removes the \mbox{ILA} core, freeing the 4 \mbox{BRAM{}} tiles it was occupying.
+	\item Run Synthesis, Implementation, and Generate Bitstream. The output is \texttt{ingest\_top\_prod.bit}.
+	\item Open the post-implementation utilization report. Confirm \mbox{BRAM{}} count is back to the Module~2 baseline (2 tiles for the feature \mbox{BRAM{}}, not 6).
+	\item Program the production bitstream. The \mbox{ILA{}} dashboard will no longer be available, but all pipeline functionality and \mbox{LED{}} indicators (from Step~1) remain.
+	\item Run the single-beacon PER test from Step~2 again with the production bitstream. Confirm the \PER{} is within 1 percentage point of the debug-bitstream measurement. Any large change indicates the \mbox{ILA{}} was interfering with timing in the debug build.
+\end{enumerate}
+
+\labfigure{LH3E_prod_utilization.png}{0.85\textwidth}{Post-implementation utilization of the production bitstream (\texttt{g\_DEBUG = false}). \mbox{BRAM{}} count should be 2 tiles, not 6. This is the bitstream used for all data collection in LH3-F through LH3-H.}{fig:lh3e-util}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \FIFO{} count mapped to \mbox{LEDs{}}; overflow alarm on \texttt{led(15)} latches on overflow.
+	\item[$\square$] All five beacon configurations in the stress table completed and recorded.
+	\item[$\square$] \FIFO{} peak utilization noted for each configuration; any overflow events documented.
+	\item[$\square$] Bottleneck identified and mitigation proposed.
+	\item[$\square$] Production bitstream generated (\texttt{g\_DEBUG = false}); \mbox{BRAM{}} count is 2 tiles.
+	\item[$\square$] Production \PER{} within 1 percentage point of debug \PER{} (no timing regression).
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-E Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Completed stress test results table (all 5 configurations).
+		\item Bottleneck analysis paragraph with proposed mitigation.
+		\item Post-implementation utilization report for the production bitstream.
+		\item A brief ``system performance envelope'' summary table establishing the operating parameters for data collection: maximum safe beacon count, recommended transmission interval, \FIFO{} headroom.
+		\item \texttt{ingest\_top\_prod.bit} (the bitstream used for all remaining handouts).
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

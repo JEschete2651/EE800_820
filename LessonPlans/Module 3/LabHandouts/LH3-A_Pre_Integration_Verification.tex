@@ -1,0 +1,152 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-A}
+\newcommand{\labtitleshort}{Pre-Integration Verification}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-A}{Pre-Integration Hardware Verification}
+
+\section{Objective}
+Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph{in isolation} before any cross-board connections are made. This handout prevents the most common Module~3 mistake: connecting hardware before knowing which subsystem is at fault. By the end you will have a signed-off pre-integration checklist and a documented wiring plan that serves as the ground truth for debugging in Lab Handout~3-C.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~1-G (receiver firmware validated, forwarding frames confirmed on STM32 debug \UART{}).
+	\item Lab Handout~1-F (beacon firmware validated, beacon \mbox{ID} and sequence numbers confirmed).
+	\item Lab Handout~2-H (Module~2 bitstream signed off, \texttt{ingest\_top.bit} generated and archived).
+\end{itemize}
+
+\section{Materials}
+\begin{table}[h!]
+	\centering
+	\begin{tabular}{l c l}
+		\toprule
+		\textbf{Item} & \textbf{Qty} & \textbf{Notes} \\
+		\midrule
+		STM32 Nucleo-L476RG & $\geq 3$ & 2 beacons + 1 receiver \\
+		\RF{} Breakout (RFM95W) + antenna & $\geq 3$ & Assembled in LH1-A \\
+		Digilent Nexys A7-100T & 1 & With USB cable \\
+		USB Micro-B cables & 4--5 & Programming and \UART{} \\
+		Host PC & 1 & With Vivado, STM32CubeIDE, terminal emulator \\
+		Breadboard + jumper wires & --- & For inter-board connections \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\newpage
+\section{Procedure}
+
+\subsection{Step 1 --- Beacon A verification}
+\begin{enumerate}[leftmargin=2em]
+	\item Flash Beacon~A with the firmware from LH1-F. Power on via USB.
+	\item Open a terminal emulator at the virtual COM port (115200\,8N1). Confirm that the debug \UART{} prints a transmission line every $\sim$2 seconds:
+	\begin{verbatim}
+[TX] ID=0x01  SEQ=0042  SF=7  PWR=14  TS=84000
+	\end{verbatim}
+	\item Verify the sequence number increments by 1 on each line. A skipped number indicates a missed transmit interrupt.
+	\item Record the beacon \mbox{ID} (should be \texttt{0x01} unless reconfigured) and the spreading factor.
+	\item The \RF{} module \mbox{LED} (if present) should blink on each transmission. Confirm.
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Beacon LED vs.\ Nucleo LED}]
+	The Nucleo board has its own user \mbox{LED} (LD2, green, \texttt{PA5}). The beacon firmware from LH1-F toggles this on each transmit cycle. If the \mbox{LED} is not blinking, the firmware has not started or the \RF{} hardware is not responding to the STM32 \mbox{SPI} init sequence. Repeat LH1-C (\mbox{SPI} bring-up) before proceeding.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Beacon B verification}
+\begin{enumerate}[leftmargin=2em]
+	\item Repeat Step~1 for Beacon~B. Confirm beacon \mbox{ID} \texttt{0x02} and a different transmission interval (2--3 seconds staggered by firmware, or manually configured).
+	\item Place Beacon~A and Beacon~B within 1~m of each other and confirm both are transmitting simultaneously without locking up. LoRa collisions at this range are expected and harmless for this check.
+\end{enumerate}
+
+\subsection{Step 3 --- Receiver verification}
+\begin{enumerate}[leftmargin=2em]
+	\item Flash the receiver with the firmware from LH1-G. Power on via USB.
+	\item Open a terminal at the receiver's virtual COM port (115200\,8N1). With both beacons active, confirm that the receiver's debug \UART{} prints a reception line for each packet:
+	\begin{verbatim}
+[RX] ID=0x01  SEQ=0042  RSSI=-67  SNR=+9.5  CRC=OK
+[RX] ID=0x02  SEQ=0031  RSSI=-71  SNR=+8.0  CRC=OK
+	\end{verbatim}
+	\item Confirm that the receiver is also emitting 43-byte forwarding frames on \texttt{USART3 TX}. The easiest verification is to connect the receiver's \texttt{USART3 TX} pin directly to a second terminal session (or back to a second COM port via a USB-\UART{} adapter) and capture raw hex. The first byte should be \texttt{0x7E}.
+	\item Check that \RSSI{} values are negative (reasonable for indoor distances) and that \mbox{SNR} is positive. Negative \mbox{SNR} at 1~m distance indicates an antenna or front-end problem.
+\end{enumerate}
+
+\labfigure{LH3A_receiver_uart_capture.png}{0.85\textwidth}{Terminal capture of receiver debug \UART{} output showing two beacons received, with \RSSI{}, \SNR{}, and \CRC{} status. Verify this before connecting to the \FPGA{}.}{fig:lh3a-rx-uart}
+
+\subsection{Step 4 --- FPGA standalone verification}
+\begin{enumerate}[leftmargin=2em]
+	\item Connect the Nexys A7 to the host PC via USB. Vivado Hardware Manager should detect \texttt{xc7a100t\_0}.
+	\item Program the \texttt{ingest\_top.bit} bitstream from LH2-H. The \mbox{DONE} \mbox{LED} should illuminate immediately after programming.
+	\item Verify basic I/O: press the center pushbutton (reset). \texttt{led(0)} through \texttt{led(7)} should assert for one clock cycle after reset release (the Module~2 initialization pattern), then settle.
+	\item Open a terminal at the Nexys A7 USB-\UART{} port (115200\,8N1). With no signal on the \mbox{PMOD} input, the pipeline should be idle --- no output lines should appear.
+	\item Confirm the Vivado Hardware Manager can also run the \mbox{ILA} dashboard without errors (even if no triggers fire). This validates the \mbox{JTAG} path for Lab Handout~3-B.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={FPGA UART Loopback Test (Optional / Diagnostic)}]
+	\textbf{Optional --- only run this check if your current \texttt{ingest\_top} bitstream explicitly wires a USB-\UART{} loopback path.} The canonical Module~2 build does not guarantee this path, so a non-echo result here does \emph{not} indicate a pipeline fault. If the loopback is present, verify by typing any character in the terminal and confirming it echoes back via the onboard FT2232H bridge. If the loopback is absent, skip this step --- it is not required for the receiver forwarding path to work.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 5 --- Physical wiring audit}
+Document the planned inter-board connections \emph{before} making them. Use the table below as a wiring record; fill in the actual pin numbers for your hardware revision.
+
+\begin{table}[h!]
+	\centering
+	\begin{tabularx}{\textwidth}{l l l l X}
+		\toprule
+		\textbf{Signal} & \textbf{From Board} & \textbf{From Pin} & \textbf{To Board} & \textbf{To Pin} \\
+		\midrule
+		UART TX (forwarding) & STM32 Receiver & \texttt{PC4} & Nexys A7 & \texttt{JA[0] (C17)} \\
+		GND & STM32 Receiver & \texttt{GND} & Nexys A7 & \texttt{JA GND (pin 5)} \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\begin{tcolorbox}[warning={Do Not Connect Yet}]
+	Fill in and photograph this wiring table \emph{before} making any connections. The purpose of this step is to think through the wiring plan while all subsystems are still running independently. Making connections prematurely is the leading cause of integration bugs that are actually wiring errors, not firmware or \RTL{} bugs.
+\end{tcolorbox}
+
+\subsection{Step 6 --- Complete the pre-integration checklist}
+Work through every row and mark Pass or Fail. Do not proceed to Lab Handout~3-B until all items pass.
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c X c}
+		\toprule
+		\textbf{\#} & \textbf{Check} & \textbf{Pass?} \\
+		\midrule
+		1 & Nexys A7 powers on via USB; Vivado Hardware Manager detects \texttt{xc7a100t\_0}. & $\square$ \\
+		2 & Module~2 bitstream programs; \mbox{DONE} \mbox{LED} illuminates; \mbox{LEDs} show init pattern after reset. & $\square$ \\
+		3 & (Optional) \FPGA{} USB-\UART{} loopback echoes at 115200 baud --- skip if not implemented in current bitstream. & $\square$ \\
+		4 & Beacon~A: debug \UART{} prints transmission lines with incrementing sequence numbers. & $\square$ \\
+		5 & Beacon~B: same verification; unique beacon \mbox{ID}. & $\square$ \\
+		6 & Receiver: debug \UART{} shows both beacon \mbox{ID}s with valid \RSSI{}/\mbox{SNR} and \mbox{CRC}=OK. & $\square$ \\
+		7 & Receiver forwarding frame verified: first byte on \texttt{USART3 TX} is \texttt{0x7E}. & $\square$ \\
+		8 & Wiring table above completed and photographed; no physical connections made yet. & $\square$ \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] All 8 pre-integration checklist items pass.
+	\item[$\square$] Debug \UART{} output verified for both beacons and the receiver simultaneously.
+	\item[$\square$] Forwarding frame \texttt{0x7E} start delimiter confirmed from receiver \texttt{USART3 TX}.
+	\item[$\square$] \FPGA{} bitstream programs cleanly; Vivado \mbox{ILA} dashboard accessible.
+	\item[$\square$] Wiring plan documented before any connections made.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-A Deliverable}]
+	Submit the following before beginning Lab Handout~3-B:
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Signed-off pre-integration checklist (all 8 items checked).
+		\item Photos of the physical setup: each Nucleo board powered and running, Nexys A7 programmed.
+		\item Terminal capture screenshots: Beacon~A debug output (at least 5 lines), Beacon~B debug output (at least 5 lines), receiver debug output showing both beacon \mbox{ID}s.
+		\item Hex capture of at least one complete 43-byte forwarding frame from the receiver \texttt{USART3 TX} (annotated to identify the \texttt{0x7E} start byte, length field, and beacon \mbox{ID}).
+		\item Completed wiring table (photographed or typed).
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

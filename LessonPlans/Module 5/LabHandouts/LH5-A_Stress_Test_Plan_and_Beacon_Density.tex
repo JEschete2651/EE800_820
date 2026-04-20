@@ -1,0 +1,163 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{5-A}
+\newcommand{\labtitleshort}{Stress Test Plan and Beacon Density (S1)}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{5-A}{Stress Test Plan and S1 Beacon Density Stress Test}
+
+\section{Objective}
+Write the formal Module~5 stress test plan that structures every subsequent experiment in this module, then execute the first dimension (S1: beacon density) to determine the maximum number of concurrent beacons the integrated system can support without unacceptable \PER{} degradation or \FIFO{} overflow. The deliverable is the \emph{empirically derived} maximum beacon count, not an a-priori guess --- this is the first number that enters the Module~5 system specification table.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Module~4 complete: \texttt{inference.py} streaming live predictions; \texttt{live\_inference.py} validated.
+	\item Production bitstream (LH3-E) programmed; \FIFO{} count wired to \mbox{LEDs{}} (LH3-E Step~1) so peak \FIFO{} utilization is visible without an \mbox{ILA{}}.
+	\item At least three beacons operational with known \mbox{ID}s 0x01, 0x02, 0x03.
+	\item Baseline values from Module~3 (S1a-equivalent \PER{}) and Module~4 (nominal classification accuracy) at hand for comparison.
+\end{itemize}
+
+\section{Stress Test Philosophy}
+A stress test that merely confirms the system works under nominal conditions has limited educational value. The purpose of Module~5 stress testing is to find where the system \emph{stops} working --- and to understand \emph{why}. Each failure point traces back to a specific design decision in an earlier module:
+\begin{itemize}[leftmargin=2em]
+	\item Maximum beacon rate is constrained by the \UART{} bandwidth chosen in Module~1 (115200 baud $\to$ 268~fps theoretical max) and the \FIFO{} depth chosen in Module~2 (64 entries).
+	\item Minimum classifiable \mbox{SNR} is constrained by the feature vector design in Module~2 and the training data distribution in Module~3.
+	\item Maximum sustained runtime is constrained by counter widths and ring-buffer sizing decisions in Module~1.
+\end{itemize}
+The stress tests \emph{derive} the system specification from empirical evidence, rather than testing against an a-priori specification.
+
+\section{Procedure}
+
+\subsection{Step 1 --- Write the stress test plan document}
+Create \texttt{stress\_test\_plan.md}. The plan is a one-page master document that Modules~5-A and 5-B both reference.
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c l X c}
+		\toprule
+		\textbf{ID} & \textbf{Dimension} & \textbf{Configurations} & \textbf{Duration} \\
+		\midrule
+		S1 & Beacon Density        & 1, 2, 3 beacons fixed 1\,s; then \mbox{ALOHA} [0.5, 1.5]\,s & 5\,min each \\
+		S2 & Rapid Parameter Change & 2 beacons; Beacon~1 SF cycles SF7$\to$SF10$\to$SF12$\to$SF7 every 30\,s & 10\,min \\
+		S3 & Low-\mbox{SNR} Operation & \mbox{TX} power +20 to +2\,dBm; distance 3\,m $\to$ 8\,m + obstruction & 3\,min/level \\
+		S4 & Extended Duration     & 2 beacons, nominal parameters & 30\,min \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Stress-test dimensions. S1 is executed in this handout; S2--S4 in LH5-B.}
+\end{table}
+
+Each row of the plan must also record, for each configuration, a \emph{pre-declared pass/fail threshold} --- e.g., ``\PER{} $<$ 5\%'' or ``\FIFO{} peak $<$ 75\%''. Declaring thresholds before the test prevents post-hoc rationalisation of bad results.
+
+\subsection{Step 2 --- Run the five S1 configurations}
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c c c c X}
+		\toprule
+		\textbf{Config} & \textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{Target Observation} \\
+		\midrule
+		S1a & 1 & Fixed & 1\,s each & Baseline: near-zero \PER{}, stable \FIFO{}. \\
+		S1b & 2 & Fixed & 1\,s each & Staggered arrival; \FIFO{} handles 2\,fps easily. \\
+		S1c & 3 & Fixed & 1\,s each & 3\,fps; inter-frame gaps begin to shrink. \\
+		S1d & 2 & ALOHA & [0.5, 1.5]\,s & Random collisions; burst arrivals stress \FIFO{}. \\
+		S1e & 3 & ALOHA & [0.5, 1.5]\,s & Maximum contention; expect \PER{} uptick. \\
+		\bottomrule
+	\end{tabularx}
+	\caption{S1 configuration matrix. Allow 1 minute of stabilization between configurations.}
+\end{table}
+
+For each configuration, record:
+\begin{enumerate}[leftmargin=2em]
+	\item Total packets transmitted (sum of all beacon sequence numbers).
+	\item Total valid feature vectors (\FPGA{} observation counts per beacon \mbox{ID}, summed).
+	\item \PER{} and its four-component decomposition (\mbox{RF} loss, framing errors, \mbox{CRC} rejects, \FIFO{} overflow) --- same decomposition introduced in LH3-D.
+	\item \FIFO{} peak utilization via \texttt{led(5:0)} peak observation plus the \texttt{led(15)} latching overflow alarm (LH3-E).
+	\item Live classification accuracy: run \texttt{live\_inference.py} (LH4-H) simultaneously and compare predictions against the known beacon configuration. Compute SF / modulation / emitter \mbox{ID} accuracy per configuration.
+\end{enumerate}
+
+\subsection{Step 3 --- Data collection script}
+
+\begin{lstlisting}[language=Python, caption={\texttt{run\_s1.py} --- thin wrapper around the Module~4 live pipeline that tags each row with the current S1 configuration.}]
+import time, json, subprocess, sys
+from pathlib import Path
+
+CONFIGS = ["S1a", "S1b", "S1c", "S1d", "S1e"]
+DURATION_S = 5 * 60   # 5 minutes per configuration
+
+log = []
+for cfg in CONFIGS:
+    print(f"\n=== {cfg} ===")
+    input(f"Set up {cfg} (beacons, mode, interval). Press ENTER when ready.")
+    # Start live_inference.py in a subprocess; it writes demo_log.txt
+    proc = subprocess.Popen([sys.executable, "live_inference.py",
+                             "--tag", cfg, "--duration", str(DURATION_S)])
+    proc.wait()
+    # Capture the per-config summary the subprocess emitted to stdout/stderr
+    log.append({"cfg": cfg, "t": time.time()})
+    print(f"{cfg} finished. Check FIFO LED peak and overflow alarm:")
+    log[-1]["fifo_peak"] = int(input("  FIFO peak (0-63): "))
+    log[-1]["fifo_ovf"]  = input("  led(15) overflow set? (y/n): ") == "y"
+
+Path("s1_results.json").write_text(json.dumps(log, indent=2))
+print("Wrote s1_results.json")
+\end{lstlisting}
+
+\subsection{Step 4 --- Plots}
+\begin{enumerate}[leftmargin=2em]
+	\item \PER{} vs.\ beacon count, fixed vs.\ \mbox{ALOHA} separated. Two lines on one plot.
+	\item \FIFO{} peak utilization bar chart (one bar per configuration). Horizontal line at 75\% threshold.
+	\item Classification accuracy vs.\ beacon count, one line per task (SF / mod / beacon).
+\end{enumerate}
+
+Identify the beacon count at which SF accuracy first drops below 90\% --- this is the empirically-derived ``max classifiable beacon density.''
+
+\subsection{Step 5 --- Burst capture for S1e}
+The \mbox{ILA{}} only exists in the debug bitstream (LH3-B). The production bitstream from Prerequisites has no probes. Swap bitstreams explicitly for this capture:
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{Swap in the debug build:} program \texttt{ingest\_top\_debug.bit} via Vivado Hardware Manager. Confirm the \mbox{ILA{}} dashboard is reachable.
+	\item \textbf{Capture:} re-run the S1e configuration long enough to trigger at least one back-to-back burst; save the \mbox{ILA{}} waveform and a screenshot.
+	\item \textbf{Swap back:} re-program \texttt{ingest\_top\_prod.bit} before resuming any long-duration test. Throughput, \PER{}, and endurance numbers elsewhere in Module~5 must be measured on the production bitstream.
+\end{enumerate}
+
+With the debug bitstream loaded, verify:
+\begin{itemize}[leftmargin=2em]
+	\item The parser resynchronises cleanly across adjacent frames.
+	\item \texttt{frame\_valid} pulses are separated by the expected number of clock cycles (no abnormally short pulses that would indicate a mis-parse).
+	\item The \FIFO{} drains back to empty between bursts.
+\end{itemize}
+
+\begin{tcolorbox}[warning={Pre-Declared Thresholds}]
+	Write your pass/fail thresholds into \texttt{stress\_test\_plan.md} \emph{before} Step~2. Example:
+	\begin{itemize}[leftmargin=1.2em]
+		\item PASS if: \PER{} $<$ 5\% and \FIFO{} peak $<$ 75\% and SF accuracy $\geq$ 90\%.
+		\item FAIL if: any of the above are violated.
+	\end{itemize}
+	After the run, if any configuration fails, report it as failed --- do not adjust the threshold to make the result pass. The failing configuration is the empirical spec boundary and is the whole point of the test.
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{stress\_test\_plan.md} written with pass/fail thresholds per configuration.
+	\item[$\square$] All five S1 configurations executed for 5 minutes each.
+	\item[$\square$] \PER{} decomposition recorded per configuration (four stages each).
+	\item[$\square$] \FIFO{} peak and overflow status recorded per configuration.
+	\item[$\square$] Live classification accuracy recorded per configuration for all three tasks.
+	\item[$\square$] \mbox{ILA{}} burst capture for S1e saved.
+	\item[$\square$] Maximum safe beacon count identified and written into \texttt{spec\_table.md}.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 5-A Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{stress\_test\_plan.md}: master test plan with pre-declared pass/fail thresholds for S1--S4.
+		\item \texttt{s1\_results.json} + \texttt{run\_s1.py}: raw measurements and the execution script.
+		\item Three figures: \PER{} vs.\ beacon count, \FIFO{} peak bar chart, accuracy vs.\ beacon count.
+		\item \mbox{ILA{}} screenshot of the S1e burst.
+		\item One-paragraph conclusion: ``the maximum safe beacon count at $\leq$5\% \PER{} is N (mode M),'' with a one-sentence pointer to the design decision that created the limit.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

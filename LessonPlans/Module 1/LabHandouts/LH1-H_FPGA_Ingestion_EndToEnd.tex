@@ -79,10 +79,10 @@ States: \texttt{IDLE}, \texttt{LEN}, \texttt{PAYLOAD}, \texttt{DONE}.
 \begin{enumerate}[leftmargin=2em]
 	\item \texttt{IDLE}: pop bytes and discard until a byte equals \texttt{0x7E}. Transition to \texttt{LEN}.
 	\item \texttt{LEN}: pop one byte. Expect \texttt{41} (0x29). If it doesn't match, return to \texttt{IDLE}. Otherwise, transition to \texttt{PAYLOAD}.
-	\item \texttt{PAYLOAD}: pop 41 more bytes into an internal register bank. Byte index 1 of the original beacon packet (which is offset 3 of the forwarding frame --- start delimiter 0, length 1, beacon bytes start at 2) is the beacon \mbox{ID}. Capture it into a register \texttt{beacon\_id[7:0]}.
+	\item \texttt{PAYLOAD}: pop 41 more bytes into an internal register bank. The frame layout is: delimiter at 0, length (\texttt{0x29}) at 1, metadata (timestamp, \RSSI{}, \SNR{}, freq.\ error) at 2--9, embedded 32-byte beacon payload at 10--41, frame \CRC{}-8 at 42. The beacon \mbox{ID} is beacon byte 2, i.e.\ frame offset 12. Capture it into a register \texttt{beacon\_id[7:0]}.
 	\item \texttt{DONE}: assert a \texttt{new\_frame} pulse for one cycle, then return to \texttt{IDLE}.
 \end{enumerate}
-For Week~4 scope, ignore the \CRC{}-16 check inside the \FPGA{}. Module~2 will add that.
+For Week~4 scope, ignore the frame \CRC{}-8 and embedded beacon \CRC{}-16 checks inside the \FPGA{}. Module~2 will add both.
 
 \labfigure{LH1H_frame_detector_fsm.png}{0.8\textwidth}{Frame-detector \FSM{}: \texttt{IDLE} $\to$ \texttt{LEN} $\to$ \texttt{PAYLOAD} $\to$ \texttt{DONE}, with transition conditions annotated on each edge.}{fig:lh1h-fsm}
 

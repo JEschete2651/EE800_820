@@ -1,0 +1,169 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-D}
+\newcommand{\labtitleshort}{PER and Latency}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-D}{Packet Error Rate and End-to-End Latency Measurement}
+
+\section{Objective}
+Define and measure the system's two primary reliability and timing metrics: packet error rate (\PER{}) and end-to-end latency. By the end of this handout you will have a quantified \PER{} decomposed by pipeline stage and a latency budget verified on hardware for at least two spreading factor settings.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-C complete (first live frame captured; 10-frame field comparison passed).
+	\item System running stably: both beacons transmitting, receiver forwarding frames, \FPGA{} producing \texttt{frame\_valid} pulses.
+\end{itemize}
+
+\section{Background: Performance Metrics}
+
+\subsection*{Packet Error Rate}
+\PER{} captures the fraction of transmitted beacon packets that fail to produce a valid feature vector at the \FPGA{} output. It accumulates losses from the \RF{} link, the \UART{} transport, and \mbox{CRC} verification:
+\[
+	\text{\PER{}} = 1 - \frac{N_{\text{valid features}}}{N_{\text{transmitted packets}}}
+\]
+A single aggregate \PER{} is useful for system characterization, but the more important quantity is the \emph{decomposition} by stage. The decomposition reveals which part of the pipeline is losing packets.
+
+\subsection*{End-to-End Latency}
+End-to-end latency is the time from beacon packet \mbox{TX} start to feature vector availability in the \FPGA{} \mbox{BRAM}:
+\[
+	L_{\text{e2e}} = L_{\text{RF}} + L_{\text{RX\_FW}} + L_{\text{UART}} + L_{\text{FPGA}}
+\]
+At 115200 baud, the \UART{} contribution is fixed: $43 \times 10 / 115{,}200 = 3.73$~ms. The \FPGA{} pipeline contribution is negligible ($<$0.1~ms at 100\,MHz). The \RF{} on-air time dominates and depends strongly on the LoRa spreading factor.
+
+\section{Procedure}
+
+\subsection{Step 1 --- PER baseline (single beacon, 5-minute run)}
+\begin{enumerate}[leftmargin=2em]
+	\item Power off Beacon~B. Run with Beacon~A only, configured at SF7, +14~dBm, 2-second fixed interval.
+	\item Map the per-beacon frame count register in the \FPGA{} to an output (the Module~2 LH2-F feature \mbox{BRAM} stores this as bytes 8--11 of the feature vector for each beacon \mbox{ID}). Alternatively, add a simple 32-bit counter gated on \texttt{frame\_valid} \mbox{AND} \texttt{beacon\_id = 0x01} and route it to the \mbox{ILA}.
+	\item Record the beacon sequence number from the STM32 debug terminal at the start of the run: $N_{\text{start}}$.
+	\item Run for exactly 5 minutes (300 seconds). Record the beacon sequence number at the end: $N_{\text{end}}$. Total transmitted: $N_{\text{tx}} = N_{\text{end}} - N_{\text{start}}$.
+	\item Read the \FPGA{} frame count for Beacon~A at the end of the run: $N_{\text{valid}}$.
+	\item Compute: $\text{\PER{}} = 1 - N_{\text{valid}} / N_{\text{tx}}$.
+\end{enumerate}
+
+\subsection{Step 2 --- PER decomposition}
+A single \PER{} number does not reveal where packets are lost. Decompose it by stage:
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l l X}
+		\toprule
+		\textbf{Loss Source} & \textbf{Counter} & \textbf{How to Measure} \\
+		\midrule
+		\RF{} loss & $N_{\text{tx}} - N_{\text{rx\_log}}$ & Packets transmitted by beacon but not printed in receiver debug log \\
+		\UART{} loss & \texttt{rx\_error} counter & Framing errors counted in the \FPGA{} \UART{} receiver; route to \mbox{ILA} or \mbox{LED} \\
+		\mbox{CRC} loss & \texttt{frame\_reject} counter & Frames the \FPGA{} received but rejected; route to \mbox{ILA} \\
+		\FIFO{} overflow loss & \texttt{fifo\_ovf} flag & Assert and latch if \texttt{wr\_en} fires while \texttt{full = 1}; route to \mbox{LED} \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{If not already instrumented:} 16-bit saturating counters for \texttt{rx\_error}, \texttt{frame\_reject}, and \FIFO{} overflow may need to be added to the \RTL{}. Most reference builds already expose these. Use the minimal snippet below as a drop-in; the goal of this handout is \emph{characterization}, not redesign --- keep \RTL{} edits strictly to exposing counters that are missing.
+
+\begin{verbatim}
+-- Minimal saturating counter (drop-in)
+process(sysclk)
+begin
+  if rising_edge(sysclk) then
+    if rst = '1' then
+      cnt <= (others => '0');
+    elsif flag = '1' and cnt /= x"FFFF" then
+      cnt <= cnt + 1;
+    end if;
+  end if;
+end process;
+\end{verbatim}
+
+	\item After the 5-minute run, read all four counters via the \mbox{ILA}.
+	\item Compute the per-stage loss as a fraction of $N_{\text{tx}}$. Enter in the table:
+	\begin{center}
+		\begin{tabular}{l c c}
+			\toprule
+			\textbf{Stage} & \textbf{Packets Lost} & \textbf{Fraction of $N_{\text{tx}}$} \\
+			\midrule
+			\RF{} (not received by STM32) & & \\
+			\UART{} framing errors & & \\
+			\mbox{CRC} rejects & & \\
+			\FIFO{} overflow & & \\
+			\midrule
+			\textbf{Total (aggregate PER)} & & \\
+			\bottomrule
+		\end{tabular}
+	\end{center}
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Interpreting PER Decomposition}]
+	The decomposition reveals which domain ``owns'' the packet loss:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{\RF{}-dominated:} link budget or environment issue (Module~1 domain). Increasing TX power or reducing distance will help.
+		\item \textbf{\UART{}-dominated:} baud rate drift or noise on the signal wire. Check the STM32 clock configuration.
+		\item \textbf{\mbox{CRC}-dominated:} firmware/\RTL{} mismatch not fully resolved in LH3-C. A persistent non-zero \mbox{CRC} reject rate after LH3-C should be investigated further before data collection.
+		\item \textbf{\FIFO{}-dominated:} the pipeline cannot drain fast enough under burst traffic. This is unlikely with a single beacon but may appear in the multi-beacon stress test (LH3-E).
+	\end{itemize}
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 3 --- GPIO toggle wiring for latency measurement}
+The \GPIO{} toggle method provides a true end-to-end latency measurement without relying on synchronized clocks between boards.
+
+\begin{enumerate}[leftmargin=2em]
+	\item In the beacon firmware (LH1-F), identify the line immediately before the \texttt{sx1276\_send()} call. Add a single-line \GPIO{} toggle: \texttt{HAL\_GPIO\_WritePin(GPIOA, GPIO\_PIN\_8, GPIO\_PIN\_SET)}.
+	\item In \texttt{ingest\_top.vhd}, route \texttt{frame\_valid} to a Nexys A7 \mbox{PMOD} output pin (e.g., \texttt{JA[2]}, ball \texttt{E17}). Add the pin to \texttt{ingest\_top.xdc} and re-generate the debug bitstream.
+	\item Connect both output signals to a two-channel oscilloscope or logic analyzer. Channel~1: beacon \GPIO{} toggle. Channel~2: \FPGA{} \texttt{frame\_valid} output.
+	\item The time between the rising edge of Ch.~1 and the rising edge of Ch.~2 is $L_{\text{e2e}}$.
+\end{enumerate}
+
+\labfigure{LH3D_gpio_latency_waveform.png}{0.9\textwidth}{Oscilloscope capture of the \GPIO{} latency measurement. Ch.~1 (beacon TX trigger, blue) rises at $t=0$; Ch.~2 (\FPGA{} \texttt{frame\_valid}, red) rises after $L_{\text{e2e}}$. The cursor measurement shows the end-to-end latency.}{fig:lh3d-latency}
+
+\subsection{Step 4 --- Latency measurement at SF7}
+\begin{enumerate}[leftmargin=2em]
+	\item Configure Beacon~A to SF7, +14~dBm, 2-second fixed interval.
+	\item Capture at least 20 consecutive latency measurements on the oscilloscope (use the statistics or histogram mode if available).
+	\item Record: minimum, maximum, mean, and standard deviation of $L_{\text{e2e}}$.
+	\item Compare the mean to the latency budget: expected $\approx$50~ms \RF{} on-air time (SF7, 32-byte payload) + 3.73~ms \UART{} + negligible \FPGA{}.
+	\item Expected: mean close to 55~ms, standard deviation $<$5~ms (dominated by radio stack jitter, not systematic offsets).
+\end{enumerate}
+
+\subsection{Step 5 --- Latency measurement at SF10}
+\begin{enumerate}[leftmargin=2em]
+	\item Reconfigure Beacon~A to SF10 (update the \texttt{g\_SPREADING\_FACTOR} define in the firmware and reflash). Keep all other parameters the same.
+	\item Repeat the 20-sample latency measurement.
+	\item Compare the SF10 mean to the SF7 mean. The difference should be approximately equal to the difference in \RF{} on-air times: SF10 on-air time is $\approx$370~ms for a 32-byte payload, vs.\ SF7 $\approx$50~ms. The measured difference should be close to 320~ms.
+	\item This comparison validates that the \UART{} and \FPGA{} contributions are small and consistent; the dominant latency component is the \RF{} on-air time.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Timestamp Difference Method (Alternative)}]
+	If an oscilloscope is unavailable, a lower-fidelity latency estimate can be obtained from timestamps embedded in the feature vector:
+	\begin{enumerate}[leftmargin=1.2em]
+		\item The beacon-side timestamp (bytes 12--15 of the forwarding frame, Module~2 Table~5) records the STM32 tick at TX time.
+		\item The receiver-side timestamp (bytes 16--19) records the STM32 tick at RX complete.
+		\item The difference approximates $L_{\text{RF}} + L_{\text{RX\_FW}}$ (the \UART{} and \FPGA{} contributions are not included).
+		\item This method has $\sim$1~ms resolution limited by the STM32 tick period and does not account for the \UART{} transport time. Use it to cross-check the \GPIO{} method, not as the primary measurement.
+	\end{enumerate}
+\end{tcolorbox}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \PER{} baseline measured for a 5-minute single-beacon run; aggregate value computed.
+	\item[$\square$] \PER{} decomposition table filled in (RF, \UART{}, \mbox{CRC}, \FIFO{} columns).
+	\item[$\square$] End-to-end latency measured at SF7 (mean within 15\% of theoretical 55~ms).
+	\item[$\square$] End-to-end latency measured at SF10 (mean within 15\% of theoretical 375~ms).
+	\item[$\square$] SF7 vs.\ SF10 latency difference is consistent with \RF{} on-air time difference.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-D Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \PER{} measurement results: $N_{\text{tx}}$, $N_{\text{valid}}$, aggregate \PER{}, and the four-stage decomposition table.
+		\item Oscilloscope or logic analyzer captures of the \GPIO{} latency measurement for SF7 and SF10 (at least 20 measurements each). If using oscilloscope statistics, include the histogram screenshot.
+		\item Summary table: mean, std, min, max latency for SF7 and SF10, alongside the theoretical budget values.
+		\item Brief discussion (2--4 sentences) identifying which pipeline stage dominates latency and whether the measured values are consistent with the Module~3 latency budget table.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

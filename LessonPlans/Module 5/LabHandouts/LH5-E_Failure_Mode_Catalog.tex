@@ -1,0 +1,144 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{5-E}
+\newcommand{\labtitleshort}{Failure Mode Catalog}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{5-E}{Failure Mode Catalog and Cross-Domain Dependency Map}
+
+\section{Objective}
+Assemble the structured catalog of every failure or degradation mode observed across Modules~1--5, trace each entry back to the originating design decision, and produce the cross-domain dependency diagram that visualises how a decision in one module propagated into a failure in another. This handout is the project's most explicit statement of the curriculum's core pedagogical claim: engineering systems are defined by their interfaces, not their components.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handouts~5-A through~5-D complete (all stress/benchmark results in hand).
+	\item Access to all prior handouts' deliverables so every anomaly tagged during Modules~1--4 can be revisited.
+\end{itemize}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Populate the catalog}
+For every failure, integration issue, or accuracy anomaly observed during the project (yes, including ones that were fixed), create one catalog entry. Aim for $\geq$ 8 entries. The framework's pedagogical depth is directly proportional to the richness of this list.
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c l c c X}
+		\toprule
+		\textbf{ID} & \textbf{Failure Mode} & \textbf{Observed In} & \textbf{Root Module} & \textbf{Root Cause} \\
+		\midrule
+		F1 & \FIFO{} overflow under burst arrivals            & LH5-A (S1e)    & M2   & \FIFO{} depth 64 insufficient for 3-beacon \mbox{ALOHA} peaks \\
+		F2 & \mbox{CRC} reject on valid frames                 & LH3-C          & M1/M2 & \mbox{CRC} polynomial mismatch between firmware and \mbox{RTL} \\
+		F3 & Classification collapse at low \mbox{SNR}         & LH5-B (S3d/e)  & M3/M4 & Training data did not cover $<$0\,dB \mbox{SNR} regime \\
+		F4 & Transient misclass at SF transition              & LH5-B (S2)     & M2   & \texttt{inter\_arrival\_ms} computed against previous-SF packet \\
+		F5 & Label mismatch rate $>$ nominal                   & LH3-H          & M1   & Firmware SF define desynchronised with campaign config \mbox{JSON} \\
+		F6 & Sim-to-real accuracy drop                        & LH4-F          & M1/M3 & Simulator did not model multipath / thermal \mbox{RSSI} drift \\
+		F7 & Python logger memory growth                      & LH5-B (S4)     & M4   & Unbounded list append in inference loop; leaks over 30\,min \\
+		F8 & Host stdout buffering inflating \emph{$T_{\text{infer}}$} measurement & LH5-C & M4 & \texttt{print()} buffering measured inside the timed region \\
+		\bottomrule
+	\end{tabularx}
+	\caption{Starter template --- replace the starter entries with your own observed failures. Each entry must cite the specific handout in which it was observed.}
+\end{table}
+
+\begin{tcolorbox}[infobox={Catalog Entry Structure}]
+	Each entry must contain five fields:
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \textbf{ID:} F1, F2, ... (unique).
+		\item \textbf{Failure mode:} a one-line description using the system's vocabulary (not a narrative).
+		\item \textbf{Observed in:} the handout + step where it was first seen.
+		\item \textbf{Root module:} the \emph{earliest} module whose design decision is responsible. This is the cross-domain insight; it is almost never the same as ``observed in''.
+		\item \textbf{Root cause:} a one- or two-sentence explanation of the causal chain from the root design decision to the observed symptom. Include the \emph{specific} design parameter (e.g., ``\FIFO{} depth 64''), not just the broad category (``memory size'').
+	\end{enumerate}
+\end{tcolorbox}
+
+\subsection{Step 2 --- Classify each entry by chain depth}
+Tag each catalog entry with its \emph{chain depth}: the number of module boundaries the causal chain crosses.
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{Depth 0:} Root module = Observed module. A failure internal to one subsystem.
+	\item \textbf{Depth 1:} Root module is the immediate upstream neighbour (common: M1 causes something in M2).
+	\item \textbf{Depth 2+:} Cross-module-skipping chain (e.g., M1 firmware decision surfaces as an M4 accuracy problem). These are the pedagogically richest entries.
+\end{itemize}
+
+Count the distribution. A healthy catalog has at least a couple of depth-2+ entries --- if every entry is depth 0, the integration surface was too thin, suggesting the curriculum could be more interconnected.
+
+\subsection{Step 3 --- Cross-domain dependency diagram}
+Draw a directed graph using TikZ (or any diagramming tool). Nodes are design decisions; edges point from ``decision'' to ``observed failure''. Group nodes by module.
+
+\begin{lstlisting}[language={[LaTeX]TeX}, caption={Starter TikZ skeleton for \texttt{cross\_domain\_map.tex} --- extend with your own nodes.}]
+\begin{tikzpicture}[
+  node distance=1.2cm and 1.6cm,
+  decision/.style={rectangle, draw=stevens, fill=lightgray,
+                   rounded corners, align=center, font=\small,
+                   minimum width=3cm, minimum height=1cm},
+  failure/.style={rectangle, draw=accentblue, fill=blue!5,
+                  align=center, font=\small,
+                  minimum width=3cm, minimum height=1cm},
+  arrow/.style={-{Stealth[length=3mm]}, thick}
+]
+  % Module 1 design decisions
+  \node[decision] (baud)  {UART 115200 baud\\(M1)};
+  \node[decision, right=of baud] (pkt)   {32-B packet format\\(M1)};
+  \node[decision, right=of pkt]   (crc)  {CRC-8 poly 0x07\\(M1)};
+
+  % Module 2 design decisions
+  \node[decision, below=of baud] (fifo)  {FIFO depth 64\\(M2)};
+  \node[decision, below=of pkt]  (feat)  {8-feature vector\\(M2)};
+
+  % Observed failures
+  \node[failure, below=of fifo] (F1)  {F1: FIFO overflow\\(LH5-A S1e)};
+  \node[failure, below=of feat] (F4)  {F4: Transient miscl.\\at SF transition};
+
+  \draw[arrow] (baud) -- (fifo);
+  \draw[arrow] (fifo) -- (F1);
+  \draw[arrow] (feat) -- (F4);
+  \draw[arrow] (pkt)  -- (F4);
+  % ... extend ...
+\end{tikzpicture}
+\end{lstlisting}
+
+Goal: the reader should be able to trace any failure node back to its root module by following the arrows backward. This is the visual counterpart to the catalog table.
+
+\subsection{Step 4 --- Depth-2 walkthrough}
+Pick one depth-2 or deeper entry from your catalog and write a one-page walkthrough of the full causal chain. Example structure for F3 (``Classification collapse at low \mbox{SNR}''):
+
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{Design decision (M1):} The beacons use +14\,dBm \mbox{TX} power as the Module~3 nominal configuration --- chosen for regulatory compliance (915\,MHz ISM band limit) and power budget at a 3\,m operating distance.
+	\item \textbf{Propagation (M3):} All Module~3 campaigns used this power or close to it. The training dataset's \mbox{SNR} distribution has a peak around 7--12\,dB with almost no samples below 0\,dB.
+	\item \textbf{Propagation (M4):} The classifier learned feature distributions conditioned on this range. Low-\mbox{SNR} features are out-of-distribution input.
+	\item \textbf{Observed failure (M5):} In LH5-B's S3d and S3e, accuracy collapses for the SF task. The classifier predicts confidently but wrongly.
+	\item \textbf{Fix candidates (M3 retrofit):} Collect a dedicated low-power campaign, or add synthetic low-\mbox{SNR} augmentation in training. Either would close the gap.
+\end{enumerate}
+
+The walkthrough is not a generic post-mortem --- it is specifically an articulation of \emph{how the earliest module's seemingly-reasonable choice constrained the latest module's performance}. That articulation is the point of the whole framework.
+
+\subsection{Step 5 --- Known-limitations summary}
+From the catalog, distil a ``Known Limitations'' section (the future report will cite it verbatim):
+
+\begin{itemize}[leftmargin=2em]
+	\item Operating envelope boundaries identified empirically (max beacon count, min \mbox{SNR}, max distance).
+	\item Failure modes not fully mitigated (cite F-IDs).
+	\item Cross-module dependencies that would require a redesign to eliminate.
+\end{itemize}
+
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] Failure mode catalog has $\geq$ 8 entries, all five fields complete per entry.
+	\item[$\square$] Each entry has a depth tag (0, 1, 2+).
+	\item[$\square$] At least two depth-2+ entries present (if fewer, add cross-module re-analysis of existing observations).
+	\item[$\square$] Cross-domain dependency diagram generated and legible.
+	\item[$\square$] One-page walkthrough of a depth-2 chain written.
+	\item[$\square$] Known Limitations summary written.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 5-E Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item Failure mode catalog table with $\geq$8 entries, depth tags, and root-cause fields populated.
+		\item Cross-domain dependency diagram (PDF or PNG).
+		\item One-page depth-2 walkthrough tracing a single failure through the full causal chain.
+		\item Known Limitations summary (bulleted, fits in half a page).
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}
