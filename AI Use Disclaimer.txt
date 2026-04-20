@@ -19,3 +19,6 @@ Final Report
 - Helping with LaTeX table formatting in IEEE format. 
 - Ensuring requirements were met by analyzing content I provided. 
 - Checking Syntax of LaTeX. 
+
+Where AI agent failed: 
+- Trying to auto place my images, it couldn't get context and the images don't really belong where they are. (To Fix)
