@@ -30,7 +30,7 @@ BYett1@Stevens.edu}
 \maketitle
 
 \begin{abstract}
-University electrical engineering programs typically deliver instruction in FPGA digital design, RF communications, embedded systems, and machine learning as independent courses, leaving graduates without structured experience integrating these disciplines. This paper presents an educational framework built around a benchtop hardware platform in which STM32 microcontrollers paired with RFM95W LoRa transceivers transmit RF signals that are received and processed in real time by a Digilent Nexys A7-100T FPGA, with collected signal data feeding a machine learning classification pipeline. A five-module progressive curriculum sequences students from hardware bring-up and embedded firmware development through FPGA RTL design, system integration, and AI-driven signal analysis. Each module makes the interfaces between disciplines explicit teaching objectives, enabling students to reason about how design decisions in one domain propagate constraints into adjacent ones. % chktex 8
+University electrical engineering programs typically deliver instruction in FPGA digital design, RF communications, embedded systems, and machine learning as independent courses, leaving graduates without structured experience integrating these disciplines. This paper presents an educational framework built around a benchtop hardware platform in which STM32 microcontrollers paired with RFM95W LoRa transceivers transmit RF signals that are received and processed in real time by a Digilent Nexys A7-100T FPGA, with collected signal data feeding a machine learning classification pipeline. A five-module progressive curriculum sequences students from hardware bring-up and embedded firmware development through FPGA RTL design, system integration, AI-driven signal analysis, and full-system stress testing, benchmarking, and failure-mode analysis. Each module makes the interfaces between disciplines explicit teaching objectives, enabling students to reason about how design decisions in one domain propagate constraints into adjacent ones. The validation module culminates the framework by deriving the system specification empirically---through structured stress tests, six-point latency benchmarking, and a cross-domain failure-mode catalog---rather than asserting it a priori. % chktex 8
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -195,7 +195,7 @@ The separation of concerns between these frame and feature formats is itself a t
 
 \textit{Module 4: AI-Driven Classification Pipeline.} Using the hardware-collected dataset from Module 3, students preprocess FPGA-extracted features, train and evaluate classifiers, and analyze classification accuracy as a function of SNR and number of concurrent beacons. Streaming inference architectures~\cite{b3} and FPGA-accelerated ML pipelines~\cite{b2} serve as reference designs for students considering on-device deployment. Comparative architecture studies~\cite{b4} and LoRa-specific classification results~\cite{b5,b6,b8} provide empirical benchmarks against which students evaluate their own model performance.
 
-\textit{Module 5: System Validation and Benchmarking.} Students stress-test the complete pipeline with multiple simultaneous beacons, measure total system response time from RF transmission to classification decision, and characterize the performance envelope of their implementation. The benchmarking exercise requires active engagement across all four domains: RF link budget analysis, FPGA timing and resource reports, serial interface throughput, and ML classification accuracy curves.
+\textit{Module 5: System Validation and Benchmarking.} Students stress-test the complete pipeline along four dimensions (beacon density, rapid parameter change, low-SNR operation, and extended duration), measure total system response time from RF transmission to classification decision via a six-stage GPIO-toggle decomposition, characterize the performance envelope of their implementation, and assemble a cross-domain failure-mode catalog whose entries trace observed failures back to specific design decisions in earlier modules. The benchmarking exercise requires active engagement across all four domains: RF link budget analysis, FPGA timing and resource reports, serial interface throughput, and ML classification accuracy curves. The module's culminating artifacts are an empirically derived system specification table and a structured failure-mode catalog whose chain-depth distribution measures the framework's pedagogical interconnection.
 
 \subsection{Pedagogical Rationale}
 
@@ -225,7 +225,7 @@ Finally, the framework is designed for reproducibility and transferability. All 
 
 \section{Numerical Results and Analysis}\label{sec:results}
 
-This section provides quantitative support for the framework by analyzing the first four fully instantiated modules of the curriculum. For Module~1 (RF Hardware and Subsystem Design), a closed-form link-budget analysis establishes the physical-layer operating envelope students encounter in Lab Handouts 1-D through 1-F, and an FPGA resource and timing budget for the Module~1 ingestion datapath on the Nexys A7-100T sets a deliberate under-utilization baseline. Performance envelope results from the engagement simulator establish the reference targets students later compare against hardware. For Module~2 (FPGA RTL Design and Simulation), the full ingestion pipeline resource budget and an eight-scenario verification suite are tabulated. For Module~3 (System Integration and Data Collection), the end-to-end latency budget, throughput and FIFO headroom envelope, and data collection campaign volume are derived from the Lab Handout~3-D through 3-H specifications. For Module~4 (AI-Driven Classification Pipeline), the dataset audit and task-specific feature selection, the four-classifier-family architectures with Wilson-interval statistical reporting, the sim-to-real gap definition and fine-tuning mitigation, and the multi-task real-time inference latency budget are derived from the Lab Handouts 4-A through 4-H specifications. All numerical results are derived from closed-form analysis, vendor datasheet parameters, simulator outputs, or framework-defined target counts; no copied measurements are reproduced here.
+This section presents the \emph{expected} quantitative behavior of the framework across all five instantiated modules, derived from closed-form analysis, vendor datasheet parameters, simulator outputs, and framework-defined target counts. Each subsection pairs the expected envelope with explicit scaffolding---placeholder columns, acceptance bounds, and citations to the lab handout that produces the measurement---so that, as student cohorts execute the curriculum, the actual measured values can be filled into the same tables and compared against the expectations stated here. No measured values are reproduced in this section; every numeric entry is either a derived expectation or a target threshold. For Module~1 (RF Hardware and Subsystem Design), a closed-form link-budget analysis establishes the physical-layer operating envelope students encounter in Lab Handouts 1-D through 1-F, and an FPGA resource and timing budget for the Module~1 ingestion datapath on the Nexys A7-100T sets a deliberate under-utilization baseline. Performance envelope results from the engagement simulator establish the reference targets students later compare against hardware. For Module~2 (FPGA RTL Design and Simulation), the full ingestion pipeline resource budget and an eight-scenario verification suite are tabulated. For Module~3 (System Integration and Data Collection), the end-to-end latency budget, throughput and FIFO headroom envelope, and data collection campaign volume are derived from the Lab Handout~3-D through 3-H specifications. For Module~4 (AI-Driven Classification Pipeline), the dataset audit and task-specific feature selection, the four-classifier-family architectures with Wilson-interval statistical reporting, the sim-to-real gap definition and fine-tuning mitigation, and the multi-task real-time inference latency budget are derived from the Lab Handouts 4-A through 4-H specifications. For Module~5 (System Validation and Benchmarking), a four-dimensional stress-test matrix, a six-stage end-to-end latency decomposition with explicit uncertainty propagation, a six-point benchmarking matrix with baseline-regression rules, the system specification table to be populated from measured data, and a chain-depth-tagged failure-mode catalog are derived from the Lab Handouts 5-A through 5-E specifications.
 
 \subsection{RF Link Budget and Expected RSSI}
 
@@ -239,27 +239,27 @@ which at $d=1$~m evaluates to 31.66~dB. Assuming realistic on-breadboard spring-
 P_{\mathrm{rx}} = P_{\mathrm{tx}} + G_{\mathrm{tx}} + G_{\mathrm{rx}} - L_{\mathrm{FSPL}}(1\,\mathrm{m}) \approx -21.7~\mathrm{dBm}.
 \end{equation}
 
-Table~\ref{tab:linkbudget} tabulates the full link budget against the SX1276 LoRa sensitivity floors for representative spreading factors at $B=125$~kHz~\cite{b12}. The SF7 operating point leaves a nominal $\sim$101~dB of link margin at 1~m bench separation, and even the longest configured spreading factor (SF12) retains the same margin plus an additional 12.5~dB of processing gain~\cite{b5,b12}. This wide margin is what makes SF7 the correct pedagogical default: students can observe clean packet reception and valid CRCs without a range environment, while still being able to reduce power or increase distance in Module~5 to recreate marginal-link behavior without changing the protocol stack.
+Table~\ref{tab:linkbudget} tabulates the expected link budget against the SX1276 LoRa sensitivity floors for representative spreading factors at $B=125$~kHz~\cite{b12}, with a placeholder column for the mean RSSI a student cohort will measure during LH1-D. The SF7 operating point is expected to leave $\sim$101~dB of link margin at 1~m bench separation, and even the longest configured spreading factor (SF12) is expected to retain the same margin plus an additional 12.5~dB of processing gain~\cite{b5,b12}. This wide expected margin is what makes SF7 the correct pedagogical default: students should observe clean packet reception and valid CRCs without a range environment, while still being able to reduce power or increase distance in Module~5 to recreate marginal-link behavior without changing the protocol stack.
 
 \begin{table}[t]
 \centering
-\caption{Module~1 closed-form link budget at $d=1$~m, $f_c=915$~MHz, $B=125$~kHz, $P_{\mathrm{tx}}=+14$~dBm.}
+\caption{Module~1 expected link budget at $d=1$~m, $f_c=915$~MHz, $B=125$~kHz, $P_{\mathrm{tx}}=+14$~dBm. The ``Measured $\overline{\mathrm{RSSI}}$'' column is left blank to be filled from the LH1-D 100-packet capture; a measured value within $\pm$6~dB of $-21.7$~dBm passes the Module~1 acceptance criterion.}
 \label{tab:linkbudget}
-\begin{tabular}{l c c c}
+\begin{tabular}{l c c c c}
 \toprule
-\textbf{SF} & \textbf{Sensitivity (dBm)} & \textbf{$P_{\mathrm{rx}}$ (dBm)} & \textbf{Margin (dB)} \\
+\textbf{SF} & \textbf{Sens.\ (dBm)} & \textbf{$P_{\mathrm{rx}}$ (dBm)} & \textbf{Margin (dB)} & \textbf{Meas.\ $\overline{\mathrm{RSSI}}$ (dBm)} \\
 \midrule
-SF7  & $-123$ & $-21.7$ & 101.3 \\
-SF8  & $-126$ & $-21.7$ & 104.3 \\
-SF9  & $-129$ & $-21.7$ & 107.3 \\
-SF10 & $-132$ & $-21.7$ & 110.3 \\
-SF11 & $-133$ & $-21.7$ & 111.3 \\
-SF12 & $-136$ & $-21.7$ & 114.3 \\
+SF7  & $-123$ & $-21.7$ & 101.3 & \rule{0.9cm}{0.4pt} \\
+SF8  & $-126$ & $-21.7$ & 104.3 & \rule{0.9cm}{0.4pt} \\
+SF9  & $-129$ & $-21.7$ & 107.3 & \rule{0.9cm}{0.4pt} \\
+SF10 & $-132$ & $-21.7$ & 110.3 & \rule{0.9cm}{0.4pt} \\
+SF11 & $-133$ & $-21.7$ & 111.3 & \rule{0.9cm}{0.4pt} \\
+SF12 & $-136$ & $-21.7$ & 114.3 & \rule{0.9cm}{0.4pt} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The Module~1 acceptance criterion ($\geq$95\% packet reception, mean SNR $>$+5~dB, and measured mean RSSI within $\pm$6~dB of (\ref{eq:fspl})) translates this theoretical envelope into a concrete, testable outcome for every student lab group. A deviation outside the $\pm$6~dB window forces the student to reason across disciplinary boundaries---soldered antenna joint, breadboard parasitics, or firmware PA configuration---which is the cross-domain diagnosis skill the framework exists to develop.
+The Module~1 acceptance criterion ($\geq$95\% packet reception, mean SNR $>$+5~dB, and measured mean RSSI within $\pm$6~dB of (\ref{eq:fspl})) translates this expected envelope into a concrete, testable outcome for every student lab group. A measured deviation outside the $\pm$6~dB window forces the student to reason across disciplinary boundaries---soldered antenna joint, breadboard parasitics, or firmware PA configuration---which is the cross-domain diagnosis skill the framework exists to develop.
 
 \subsection{FPGA Ingestion Datapath Resource and Timing Budget}
 
@@ -269,47 +269,48 @@ D_{\mathrm{uart}}=\left\lfloor\frac{100\times 10^{6}}{115200}\right\rfloor = 868
 \end{equation}
 which supports 16$\times$ oversampling at bit midpoints with a worst-case sampling error of under 0.06\% per bit---well within the $\sim$2\% UART tolerance, so no clock recovery is required.
 
-Table~\ref{tab:fpga} summarizes the projected resource envelope against the \texttt{xc7a100t} device totals~\cite{b11}. The datapath fits in under 1\% of LUT and FF resources and uses none of the 240 DSP slices or the $\approx$4860~Kb of block RAM available on the device. This intentional under-utilization is a pedagogical feature: Modules 2 and~4 reuse the same platform to add a CRC-16/CCITT-FALSE checker, feature extraction, and on-device inference, and the Module~1 skeleton must leave headroom for those blocks rather than consume the device.
+Table~\ref{tab:fpga} summarizes the expected resource envelope against the \texttt{xc7a100t} device totals~\cite{b11}, with a measured-utilization column to be filled from the Vivado utilization report a student generates after synthesis and place-and-route. The datapath is expected to fit in under 1\% of LUT and FF resources and to use none of the 240 DSP slices or the $\approx$4860~Kb of block RAM available on the device. This intentional under-utilization is a pedagogical feature: Modules 2 and~4 reuse the same platform to add a CRC-16/CCITT-FALSE checker, feature extraction, and on-device inference, and the Module~1 skeleton must leave headroom for those blocks rather than consume the device.
 
 \begin{table}[t]
 \centering
-\caption{Projected Module~1 ingestion datapath resource budget on \texttt{xc7a100tcsg324-1}.}
+\caption{Module~1 ingestion datapath expected resource budget on \texttt{xc7a100tcsg324-1}. The ``Measured'' columns are blank for the student's Vivado utilization report.}
 \label{tab:fpga}
-\begin{tabular}{l r r r}
+\begin{tabular}{l r r r r r}
 \toprule
-\textbf{Block} & \textbf{LUTs} & \textbf{FFs} & \textbf{BRAM (Kb)} \\
+\textbf{Block} & \multicolumn{2}{c}{\textbf{LUTs}} & \multicolumn{2}{c}{\textbf{FFs}} & \textbf{BRAM} \\
+& \textbf{Exp.} & \textbf{Meas.} & \textbf{Exp.} & \textbf{Meas.} & \textbf{(Kb)} \\
 \midrule
-\texttt{uart\_rx}        &  $\sim$85  & $\sim$60  & 0 \\
-\texttt{byte\_fifo} (16$\times$8) &  $\sim$45  & $\sim$35  & 0 \\
-\texttt{frame\_detector} & $\sim$120  & $\sim$95  & 0 \\
-\texttt{seg7\_driver}    &  $\sim$55  & $\sim$40  & 0 \\
+\texttt{uart\_rx}                 &  $\sim$85  & \rule{0.7cm}{0.4pt} & $\sim$60  & \rule{0.7cm}{0.4pt} & 0 \\
+\texttt{byte\_fifo} (16$\times$8) &  $\sim$45  & \rule{0.7cm}{0.4pt} & $\sim$35  & \rule{0.7cm}{0.4pt} & 0 \\
+\texttt{frame\_detector}          & $\sim$120  & \rule{0.7cm}{0.4pt} & $\sim$95  & \rule{0.7cm}{0.4pt} & 0 \\
+\texttt{seg7\_driver}             &  $\sim$55  & \rule{0.7cm}{0.4pt} & $\sim$40  & \rule{0.7cm}{0.4pt} & 0 \\
 \midrule
-\textbf{Module~1 total}  & $\sim$305  & $\sim$230 & 0 \\
-Device available         & 63{,}400 & 126{,}800 & 4{,}860 \\
-Utilization              & $<$0.5\%   & $<$0.2\%  & 0\% \\
+\textbf{Module~1 total}           & $\sim$305  & \rule{0.7cm}{0.4pt} & $\sim$230 & \rule{0.7cm}{0.4pt} & 0 \\
+Device available                  & \multicolumn{2}{c}{63{,}400} & \multicolumn{2}{c}{126{,}800} & 4{,}860 \\
+Expected util.                    & \multicolumn{2}{c}{$<$0.5\%} & \multicolumn{2}{c}{$<$0.2\%} & 0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Timing closure for this datapath is effectively unconstrained: the longest combinational path (frame-detector next-state logic) crosses fewer than ten LUT levels, and the target is a single 100~MHz clock domain with no CDC. Worst negative slack (WNS) is therefore positive by a wide margin. This result is important pedagogically because it means that when students \emph{do} encounter negative slack in Module~2 after adding CRC and feature-extraction logic, the regression is attributable to their own additions rather than to the skeleton---an essential property for a learning environment.
+Timing closure for this datapath is expected to be effectively unconstrained: the longest combinational path (frame-detector next-state logic) crosses fewer than ten LUT levels, and the target is a single 100~MHz clock domain with no CDC. Worst negative slack (WNS) is therefore expected to be positive by a wide margin, and a student's actual WNS value is recorded from the Vivado timing report alongside the resource numbers. This expectation is important pedagogically because it means that when students \emph{do} encounter negative slack in Module~2 after adding CRC and feature-extraction logic, the regression is attributable to their own additions rather than to the skeleton---an essential property for a learning environment.
 
 \subsection{Engagement Simulator Performance Envelope}
 
 The engagement simulator (Section~\ref{sec:framework}) provides a controlled, labeled performance envelope against which students calibrate expectations before physical hardware is available. With the default parameters---eight FHSS channels at 225~MHz, 500~ms tick, two cooperative target stations sharing a seed-synchronized hop sequence, a wideband DRFM-style jammer, and a 40\% counter-jamming success probability---the steady-state outcome of each tick is fully determined by three independent events: channel alignment between targets (probability $1/8$ per tick absent hopping collisions), successful jamming given channel overlap, and successful counter-jamming given jamming detection.
 
-Under this model the expected steady-state communication success rate, jamming effectiveness, and counter-jamming rate take closed-form values that the simulator reproduces over its 60-tick rolling window. Table~\ref{tab:sim} reports the theoretical values alongside the operating envelope students are expected to observe. These numbers establish the Module~4 classifier baseline: a supervised model trained on simulator log data should converge on counter-jamming classification accuracy approaching the 40\% success-rate ceiling imposed by the stochastic model, not higher. Students who report significantly higher accuracy are almost certainly overfitting to the log's structural artifacts---a lesson that is only teachable because the simulator's ground truth is known in closed form.
+Under this model the expected steady-state communication success rate, jamming effectiveness, and counter-jamming rate take closed-form values that the simulator should reproduce over its 60-tick rolling window. Table~\ref{tab:sim} reports the theoretical values alongside the operating envelope students are expected to observe and a placeholder column for the cohort's actual rolling-window measurement. These expected numbers establish the Module~4 classifier baseline: a supervised model trained on simulator log data should converge on counter-jamming classification accuracy approaching the 40\% success-rate ceiling imposed by the stochastic model, not higher. Students who report significantly higher accuracy are almost certainly overfitting to the log's structural artifacts---a lesson that is only teachable because the simulator's ground truth is known in closed form.
 
 \begin{table}[t]
 \centering
-\caption{Engagement simulator steady-state performance envelope (default scenario, 60-tick rolling window).}
+\caption{Engagement simulator steady-state performance envelope (default scenario, 60-tick rolling window). The ``Measured'' column is blank for the student's actual run.}
 \label{tab:sim}
-\begin{tabular}{l c c}
+\begin{tabular}{l c c c}
 \toprule
-\textbf{Metric} & \textbf{Theoretical} & \textbf{Expected range} \\
+\textbf{Metric} & \textbf{Theoretical} & \textbf{Expected} & \textbf{Measured} \\
 \midrule
-Communication success rate & 87.5\% & 80--92\% \\
-Jamming effectiveness       & 12.5\% & 8--18\% \\
-Counter-jamming success     & 40.0\% & 32--48\% \\
+Communication success rate & 87.5\% & 80--92\% & \rule{0.9cm}{0.4pt} \\
+Jamming effectiveness       & 12.5\% & 8--18\%  & \rule{0.9cm}{0.4pt} \\
+Counter-jamming success     & 40.0\% & 32--48\% & \rule{0.9cm}{0.4pt} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -318,11 +319,11 @@ Counter-jamming success     & 40.0\% & 32--48\% \\
 
 The Module~1 ingestion skeleton analyzed earlier in this section is deliberately minimal; the full pipeline that the framework targets---including dual-flip-flop synchronizer, UART receiver, byte FIFO, packet parser FSM, CRC-8 transport check, CRC-16 payload check, feature extraction datapath, per-beacon state RAM, feature BRAM, and host UART export---is specified in Module~2. Quantifying this full pipeline is important because it is the state in which the platform enters Module~4 (machine learning), and any resource or timing headroom claim about the framework must be made at that scale, not at the Module~1 skeleton scale.
 
-Table~\ref{tab:mod2res} shows the block-level resource budget for the complete Module~2 pipeline targeting \texttt{xc7a100tcsg324-1}. Totals are approximately 600 LUTs, 640 flip-flops, and five 18~Kb BRAM tiles. The two largest BRAM consumers are the 256-row per-beacon state memory and the 256-row $\times$ 256-bit feature storage, both indexed directly by beacon ID so that no hashing or associative lookup is required. Against device totals of 63{,}400 LUTs, 126{,}800 flip-flops, and 270 BRAM tiles, aggregate utilization remains under 1\% of logic and approximately 2\% of block RAM---leaving essentially the entire device available for the Module~4 inference engine.
+Table~\ref{tab:mod2res} shows the expected block-level resource budget for the complete Module~2 pipeline targeting \texttt{xc7a100tcsg324-1}, with a measured-totals column for the student's post-implementation report. Expected totals are approximately 600 LUTs, 640 flip-flops, and five 18~Kb BRAM tiles. The two largest BRAM consumers are the 256-row per-beacon state memory and the 256-row $\times$ 256-bit feature storage, both indexed directly by beacon ID so that no hashing or associative lookup is required. Against device totals of 63{,}400 LUTs, 126{,}800 flip-flops, and 270 BRAM tiles, aggregate expected utilization remains under 1\% of logic and approximately 2\% of block RAM---leaving essentially the entire device available for the Module~4 inference engine.
 
 \begin{table}[t]
 \centering
-\caption{Projected resource budget for the complete Module~2 pipeline on \texttt{xc7a100tcsg324-1}.}
+\caption{Module~2 pipeline expected resource budget on \texttt{xc7a100tcsg324-1}. The bottom row has a blank ``Measured'' field for the cohort's Vivado utilization summary.}
 \label{tab:mod2res}
 \begin{tabular}{l r r r}
 \toprule
@@ -339,14 +340,15 @@ Per-beacon state RAM      &    0 &    0 & 1 \\
 Feature BRAM              &    0 &    0 & 4 \\
 Host UART export          &   60 &   40 & 0 \\
 \midrule
-\textbf{Module~2 total}   & \textbf{600} & \textbf{640} & \textbf{5} \\
+\textbf{Expected total}   & \textbf{600} & \textbf{640} & \textbf{5} \\
+\textbf{Measured total}   & \rule{1.0cm}{0.4pt} & \rule{1.0cm}{0.4pt} & \rule{1.0cm}{0.4pt} \\
 Device available          & 63{,}400 & 126{,}800 & 270 \\
-Utilization               & $<$1\% & $<$1\% & $\sim$2\% \\
+Expected util.            & $<$1\% & $<$1\% & $\sim$2\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Timing closure at the target 100~MHz system clock is achieved with worst negative slack greater than 3~ns in the reference implementation, and dynamic power dissipation is projected below 200~mW. The critical path falls on the CRC-16 XOR tree; if it does not close on a given student's implementation, the standard remediation is a single pipeline register splitting the XOR network across two cycles, which reclaims several nanoseconds of slack at no resource cost. The only intentional clock-domain crossing in the design is the dual-flip-flop synchronizer on \texttt{uart\_rxd}, isolating metastability to a single well-defined structure.
+Timing closure at the target 100~MHz system clock is expected with worst negative slack greater than 3~ns in the reference implementation, and dynamic power dissipation is expected below 200~mW; both quantities are to be recorded from the student's Vivado timing and power reports against the expected envelope above. The critical path is expected to fall on the CRC-16 XOR tree; if it does not close on a given student's implementation, the standard remediation is a single pipeline register splitting the XOR network across two cycles, which reclaims several nanoseconds of slack at no resource cost. The only intentional clock-domain crossing in the design is the dual-flip-flop synchronizer on \texttt{uart\_rxd}, isolating metastability to a single well-defined structure.
 
 Verification coverage is specified as an eight-scenario regression suite that every Module~2 submission must pass. Table~\ref{tab:scenarios} summarizes the scenarios and their pass criteria. The suite deliberately pairs positive cases (normal operation, long-duration stability, multi-beacon interleaving) with fault-injection cases (CRC-8 transport corruption, CRC-16 payload corruption, leading garbage bytes, maximum-burst FIFO pressure, and beacon ID collision) so that a student cannot pass by exercising only the happy path. The existence of a fixed regression suite also gives instructors at other institutions an objective basis for evaluating reproducibility: two independent implementations of the framework can be compared by running both against the same stimulus files and comparing feature-vector outputs byte-for-byte.
 
@@ -381,19 +383,19 @@ The UART contribution at 115{,}200~8N1 over the 43-byte forwarding frame of Sect
 \begin{equation}
 L_{\mathrm{UART}} = \frac{43 \times 10}{115{,}200} \approx 3.73~\mathrm{ms}.
 \end{equation}
-The FPGA pipeline contribution is bounded above by six clock cycles of the 100~MHz ingestion datapath after the last byte of the frame, well under 0.1~ms. The receiver firmware ISR plus frame construction adds under~1~ms. The RF on-air time dominates and depends strongly on the LoRa spreading factor; for a 32-byte payload at $B=125$~kHz, CR=4/5, the SX1276 airtime formula~\cite{b12} yields the values in Table~\ref{tab:m3latency}.
+The FPGA pipeline contribution is bounded above by six clock cycles of the 100~MHz ingestion datapath after the last byte of the frame, well under 0.1~ms. The receiver firmware ISR plus frame construction is expected to add under~1~ms. The RF on-air time dominates and depends strongly on the LoRa spreading factor; for a 32-byte payload at $B=125$~kHz, CR=4/5, the SX1276 airtime formula~\cite{b12} yields the expected values in Table~\ref{tab:m3latency}, alongside placeholders for the cohort's GPIO-toggle measurements at LH3-D.
 
 \begin{table}[t]
 \centering
-\caption{Module~3 closed-form end-to-end latency budget for a 32-byte beacon payload at $B=125$~kHz, CR=4/5.}
+\caption{Module~3 expected end-to-end latency for a 32-byte beacon payload at $B=125$~kHz, CR=4/5. The ``Measured'' column is blank for the LH3-D GPIO-toggle capture.}
 \label{tab:m3latency}
-\begin{tabular}{l c c c}
+\begin{tabular}{l c c c c}
 \toprule
-\textbf{SF} & \textbf{$L_{\mathrm{RF}}$ (ms)} & \textbf{$L_{\mathrm{e2e}}$ (ms)} & \textbf{RF share} \\
+\textbf{SF} & \textbf{$L_{\mathrm{RF}}$ (ms)} & \textbf{$L_{\mathrm{e2e}}$ exp.\ (ms)} & \textbf{Meas.\ (ms)} & \textbf{RF share} \\
 \midrule
-SF7  & $\sim$50    & $\sim$55    & $\sim$91\% \\
-SF10 & $\sim$370   & $\sim$375   & $\sim$99\% \\
-SF12 & $\sim$1500  & $\sim$1505  & $\sim$99.7\% \\
+SF7  & $\sim$50    & $\sim$55    & \rule{0.9cm}{0.4pt} & $\sim$91\% \\
+SF10 & $\sim$370   & $\sim$375   & \rule{0.9cm}{0.4pt} & $\sim$99\% \\
+SF12 & $\sim$1500  & $\sim$1505  & \rule{0.9cm}{0.4pt} & $\sim$99.7\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -413,49 +415,49 @@ The achievable rate is far below this ceiling because the LoRa on-air time of Se
 
 \begin{table}[t]
 \centering
-\caption{Module~3 projected per-configuration steady-state frame rate and 64-entry FIFO headroom for the Lab Handout~3-E stress matrix.}
+\caption{Module~3 expected per-configuration steady-state frame rate and 64-entry FIFO headroom for the LH3-E stress matrix. The ``Meas.\ FIFO peak'' column is blank for the cohort's LED-mapped peak observation.}
 \label{tab:m3scaling}
-\begin{tabular}{c l l c c}
+\begin{tabular}{c l l c c c}
 \toprule
-\textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{fps} & \textbf{FIFO peak} \\
+\textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{fps} & \textbf{Exp.\ peak} & \textbf{Meas.} \\
 \midrule
-1 & Fixed & 2~s             & 0.50      & $<$10\% \\
-2 & Fixed & 2~s / 3~s       & 0.83      & $<$15\% \\
-2 & ALOHA & [1,3]~s         & $\sim$1.0 & 15--30\% \\
-3 & Fixed & 1~s each        & 3.0       & 25--40\% \\
-3 & ALOHA & [0.5,2]~s       & 3.0--4.0  & 40--70\% \\
+1 & Fixed & 2~s             & 0.50      & $<$10\%    & \rule{0.7cm}{0.4pt} \\
+2 & Fixed & 2~s / 3~s       & 0.83      & $<$15\%    & \rule{0.7cm}{0.4pt} \\
+2 & ALOHA & [1,3]~s         & $\sim$1.0 & 15--30\%   & \rule{0.7cm}{0.4pt} \\
+3 & Fixed & 1~s each        & 3.0       & 25--40\%   & \rule{0.7cm}{0.4pt} \\
+3 & ALOHA & [0.5,2]~s       & 3.0--4.0  & 40--70\%   & \rule{0.7cm}{0.4pt} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:m3scaling} summarizes the projected steady-state operating point for each configuration. The fixed-interval rows are bounded by deterministic transmission scheduling and stay well clear of FIFO pressure; the ALOHA rows admit collisions and burst arrivals where two or three frames land within a single UART transfer window of approximately 3.7~ms, producing the elevated FIFO peaks shown. The Lab Handout~3-E pass criterion (peak FIFO occupancy $<$75\%, no overflow alarm) is set so that the framework scales to three concurrent beacons without redesign. If the criterion fails, the documented mitigation is to increase the FIFO depth from 64 to 256 entries at a cost of one additional 18~Kb BRAM tile, which is negligible against the $\sim$2\% block-RAM utilization of the complete Module~2 pipeline reported in Table~\ref{tab:mod2res}.
+Table~\ref{tab:m3scaling} summarizes the expected steady-state operating point for each configuration. The fixed-interval rows are expected to be bounded by deterministic transmission scheduling and stay well clear of FIFO pressure; the ALOHA rows admit collisions and burst arrivals where two or three frames land within a single UART transfer window of approximately 3.7~ms, producing the elevated FIFO peaks shown. The Lab Handout~3-E pass criterion (peak FIFO occupancy $<$75\%, no overflow alarm) is set so that the framework scales to three concurrent beacons without redesign. If the criterion fails, the documented mitigation is to increase the FIFO depth from 64 to 256 entries at a cost of one additional 18~Kb BRAM tile, which is negligible against the $\sim$2\% block-RAM utilization of the complete Module~2 pipeline reported in Table~\ref{tab:mod2res}.
 
 The framework also separates a debug bitstream (Lab Handouts~3-B through 3-D) from the production bitstream used for data collection (Lab Handouts~3-E through 3-H). The debug build adds an 11-probe ILA with a 1024-sample capture buffer, consuming approximately four additional BRAM tiles; the production build sets the top-level \texttt{g\_DEBUG} generic to false, prunes the ILA at elaboration, and returns block-RAM usage to the Module~2 baseline of Table~\ref{tab:mod2res}. Lab Handout~3-E requires that the production bitstream's measured PER fall within one percentage point of the debug bitstream's PER for the same single-beacon configuration; any larger discrepancy is treated as evidence that ILA insertion altered timing in the debug build, which is a pedagogically important regression to surface rather than to mask.
 
 \subsection{Data Collection Campaign Volume and Split Integrity}\label{sec:m3dataset}
 
-The five single-variable sweep campaigns of Module~3 (Lab Handouts~3-F and 3-G) produce a labeled feature dataset at known target volume. Table~\ref{tab:m3dataset} tabulates the target packet count per campaign, the resulting raw row count, and the projected effective row count after the Module~1 acceptance bound of $\leq$5\% PER (Section~\ref{sec:m3accept}) is applied at each level.
+The five single-variable sweep campaigns of Module~3 (Lab Handouts~3-F and 3-G) produce a labeled feature dataset at known target volume. Table~\ref{tab:m3dataset} tabulates the target packet count per campaign, the resulting raw row count, and the expected effective row count after the Module~1 acceptance bound of $\leq$5\% PER (Section~\ref{sec:m3accept}) is applied at each level. A blank ``Measured'' column records the actual count produced by the cohort's collection runs.
 
 \begin{table}[t]
 \centering
-\caption{Module~3 campaign volume across Lab Handouts~3-F and 3-G, with effective row count under the $\leq$5\% PER bound.}
+\caption{Module~3 campaign volume across LH3-F and 3-G, with expected effective row count under the $\leq$5\% PER bound and a blank measured column.}
 \label{tab:m3dataset}
-\begin{tabular}{l l c r r}
+\begin{tabular}{l l c r r r}
 \toprule
-\textbf{Campaign} & \textbf{Sweep} & \textbf{Steps} & \textbf{Pkts} & \textbf{Eff.\ rows} \\
+\textbf{Campaign} & \textbf{Sweep} & \textbf{Steps} & \textbf{Pkts} & \textbf{Exp.\ rows} & \textbf{Meas.} \\
 \midrule
-C1 & TX power            & 4 & 800   & $\geq$760  \\
-C2 & Spreading factor    & 6 & 1{,}200 & $\geq$1{,}140 \\
-C3 & Modulation type     & 2 & 600   & $\geq$570  \\
-C4 & Distance            & 4 & 800   & $\geq$760  \\
-C5 & Beacon count / mode & 5 & 1{,}500 & $\geq$1{,}200 \\
+C1 & TX power            & 4 & 800   & $\geq$760     & \rule{0.7cm}{0.4pt} \\
+C2 & Spreading factor    & 6 & 1{,}200 & $\geq$1{,}140 & \rule{0.7cm}{0.4pt} \\
+C3 & Modulation type     & 2 & 600   & $\geq$570     & \rule{0.7cm}{0.4pt} \\
+C4 & Distance            & 4 & 800   & $\geq$760     & \rule{0.7cm}{0.4pt} \\
+C5 & Beacon count / mode & 5 & 1{,}500 & $\geq$1{,}200 & \rule{0.7cm}{0.4pt} \\
 \midrule
-\textbf{Total} & --- & 21 & \textbf{4{,}900} & $\geq$\textbf{2{,}500} \\
+\textbf{Total} & --- & 21 & \textbf{4{,}900} & $\geq$\textbf{2{,}500} & \rule{0.7cm}{0.4pt} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The aggregate target of 4{,}900 transmitted packets is projected to yield at least 2{,}500 effective feature vectors after PER attrition, which is the minimum threshold below which the stratified 70/15/15 split of Lab Handout~3-H cannot guarantee at least 30 test-set samples per minority class. This in turn drives the per-level packet-count choices in Lab Handouts~3-F and~3-G: 200 packets per level at C1, C2, and C4, and 300 per level at C3 and C5, are not arbitrary collection durations but the smallest values that satisfy the downstream split constraint at the worst-case PER allowance.
+The aggregate target of 4{,}900 transmitted packets is expected to yield at least 2{,}500 effective feature vectors after PER attrition, which is the minimum threshold below which the stratified 70/15/15 split of Lab Handout~3-H cannot guarantee at least 30 test-set samples per minority class. This in turn drives the per-level packet-count choices in Lab Handouts~3-F and~3-G: 200 packets per level at C1, C2, and C4, and 300 per level at C3 and C5, are not arbitrary collection durations but the smallest values that satisfy the downstream split constraint at the worst-case PER allowance.
 
 The Lab Handout~3-H merge script keys the stratified train/val/test split on \texttt{run\_id}---one value per invocation of \texttt{collect.py}---rather than on \texttt{campaign\_id} or on individual rows. Samples within a single run share channel conditions and hardware state and must therefore travel into the same partition; splitting at the row level would leak channel context into the test set, while splitting at the campaign-family level would collapse legitimate distinct runs into a single partition bucket. With 21 collection runs total across C1--C5e, a 70/15/15 partition assigns roughly 15/3/3 runs to train/val/test per stratum (\texttt{label\_sf}), which is the granularity at which the Lab Handout~3-H verification check ($\geq$30 test samples per class) is evaluated.
 
@@ -494,7 +496,7 @@ The fitted \texttt{StandardScaler} from LH4-B is the single shared preprocessing
 
 \subsection{Module~4 Classifier Architectures, Statistical Reporting, and Sim-to-Real Gap}\label{sec:m4classifiers}
 
-Module~4 trains four classifier families per task, summarized in Table~\ref{tab:m4classifiers}. The grid for the random forest spans $3 \times 3 \times 2 \times 2 = 36$ hyperparameter configurations evaluated with 5-fold stratified cross-validation over the concatenated train+validation split; this concatenation is necessary because at the framework's projected $\sim$2{,}500-row dataset size, the bare 15\% validation split holds only $\sim$375 rows, which is too small a sample for reliable hyperparameter selection. The MLP and CNN-1D are trained with Adam at learning rate $10^{-3}$ and batch size 32, with early stopping on the validation cross-entropy loss at a patience of 15 epochs.
+Module~4 trains four classifier families per task, summarized in Table~\ref{tab:m4classifiers}. The grid for the random forest spans $3 \times 3 \times 2 \times 2 = 36$ hyperparameter configurations evaluated with 5-fold stratified cross-validation over the concatenated train+validation split; this concatenation is necessary because at the framework's expected $\sim$2{,}500-row dataset size, the bare 15\% validation split holds only $\sim$375 rows, which is too small a sample for reliable hyperparameter selection. The MLP and CNN-1D are trained with Adam at learning rate $10^{-3}$ and batch size 32, with early stopping on the validation cross-entropy loss at a patience of 15 epochs.
 
 \begin{table}[t]
 \centering
@@ -530,7 +532,7 @@ The capstone Module~4 result is the sim-to-real gap experiment of Lab Handout~4-
 \end{equation}
 where the first term trains and evaluates on hardware data from Module~3 and the second trains on simulator data while evaluating on the same held-out hardware test split. The fair-comparison rule fits the \texttt{StandardScaler} on whichever dataset is the training source and applies that same scaler to the evaluation dataset, treating preprocessing as part of the trained model rather than as a separable post-hoc transform. A non-zero $\Delta$ is not framework failure---it is the framework's central pedagogical observation, providing the empirical foundation for the LH3-H distribution shift analysis that motivated the hardware data collection investment in Module~3 in the first place. Mitigation via fine-tuning freezes the CNN backbone trained on simulator data and re-trains only the final linear layer on 10--20\% of the hardware training set; expected outcome is recovery of at least half of $\Delta$ on the SF detection task, demonstrating that the convolutional features generalize across the simulator-to-hardware boundary while the classifier head was mis-calibrated to the simulator distribution.
 
-The robustness of every model is then characterized in Lab Handout~4-G by stratifying the test set along three operating-condition axes: signal-to-noise ratio (5 quantile bins covering the empirical SNR range), beacon-receiver distance (4 discrete levels at 1, 3, 5, and 8~m drawn from Campaign~C4), and concurrent beacon count (5 sub-configurations C5a--C5e at 1/2/2/3/3 active beacons under fixed and ALOHA scheduling). Quintile binning produces approximately 75--80 samples per SNR bucket at the projected test-set size, giving each per-bucket accuracy a 95\% Wilson half-width on the order of 0.07 at $\hat{p}=0.85$---loose enough that small between-model differences at individual buckets are not interpretable, but tight enough that consistent patterns across all five buckets separate genuinely robust models from those whose headline accuracy is driven by easy operating points. The framework defines the \emph{worst-bucket accuracy} on the SF task as the deployable robustness metric: a model with high mean accuracy but degraded worst-case bucket accuracy is a worse field-deployment candidate than a model with slightly lower mean and higher worst-case, even though a single number cannot capture both.
+The robustness of every model is then characterized in Lab Handout~4-G by stratifying the test set along three operating-condition axes: signal-to-noise ratio (5 quantile bins covering the empirical SNR range), beacon-receiver distance (4 discrete levels at 1, 3, 5, and 8~m drawn from Campaign~C4), and concurrent beacon count (5 sub-configurations C5a--C5e at 1/2/2/3/3 active beacons under fixed and ALOHA scheduling). Quintile binning produces approximately 75--80 samples per SNR bucket at the expected test-set size, giving each per-bucket accuracy a 95\% Wilson half-width on the order of 0.07 at $\hat{p}=0.85$---loose enough that small between-model differences at individual buckets are not interpretable, but tight enough that consistent patterns across all five buckets separate genuinely robust models from those whose headline accuracy is driven by easy operating points. The framework defines the \emph{worst-bucket accuracy} on the SF task as the deployable robustness metric: a model with high mean accuracy but degraded worst-case bucket accuracy is a worse field-deployment candidate than a model with slightly lower mean and higher worst-case, even though a single number cannot capture both.
 
 \subsection{Module~4 Real-Time Multi-Task Inference Latency Budget}\label{sec:m4latency}
 
@@ -538,19 +540,19 @@ The deployed Module~4 inference engine of Lab Handout~4-H runs all three classif
 
 \begin{table}[t]
 \centering
-\caption{Module~4 end-to-end response time budget at the SF7 baseline configuration, extending Table~\ref{tab:m3latency} through host inference.}
+\caption{Module~4 expected end-to-end response time at the SF7 baseline, extending Table~\ref{tab:m3latency} through host inference. The ``Measured'' column is blank for the LH4-H 1{,}000-call microbenchmark and the LH3-D GPIO-toggle capture.}
 \label{tab:m4latency}
-\begin{tabular}{l c l}
+\begin{tabular}{l c c l}
 \toprule
-\textbf{Stage} & \textbf{Budget (ms)} & \textbf{Source} \\
+\textbf{Stage} & \textbf{Exp.\ (ms)} & \textbf{Meas.\ (ms)} & \textbf{Source} \\
 \midrule
-RF on-air (SF7, 32~B)              & $\sim$50    & \S\ref{sec:m3latency} \\
-Receiver firmware ISR              & $<$0.5      & \S\ref{sec:m3latency} \\
-UART transport (43~B, 115{,}200)   & 3.73        & \S\ref{sec:m3latency} \\
-FPGA pipeline                      & $<$0.1      & \S\ref{sec:results}.D \\
-Host inference (3 tasks)           & $<$6        & LH4-H target \\
+RF on-air (SF7, 32~B)              & $\sim$50    & \rule{0.7cm}{0.4pt} & \S\ref{sec:m3latency} \\
+Receiver firmware ISR              & $<$0.5      & \rule{0.7cm}{0.4pt} & \S\ref{sec:m3latency} \\
+UART transport (43~B, 115{,}200)   & 3.73        & \rule{0.7cm}{0.4pt} & \S\ref{sec:m3latency} \\
+FPGA pipeline                      & $<$0.1      & \rule{0.7cm}{0.4pt} & \S\ref{sec:results}.D \\
+Host inference (3 tasks)           & $<$6        & \rule{0.7cm}{0.4pt} & LH4-H target \\
 \midrule
-\textbf{Total end-to-end}          & $<$60       & --- \\
+\textbf{Total end-to-end}          & $<$60       & \rule{0.7cm}{0.4pt} & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -567,9 +569,151 @@ A schema manifest written by LH4-A and read by LH4-H provides the deployment saf
 
 The Module~4 analyses in Sections~\ref{sec:m4features}--\ref{sec:m4latency} are tied together by a parallel set of pass/fail criteria, each mapped one-to-one onto a cross-domain interface from Section~\ref{sec:problem}. A student cohort completes Module~4 successfully when, across all lab groups: (i)~the Lab Handout~4-A ten-check data audit passes with no waivers, the merged dataset retains $\geq$2{,}500 feature vectors with label-mismatch rate below 2\%, and the LH4-B leakage sanity check yields $\geq$0.95 forbidden-column-only test accuracy on all three tasks; (ii)~the random-forest grid search beats both the DummyClassifier majority baseline and the depth-5 decision tree on every task with non-overlapping 95\% Wilson intervals computed via~(\ref{eq:wilson}), and the MLP seed-robustness standard deviation stays below 0.02 across four independent seed runs per task; (iii)~the Lab Handout~4-F sim-to-real gap $\Delta$ defined in~(\ref{eq:sim2real}) is computed and tabulated for all three tasks with the fine-tuning mitigation reducing $\Delta$ by at least half on the SF detection task, and the LH4-G stratified-accuracy curves are produced for SNR (5 quintile bins), distance (4 levels from C4), and beacon count (5 sub-configurations from C5); and (iv)~the Lab Handout~4-H inference engine loads all three chosen models, the 1{,}000-call microbenchmark reports a 99th-percentile latency below 6~ms against the budget of Table~\ref{tab:m4latency}, the schema manifest matches the live FPGA feature-vector layout with no drift, and the five-minute live demonstration produces predictions whose post-hoc accuracy on known beacon configurations matches the held-out test accuracy within the model's Wilson interval. As with the Module~1 and Module~3 criteria, a failure at any one of the four isolates the affected interface---data contract, statistical reporting, sim-to-real generalization, or real-time deployment---for remediation without ambiguity.
 
+\subsection{Module~5 Stress-Test Matrix and Pre-Declared Thresholds}\label{sec:m5stress}
+
+Module~5 closes the curriculum by characterizing the integrated system rather than its constituent subsystems. The pedagogical principle---explicit in Lab Handout~5-A---is that the stress test \emph{derives} the system specification from empirical evidence rather than testing against an a priori budget. Table~\ref{tab:m5stress} summarizes the four-dimensional stress matrix executed across LH5-A and LH5-B, with each dimension targeting a distinct system limitation and a pre-declared pass/fail threshold so that thresholds cannot be retroactively adjusted to make a failing run pass.
+
+\begin{table}[t]
+\centering
+\caption{Module~5 stress-test matrix, target subsystem, pre-declared pass/fail thresholds, and a blank ``Outcome'' column for the cohort's pass/fail entry.}
+\label{tab:m5stress}
+\begin{tabular}{c l l c c}
+\toprule
+\textbf{ID} & \textbf{Dimension} & \textbf{Threshold} & \textbf{Duration} & \textbf{Outcome} \\
+\midrule
+S1 & Beacon density (1--3, fixed/ALOHA) & PER$<$5\%, FIFO$<$75\% & 5~min/cfg & \rule{0.7cm}{0.4pt} \\
+S2 & Rapid SF change (SF7$\to$10$\to$12) & $\leq$2 transient miscl. & 10~min & \rule{0.7cm}{0.4pt} \\
+S3 & Low-SNR sweep (+20$\to$+2~dBm)     & Acc$\geq$80\% above 0~dB SNR & 3~min/lvl & \rule{0.7cm}{0.4pt} \\
+S4 & Extended duration (2 beacons, SF7) & No FIFO ovf, no acc.\ drift & 30~min & \rule{0.7cm}{0.4pt} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The S1 beacon-density sweep targets the FIFO depth chosen in Module~2 and the UART baud rate chosen in Module~1; the S2 rapid-change test targets the FPGA feature-extraction logic of Module~2 (specifically, the inter-arrival-time computation that crosses an SF transition with a stale prior-packet timestamp); the S3 low-SNR sweep targets the training-data distribution of Module~3 by extending operation into the $<$0~dB SNR regime that the Module~3 campaigns deliberately undersampled; and the S4 endurance run targets the counter widths and host-side resource hygiene that no shorter test can exercise. Each dimension is therefore not a generic ``does it still work'' check but a directed probe at a specific upstream design decision, which is the property that makes failure at any S$x$ row diagnostically informative.
+
+The S1e configuration (3 beacons, ALOHA $[0.5,1.5]$~s) is also the framework's primary use case for the LH3-B/LH3-E debug-vs-production bitstream split. The production bitstream collects the headline PER and FIFO numbers, after which the operator explicitly swaps in the debug bitstream to capture an ILA waveform of the burst, then swaps back before any subsequent throughput or endurance measurement. The bitstream swap is explicit rather than automatic precisely because conflating the two builds was identified as a measurement-validity hazard during Module~3 development.
+
+\subsection{Module~5 End-to-End Latency Decomposition with Uncertainty Propagation}\label{sec:m5latency}
+
+Lab Handout~5-C extends the Module~3 four-stage latency model of Section~\ref{sec:m3latency} into a six-stage decomposition that adds the host-side UART export and Python inference stages, giving a full end-to-end response time from beacon TX start to classification print. The decomposition is
+\begin{equation}
+T_{\mathrm{total}} = T_{\mathrm{RF}} + T_{\mathrm{RX\_FW}} + T_{\mathrm{UART\_in}} + T_{\mathrm{FPGA}} + T_{\mathrm{UART\_out}} + T_{\mathrm{infer}}.
+\label{eq:m5e2e}
+\end{equation}
+Three stages are directly measured (oscilloscope cursor on $T_{\mathrm{total}}$, ILA timestamp on $T_{\mathrm{FPGA}}$, \texttt{perf\_counter} on $T_{\mathrm{infer}}$); three are calculated from datasheet or framework parameters ($T_{\mathrm{RF}}$ from the SX1276 airtime formula~\cite{b12}, $T_{\mathrm{UART\_in}}=3.73$~ms for the 43-byte forwarding frame, $T_{\mathrm{UART\_out}}=3.04$~ms for the 35-byte host export). The receiver firmware stage $T_{\mathrm{RX\_FW}}$ is computed by subtraction and inherits the propagated uncertainty
+\begin{equation}
+\sigma_{\mathrm{RX\_FW}} = \sqrt{\sigma_{\mathrm{total}}^2 + \sum_{i \neq \mathrm{RX\_FW}} \sigma_i^2}.
+\label{eq:m5sigma}
+\end{equation}
+A reportable point estimate for $T_{\mathrm{RX\_FW}}$ requires that this propagated uncertainty be smaller than the residual itself; otherwise the framework requires the residual to be reported as ``not resolvable by subtraction at this instrumentation budget'' rather than as a number with a misleadingly tight bound. This rule is what converts a casual stage-by-stage spreadsheet into a defensible specification claim.
+
+Table~\ref{tab:m5latency} summarizes the six-stage decomposition at the SF7 baseline configuration with the per-stage uncertainty source. The dominance of $T_{\mathrm{RF}}$ at every operating point is the framework's central architectural conclusion: at SF7 the RF stage accounts for roughly 75\% of $T_{\mathrm{total}}$ and at SF12 for over 99\%, so any latency reduction targeting the digital pipeline produces single-digit-percent improvement at SF7 and is essentially invisible at SF12. The actionable consequence---articulated as a writing exercise in Lab Handout~5-D Step~6---is that on-FPGA inference does not reduce $T_{\mathrm{total}}$ unless the host PC is eliminated entirely.
+
+\begin{table}[t]
+\centering
+\caption{Module~5 six-stage latency decomposition at the SF7 baseline with per-stage uncertainty source. The ``Measured'' column is blank for the LH5-C scope and ILA captures.}
+\label{tab:m5latency}
+\begin{tabular}{l c c l}
+\toprule
+\textbf{Stage} & \textbf{Exp.\ (ms)} & \textbf{Meas.\ (ms)} & \textbf{Uncertainty source} \\
+\midrule
+$T_{\mathrm{RF}}$ (SF7, 32~B)    & $\sim$50    & \rule{0.7cm}{0.4pt} & SX1276 sym.\ tol., $\sim$1\% \\
+$T_{\mathrm{RX\_FW}}$            & $<$0.5      & \rule{0.7cm}{0.4pt} & Propagated~(\ref{eq:m5sigma}) \\
+$T_{\mathrm{UART\_in}}$ (43~B)   & 3.73        & \rule{0.7cm}{0.4pt} & Baud quant., $\sim$0.5\% \\
+$T_{\mathrm{FPGA}}$              & $<$0.1      & \rule{0.7cm}{0.4pt} & 1 sysclk cycle, 10~ns \\
+$T_{\mathrm{UART\_out}}$ (35~B)  & 3.04        & \rule{0.7cm}{0.4pt} & Baud quant., $\sim$0.5\% \\
+$T_{\mathrm{infer}}$ (3 tasks)   & $<$6        & \rule{0.7cm}{0.4pt} & LH4-H p99 microbench \\
+\midrule
+\textbf{Total}                   & $<$60       & \rule{0.7cm}{0.4pt} & \textbf{Quadrature sum} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Module~5 Six-Point Benchmarking Matrix and Baseline Regression Rules}\label{sec:m5bench}
+
+Lab Handout~5-D operationalizes the latency model through a six-point benchmarking matrix that varies one axis at a time from the B1 baseline (SF7, 1~beacon, 3~m, +14~dBm). Table~\ref{tab:m5bench} lists the operating points and the dominant variable each isolates. At each point, 50 $T_{\mathrm{total}}$ measurements are captured with the GPIO-toggle setup, and the deliverable is mean, standard deviation, minimum, maximum, and 99th-percentile of $T_{\mathrm{total}}$ together with the dominant stage by proportional contribution. Histograms are required at the two extremes, B1 and B3, and the framework predicts that the B1 and B3 distributions have the same shape translated along the time axis by the $\sim$1450~ms RF airtime difference between SF7 and SF12 for a 32-byte payload.
+
+\begin{table}[t]
+\centering
+\caption{Module~5 benchmarking matrix (LH5-D).}
+\label{tab:m5bench}
+\begin{tabular}{c c c c c}
+\toprule
+\textbf{ID} & \textbf{SF} & \textbf{Beacons} & \textbf{Distance} & \textbf{Power} \\
+\midrule
+B1 & SF7  & 1 & 3~m & +14~dBm \\
+B2 & SF10 & 1 & 3~m & +14~dBm \\
+B3 & SF12 & 1 & 3~m & +14~dBm \\
+B4 & SF7  & 2 & 3~m & +14~dBm \\
+B5 & SF7  & 3 & 3~m & +14~dBm \\
+B6 & SF7  & 1 & 8~m & +2~dBm \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+A regression check against the Module~3 and Module~4 baselines is required at the B4 operating point (2~beacons, SF7, 3~m, +14~dBm) for PER, end-to-end latency, classification accuracy on all three tasks, and FIFO peak utilization. The framework imposes seven comparability axes that must be pinned before a regression claim is admissible: spreading factor, beacon count and scheduling mode, distance, transmit power, beacon plus receiver plus FPGA firmware commit hash, bitstream hash, and model artifact hash. A row missing any one of the seven is---per the LH5-D rule---``not a regression check; it is an exploration.'' The 5\% threshold for declaring a regression at a fully pinned point is followed by a four-step investigation order (hardware first, firmware second, bitstream third, environment fourth) before the system itself is concluded to have degraded. Documenting the \emph{absence} of a regression is itself a reportable result, because it provides empirical evidence that the platform is stable across module boundaries.
+
+\subsection{Module~5 System Specification Table}\label{sec:m5spec}
+
+The headline Module~5 artifact is the system specification table populated entirely from measured experimental results, with every value cited back to the experiment that produced it. Table~\ref{tab:m5spec} lists the twelve specification rows the framework requires to be filled. Several rows are inherited from earlier modules---the FPGA resource utilization from Module~2 Table~\ref{tab:mod2res}, the host inference 99th-percentile from Module~4 Table~\ref{tab:m4latency}---but the operating-envelope rows (maximum concurrent beacons, maximum frame rate, minimum classifiable SNR, maximum classifiable distance, end-to-end latency at the SF7 and SF12 extremes, and maximum stable run time) are defined only after Module~5 measurements are available. This staging is what the framework means by ``deriving the specification from evidence'': the specification cannot be written until the stress and benchmark data exist, and conversely the stress and benchmark data cannot be assembled into a defensible specification without the comparability and uncertainty discipline imposed in LH5-C and LH5-D.
+
+\begin{table}[t]
+\centering
+\caption{Module~5 system specification scaffold to be populated from LH5-A through LH5-D measurements. Every value is left blank in this paper; the cohort fills each row from its cited source experiment.}
+\label{tab:m5spec}
+\begin{tabular}{l c l}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Source} \\
+\midrule
+Max.\ concurrent beacons (PER$<$5\%)        & \rule{1.2cm}{0.4pt} & LH5-A (S1) \\
+Max.\ frame rate (FIFO$<$75\%)              & \rule{1.2cm}{0.4pt} & LH5-A (S1) \\
+Min.\ classifiable SNR (acc$>$80\%)         & \rule{1.2cm}{0.4pt} & LH5-B (S3) \\
+Max.\ classifiable distance (acc$>$80\%)    & \rule{1.2cm}{0.4pt} & LH5-B (S3) \\
+End-to-end latency at SF7 (mean$\pm$std)    & \rule{1.2cm}{0.4pt} & LH5-D (B1) \\
+End-to-end latency at SF12 (mean$\pm$std)   & \rule{1.2cm}{0.4pt} & LH5-D (B3) \\
+SF classification accuracy (nominal)        & \rule{1.2cm}{0.4pt} & LH5-D (B1) \\
+Modulation classification accuracy (nominal)& \rule{1.2cm}{0.4pt} & LH5-D (B1) \\
+Emitter ID classification accuracy (nominal)& \rule{1.2cm}{0.4pt} & LH5-D (B1) \\
+Max.\ stable run time (tested)              & \rule{1.2cm}{0.4pt} & LH5-B (S4) \\
+FPGA resource utilization (LUT/FF/BRAM)     & \rule{1.2cm}{0.4pt} & Table~\ref{tab:mod2res} \\
+Host inference latency (p99)                & \rule{1.2cm}{0.4pt} & Table~\ref{tab:m4latency} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Module~5 Failure-Mode Catalog and Chain-Depth Distribution}\label{sec:m5failures}
+
+Lab Handout~5-E assembles the cross-domain failure-mode catalog that is the framework's most explicit pedagogical artifact. Each entry has five fields (ID, failure mode, observed-in handout, root module, root cause), with the root module being the \emph{earliest} module whose design decision is responsible. A failure tagged with a root module different from its observed module is, by construction, a cross-domain integration issue---the very class of problem the framework exists to teach. Table~\ref{tab:m5failures} reproduces the eight starter entries the framework specifies as the minimum bar; the deliverable expands this list with locally observed failures, but never below eight.
+
+\begin{table}[t]
+\centering
+\caption{Module~5 failure-mode catalog starter (LH5-E), with chain depth.}
+\label{tab:m5failures}
+\begin{tabular}{c l c c c}
+\toprule
+\textbf{ID} & \textbf{Failure mode} & \textbf{Obs.} & \textbf{Root} & \textbf{Depth} \\
+\midrule
+F1 & FIFO overflow (burst)        & LH5-A & M2    & 1 \\
+F2 & CRC reject on valid frame    & LH3-C & M1/M2 & 1 \\
+F3 & Low-SNR class.\ collapse     & LH5-B & M3/M4 & 2 \\
+F4 & Transient SF transition mis. & LH5-B & M2    & 1 \\
+F5 & Label mismatch $>$ nominal   & LH3-H & M1    & 2 \\
+F6 & Sim-to-real accuracy drop    & LH4-F & M1/M3 & 2 \\
+F7 & Python logger memory growth  & LH5-B & M4    & 0 \\
+F8 & stdout buffering inflates lat.& LH5-C & M4   & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Each entry is tagged with a chain depth: depth~0 if the root module equals the observed module (a local failure), depth~1 if the root is the immediate upstream neighbor (e.g., M1 causing an M2 symptom), and depth~2 or greater if the chain skips one or more module boundaries (e.g., an M1 firmware decision surfacing as an M4 accuracy problem). The framework requires at least two depth-2 entries on the grounds that a catalog dominated by depth-0 entries indicates the curriculum's integration surface was too thin to develop the cross-domain reasoning skills that are the framework's primary objective. The starter table contains three depth-2 entries (F3, F5, F6), which is the empirical floor against which a student cohort's catalog can be compared: an instructor evaluating whether a particular cohort engaged with the framework as intended can simply count depth-2 entries in their catalog, with the starter's three serving as the calibration baseline. A one-page depth-2 walkthrough of a single chosen entry is required as the deliverable's qualitative companion, articulating the full causal chain from the originating design decision to the observed symptom.
+
+\subsection{Module~5 Acceptance Criteria as Quantitative Outcomes}\label{sec:m5accept}
+
+The Module~5 analyses in Sections~\ref{sec:m5stress}--\ref{sec:m5failures} are tied together by a parallel set of pass/fail criteria, each mapped one-to-one onto a cross-domain interface from Section~\ref{sec:problem}. A student cohort completes Module~5 successfully when, across all lab groups: (i)~the LH5-A stress test plan is filed with pre-declared pass/fail thresholds for all four S$x$ rows of Table~\ref{tab:m5stress}, the five S1 beacon-density configurations are run for the full five minutes each on the production bitstream with FIFO peak below 75\% and PER below 5\% at the declared maximum concurrent beacon count, and an ILA capture of the S1e burst is collected on the debug bitstream with the production bitstream restored before any subsequent measurement; (ii)~the LH5-B S2 rapid-change test reproduces the predicted ``$\leq$2 transient misclassifications per SF transition'' bound traceable to the FPGA inter-arrival-time feature of Section~\ref{sec:proto}, the S3 sweep produces an accuracy-vs-SNR curve overlaying the LH4-G stratified-accuracy curve and labels the degradation mode as graceful or catastrophic, and the S4 endurance run completes 30 uninterrupted minutes with no FIFO overflow alarm and per-minute classification accuracy stable to within the LH4-G Wilson half-width; (iii)~the LH5-C six-stage latency decomposition of~(\ref{eq:m5e2e}) sums to $T_{\mathrm{total}}$ within propagated uncertainty~(\ref{eq:m5sigma}), and the LH5-D six-point benchmarking matrix of Table~\ref{tab:m5bench} reports mean/std/p99 and dominant stage at each operating point with all seven comparability axes pinned for the B4 baseline-regression check; and (iv)~the LH5-D system specification table of Table~\ref{tab:m5spec} is populated entirely from measured data with each row cited to its source experiment, the LH5-E failure-mode catalog contains at least eight entries with at least two at depth~2 or greater, and the cross-domain dependency diagram and depth-2 walkthrough are included in the final deliverable. As with the Module~1, Module~3, and Module~4 criteria, a failure at any one of the four isolates the affected interface---empirical envelope, time-dependent stability, latency accountability, or cross-domain causation---for remediation without ambiguity.
+
 \section{Conclusion}\label{sec:conclusion}
 
-This paper presented an educational framework that treats the interfaces between FPGA digital design, RF communications, embedded firmware, and machine learning as first-class teaching objects. The framework is instantiated by a benchtop platform built from commercially available components---STM32 Nucleo-L476RG microcontrollers, RFM95W LoRa transceivers, and a Digilent Nexys A7-100T FPGA---and a five-module progressive curriculum that sequences students through hardware bring-up, RTL design, system integration, AI-driven classification, and full-system benchmarking. A Python engagement simulator with a physics-grounded FSPL link model and known ground-truth labels bridges the gap between curriculum introduction and hardware availability, and later serves as the controlled baseline against which real-hardware machine learning results are compared. Quantitative analysis of the first four fully instantiated modules shows that the chosen hardware leaves more than 100~dB of link margin at bench distances while still exposing every LoRa physical-layer parameter as a tunable student-facing variable, that the Module~1 FPGA ingestion datapath consumes under 0.5\% of the Artix-7 \texttt{xc7a100t} LUT budget and leaves the entire DSP and block-RAM resource pool available for the classification pipeline added in Modules 2 and~4, that the complete Module~2 ingestion pipeline closes timing at the target 100~MHz with worst negative slack greater than~3~ns and uses approximately 2\% of available block RAM, and that the engagement simulator's closed-form performance envelope provides a rigorous overfitting check for student-trained classifiers. For Module~3, the closed-form latency budget shows that RF on-air time accounts for $\sim$91\% of end-to-end latency at SF7 and $\sim$99.7\% at SF12, isolating the system's optimization headroom to the RF subsystem rather than the digital processing pipeline; the 268~fps UART throughput ceiling sits well above the operating envelope of three concurrent beacons, with the 64-entry receive FIFO retaining headroom even under maximum-contention ALOHA arrivals; and the five sweep campaigns of Lab Handouts~3-F and~3-G target 4{,}900 transmitted packets across 21 collection runs, projected to yield at least 2{,}500 effective feature vectors with stratified train/val/test splits keyed on \texttt{run\_id}. For Module~4, the dataset is gated by a ten-check audit that runs before any preprocessing, three classification tasks proceed on disjoint feature sets derived from a label-leakage table that a logistic-regression sanity check independently validates at $\geq$0.95 accuracy on forbidden columns alone, four classifier families (DummyClassifier, decision tree, grid-searched random forest, fully-connected MLP, and 1-D CNN over 8-row beacon-grouped sequences) are compared with 95\% Wilson confidence intervals to make significance claims defensible at $n\!\approx\!375$, the sim-to-real generalization gap $\Delta = \mathrm{Acc}(\mathrm{hw}\!\to\!\mathrm{hw}) - \mathrm{Acc}(\mathrm{sim}\!\to\!\mathrm{hw})$ is measured per task and partially closed by fine-tuning only the final linear layer on 10--20\% of hardware data, and the multi-task real-time inference engine targets a 99th-percentile latency under 6~ms against a 996~ms inter-packet budget while a schema manifest enforces the LH4-A data contract at deployment time as well as at training time. The Module~1 skeleton deliberately consumes only a small fraction of the Artix-7 device so that the CRC-16 checker, feature extraction datapath, and streaming inference blocks added in Modules~2 and~4 can be introduced as student additions rather than replacements---preserving the framework's integration-first pedagogy through the entire module sequence. Taken together, these results demonstrate that the framework is not only pedagogically coherent but also technically feasible within the resource and complexity budgets of a graduate-level capstone course, and that an instructor adopting the framework at another institution can reproduce both the hardware platform and the quantitative acceptance criteria directly from the specification given here.
+This paper presented an educational framework that treats the interfaces between FPGA digital design, RF communications, embedded firmware, and machine learning as first-class teaching objects. The framework is instantiated by a benchtop platform built from commercially available components---STM32 Nucleo-L476RG microcontrollers, RFM95W LoRa transceivers, and a Digilent Nexys A7-100T FPGA---and a five-module progressive curriculum that sequences students through hardware bring-up, RTL design, system integration, AI-driven classification, and full-system stress testing and benchmarking. A Python engagement simulator with a physics-grounded FSPL link model and known ground-truth labels bridges the gap between curriculum introduction and hardware availability, and later serves as the controlled baseline against which real-hardware machine learning results will be compared. Expected-results analysis of all five fully instantiated modules indicates that the chosen hardware should leave more than 100~dB of link margin at bench distances while still exposing every LoRa physical-layer parameter as a tunable student-facing variable, that the Module~1 FPGA ingestion datapath should consume under 0.5\% of the Artix-7 \texttt{xc7a100t} LUT budget and leave the entire DSP and block-RAM resource pool available for the classification pipeline added in Modules 2 and~4, that the complete Module~2 ingestion pipeline should close timing at the target 100~MHz with worst negative slack greater than~3~ns and use approximately 2\% of available block RAM, and that the engagement simulator's closed-form performance envelope is intended to provide a rigorous overfitting check for student-trained classifiers. For Module~3, the closed-form latency budget predicts that RF on-air time will account for $\sim$91\% of end-to-end latency at SF7 and $\sim$99.7\% at SF12, isolating the system's optimization headroom to the RF subsystem rather than the digital processing pipeline; the 268~fps UART throughput ceiling sits well above the operating envelope of three concurrent beacons, and the 64-entry receive FIFO is expected to retain headroom even under maximum-contention ALOHA arrivals; the five sweep campaigns of Lab Handouts~3-F and~3-G target 4{,}900 transmitted packets across 21 collection runs, with an expected yield of at least 2{,}500 effective feature vectors with stratified train/val/test splits keyed on \texttt{run\_id}; and every quantitative claim is paired with a measurement table whose actual-value column the cohort fills during execution. For Module~4, the dataset is gated by a ten-check audit that runs before any preprocessing, three classification tasks proceed on disjoint feature sets derived from a label-leakage table that a logistic-regression sanity check is required to validate at $\geq$0.95 accuracy on forbidden columns alone, four classifier families (DummyClassifier, decision tree, grid-searched random forest, fully-connected MLP, and 1-D CNN over 8-row beacon-grouped sequences) are to be compared with 95\% Wilson confidence intervals to make significance claims defensible at $n\!\approx\!375$, the sim-to-real generalization gap $\Delta = \mathrm{Acc}(\mathrm{hw}\!\to\!\mathrm{hw}) - \mathrm{Acc}(\mathrm{sim}\!\to\!\mathrm{hw})$ is to be measured per task with the framework's expected outcome being recovery of at least half of $\Delta$ on the SF detection task after fine-tuning only the final linear layer on 10--20\% of hardware data, and the multi-task real-time inference engine targets a 99th-percentile latency under 6~ms against a 996~ms inter-packet budget while a schema manifest enforces the LH4-A data contract at deployment time as well as at training time. For Module~5, the system specification is to be derived empirically from a four-dimensional stress matrix---beacon density, rapid SF change, low-SNR sweep, and 30-minute endurance---each row of which is bound to a pre-declared pass/fail threshold and probes a specific upstream design decision rather than running a generic ``does it still work'' check; the six-stage end-to-end latency decomposition $T_{\mathrm{total}} = T_{\mathrm{RF}} + T_{\mathrm{RX\_FW}} + T_{\mathrm{UART\_in}} + T_{\mathrm{FPGA}} + T_{\mathrm{UART\_out}} + T_{\mathrm{infer}}$ is to be captured per operating point with explicit uncertainty propagation into the receiver-firmware residual stage, and the six-point benchmarking matrix B1--B6 is expected to demonstrate RF-stage dominance at every operating point---supporting the architectural conclusion that on-FPGA inference does not reduce $T_{\mathrm{total}}$ unless the host is eliminated entirely; a baseline-regression check at the B4 operating point pins seven comparability axes (SF, beacon count and mode, distance, transmit power, firmware commit, bitstream hash, model artifact hash) before any cross-module comparison is admissible; and the LH5-E failure-mode catalog is required to contain at least eight cross-domain failures organized by chain depth, with at least two depth-2 entries used as the empirical evidence that the curriculum's integration surface developed the cross-domain reasoning the framework exists to teach. The Module~1 skeleton deliberately consumes only a small fraction of the Artix-7 device so that the CRC-16 checker, feature extraction datapath, and streaming inference blocks added in Modules~2 and~4 can be introduced as student additions rather than replacements---preserving the framework's integration-first pedagogy through the entire module sequence. Taken together, these expected results indicate that the framework is pedagogically coherent and that, given the closed-form analyses, datasheet parameters, and framework-defined targets above, it is technically feasible within the resource and complexity budgets of a graduate-level capstone course; an instructor adopting the framework at another institution can reproduce both the hardware platform and the quantitative acceptance criteria directly from the specification given here, and the measurement scaffolds in this paper provide the structured locations into which a delivering cohort fills its actual results.
 
 \begin{thebibliography}{00}
 
