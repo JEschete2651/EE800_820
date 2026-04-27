@@ -80,25 +80,17 @@
 	},
 }
 
-% ── Figure helper: draws a placeholder box if the image file is missing ─
+% ── Figure helper: always draws a placeholder box (images suppressed) ─
 % Usage: \labfigure{filename}{width}{caption}{label}
 \newcommand{\labfigure}[4]{%
 	\begin{figure}[h!]
 		\centering
-		\IfFileExists{Images/#1}{%
-			\includegraphics[width=#2]{#1}%
-		}{%
-			\IfFileExists{../Images/#1}{%
-				\includegraphics[width=#2]{#1}%
-			}{%
-				\fbox{\begin{minipage}[c][2.2in][c]{#2}
-					\centering\color{darkgray}\small
-					\textbf{[Figure placeholder]}\\[4pt]
-					\texttt{\detokenize{#1}}\\[4pt]
-					\textit{#3}
-				\end{minipage}}%
-			}%
-		}
+		\fbox{\begin{minipage}[c][2.2in][c]{#2}
+			\centering\color{darkgray}\small
+				\textbf{[Figure placeholder]}\\[4pt]
+				\texttt{\detokenize{#1}}\\[4pt]
+				\textit{#3}
+		\end{minipage}}%
 		\caption{#3}
 		\label{#4}
 	\end{figure}%

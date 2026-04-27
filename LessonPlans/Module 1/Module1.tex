@@ -67,6 +67,15 @@
 		fonttitle=\bfseries, title=#1, boxrule=0.5pt, arc=2pt}
 }
 
+% ── Figure placeholders ───────────────────────────────────────
+\newcommand{\modulefigureplaceholder}[2]{%
+	\fbox{\begin{minipage}[c][2.2in][c]{#1}
+		\centering\color{darkgray}\small
+			\textbf{[Figure placeholder]}\\[4pt]
+			\texttt{\detokenize{#2}}
+	\end{minipage}}%
+}
+
 % ══════════════════════════════════════════════════════════════
 \begin{document}
 	
@@ -493,7 +502,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\includegraphics[width=0.85\textwidth]{Images/BFA.png}
+		\modulefigureplaceholder{0.85\textwidth}{Images/BFA.png}
 		\caption{Beacon firmware state machine. The IDLE$\rightarrow$BUILD$\rightarrow$TRANSMIT$\rightarrow$LOG cycle repeats for each scheduled transmission.}
 		\label{fig:beacon_fsm}
 	\end{figure}
@@ -615,7 +624,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\includegraphics[width=0.9\textwidth]{Images/RFA.png}
+		\modulefigureplaceholder{0.9\textwidth}{Images/RFA.png}
 		\caption{Receiver firmware architecture. The ISR captures packets into a ring buffer; the main loop drains the buffer and forwards frames to the \FPGA{}.}
 		\label{fig:rx_fw}
 	\end{figure}
@@ -653,7 +662,7 @@
 	
 	\begin{figure}[ht!]
 		\centering
-		\includegraphics[width=\textwidth]{Images/Module1Subsystem.png}
+		\modulefigureplaceholder{\textwidth}{Images/Module1Subsystem.png}
 		\caption{Module~1 subsystem architecture. Solid blocks and arrows indicate components and data paths validated by end of Week~4. The dashed \ML{} Pipeline block indicates a downstream module.}
 		\label{fig:arch}
 	\end{figure}
