@@ -152,4 +152,5 @@ The 10 papers provide coverage across all eight specified topic areas:
 |T8: Automatic modulation classification with deep learning|Papers 3, 4|
 
 
-
+L476RG Pin Layout
+https://www.se.rit.edu/~swen-340/resources/nucleo/nucleo-arduino-pins.pdf

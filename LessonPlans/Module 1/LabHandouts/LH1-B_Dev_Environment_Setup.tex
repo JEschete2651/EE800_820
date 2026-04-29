@@ -16,15 +16,52 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	\item STM32 Nucleo-L476RG board and a USB Mini-B cable.
 \end{itemize}
 
+\begin{tcolorbox}[warning={Before You Begin --- Update ST-LINK Firmware}]
+	Before creating any project files, update the on-board ST-LINK firmware. Connect the Nucleo via USB, then in VS Code run the command palette entry ``STM32: Update ST-LINK firmware''. Skipping this step can cause mysterious flash failures later.
+\end{tcolorbox}
+
 \section{Procedure}
 
 \subsection{Step 1 --- Install VS Code}
 \begin{enumerate}[leftmargin=2em]
 	\item Download VS Code from \href{https://code.visualstudio.com/}{code.visualstudio.com} and install with default options.
-	\item Launch VS Code and open the Extensions panel (\texttt{Ctrl+Shift+X}).
+	\item Launch VS Code. It is recommended to create a dedicated \textbf{profile} for this course (File $\to$ Preferences $\to$ Profiles $\to$ New Profile) to keep the STM32 extension stack isolated from other projects.
+	\item Open the Extensions panel (\texttt{Ctrl+Shift+X}).
 \end{enumerate}
 
-\subsection{Step 2 --- Install the STMicroelectronics extension stack}
+\subsection{Step 2 --- Install CMake}
+\begin{enumerate}[leftmargin=2em]
+	\item Download and install the latest CMake release for your operating system from \href{https://cmake.org/download/}{cmake.org/download}.
+	\item Accept the default installation path (\texttt{C:\textbackslash Program Files\textbackslash CMake}).
+	\item After installation, configure VS Code to use this CMake binary:
+	\begin{enumerate}[leftmargin=1.5em]
+		\item Go to File $\to$ Preferences $\to$ Settings (or \texttt{Ctrl+,}).
+		\item Search for \textbf{cmake path} (or \texttt{cmake.cmakePath}).
+		\item Set the value to:
+\begin{verbatim}
+C:\Program Files\CMake\bin\cmake.exe
+\end{verbatim}
+	\end{enumerate}
+	\item \textbf{Close and reopen VS Code} so the new path takes effect.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Alternate cmake.cmakePath method}]
+	If the setting does not persist or the extension does not pick it up, create a \texttt{.vscode} folder at the root of your project and add a \texttt{settings.json} file containing:
+\begin{verbatim}
+{
+  "cmake.cmakePath": "C:/Program Files/CMake/bin/cmake.exe"
+}
+\end{verbatim}
+	Note the forward slashes --- JSON requires them even on Windows.
+\end{tcolorbox}
+
+\subsection{Step 3 --- Install STM32CubeMX}
+\begin{enumerate}[leftmargin=2em]
+	\item Download STM32CubeMX from \href{https://www.st.com/en/development-tools/stm32cubemx.html}{st.com} and choose the installer for your operating system.
+	\item Run the installer and accept all defaults.
+\end{enumerate}
+
+\subsection{Step 4 --- Install the STMicroelectronics extension stack}
 \begin{enumerate}[leftmargin=2em]
 	\item Search the marketplace for \texttt{STM32 VS Code Extension} (publisher: STMicroelectronics). Install it.
 	\item The umbrella extension will auto-install the following sub-extensions. Verify each is present and enabled:
@@ -50,7 +87,7 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 
 \labfigure{LH1B_vscode_extensions.png}{0.85\textwidth}{VS Code Extensions panel with the full STMicroelectronics extension stack installed. Verify each sub-extension listed above is present and enabled.}{fig:lh1b-ext}
 
-\subsection{Step 3 --- Install the ARM toolchain and \HAL{} packs}
+\subsection{Step 5 --- Install the ARM toolchain and \HAL{} packs}
 \begin{enumerate}[leftmargin=2em]
 	\item Open the STM32Cube Bundles Manager from the VS Code command palette (\texttt{Ctrl+Shift+P} $\to$ ``STM32: Bundles Manager'').
 	\item Install the latest ARM GCC toolchain when prompted.
@@ -63,40 +100,84 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 \end{tcolorbox}
 
 \newpage
-\subsection{Step 4 --- Create an empty project targeting the Nucleo-L476RG}
+\subsection{Step 6 --- Create a project with STM32CubeMX}
 \begin{enumerate}[leftmargin=2em]
-	\item Command palette $\to$ ``STM32: New Project''.
-	\item Project type: \textbf{Empty}. Board: \textbf{NUCLEO-L476RG}. Toolchain: \textbf{CMake}.
-	\item When prompted, open the integrated STM32CubeMX peripheral configurator. Enable the \textbf{LED2} user \mbox{LED} on \texttt{PA5} as a \mbox{GPIO} output. Leave all other peripherals at defaults.
-	\item Click ``Generate Code''. VS Code will create \texttt{main.c} with the \HAL{} initialization stubs.
+	\item In the VS Code Activity Bar, click the \textbf{STM32} icon, then click \textbf{Launch STM32CubeMX}.
+	\item In CubeMX, click \textbf{Access to Board Selector}.
+	\item In the ``Commercial Part Number'' search box, type \texttt{NUCLEO-L476RG} and select the board from the results.
+	\item Click \textbf{Start Project}.
+	\item Click the \textbf{Project Manager} tab.
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=2pt]
+		\item Enter a project name.
+		\item Set the project location. \textbf{Do not use a OneDrive-synced folder} --- the sync process can corrupt files mid-write during code generation.
+		\item Change the \textbf{Toolchain / IDE} to \textbf{CMake}.
+	\end{itemize}
+	\item Click \textbf{Generate Code}.
 \end{enumerate}
 
-\labfigure{LH1B_cubemx_pinout.png}{0.85\textwidth}{Integrated STM32CubeMX pinout view with \texttt{PA5} configured as \texttt{GPIO\_Output} (LD2).}{fig:lh1b-cubemx}
+\labfigure{LH1B_cubemx_pinout.png}{0.85\textwidth}{STM32CubeMX pinout view with the Nucleo-L476RG selected and CMake chosen as the toolchain.}{fig:lh1b-cubemx}
 
-\subsection{Step 5 --- Write and build blinky}
+\subsection{Step 7 --- Open the project and initialize the STM32Cube bundle}
+\begin{enumerate}[leftmargin=2em]
+	\item In VS Code, open the folder that CubeMX generated (File $\to$ Open Folder). \textbf{The STM32 project folder must be the root folder of the VS Code window} --- if you open a parent directory, the ``Setup STM32Cube project(s)'' button will remain greyed out. If VS Code already has another folder open, use File $\to$ New Window and open the project folder there.
+	\item Open the integrated terminal (\texttt{Ctrl+\`{}}) and run:
+\begin{verbatim}
+cube bundle init --project
+\end{verbatim}
+	\item Verify the project was initialized correctly:
+\begin{verbatim}
+cube bundle show --project
+\end{verbatim}
+	The output should list the board, toolchain, and installed pack versions without any error messages.
+	\item In the STM32Cube extension panel, click \textbf{Setup STM32Cube project(s)}. Verify the board and toolchain are correct, then click \textbf{Save and Close}.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={If cmake.cmakePath is not recognized}]
+	If VS Code reports a bad CMake executable after opening the project folder, the workspace-level setting may not have carried over. Create a \texttt{.vscode/settings.json} file in the project root (if one does not already exist) and add:
+\begin{verbatim}
+{
+  "cmake.cmakePath": "C:/Program Files/CMake/bin/cmake.exe"
+}
+\end{verbatim}
+	Reload VS Code and verify the setting is active before proceeding.
+\end{tcolorbox}
+
+\subsection{Step 8 --- Configure the debug launcher}
+\begin{enumerate}[leftmargin=2em]
+	\item Switch to the \textbf{Run and Debug} panel (\texttt{Ctrl+Shift+D}).
+	\item Click \textbf{create a launch.json file}.
+	\item Select \textbf{STM32Cube: Launch ST-Link GDB Server} from the environment list.
+	\item VS Code will create \texttt{.vscode/launch.json} pre-populated with the correct GDB server configuration for the Nucleo.
+\end{enumerate}
+
+\subsection{Step 9 --- Write and build blinky}
 \begin{enumerate}[leftmargin=2em]
 	\item In the main loop of \texttt{main.c}, add:
 \begin{verbatim}
-HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-HAL_Delay(500);
+if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET)
+{
+  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+  HAL_Delay(50);
+}
 \end{verbatim}
+	While the onboard user button (B1) is held, \texttt{LD2} will blink rapidly. The button reads \texttt{GPIO\_PIN\_RESET} when pressed because it is active-low.
 	\item Command palette $\to$ ``CMake: Build''. Confirm the build completes with zero errors.
-	\item Note the ELF output path reported at the end of the build log; you will use it in Step~6.
+	\item Note the ELF output path reported at the end of the build log; you will use it in the next step.
 \end{enumerate}
 
 \newpage
-\subsection{Step 6 --- Connect the Nucleo and flash}
+\subsection{Step 10 --- Connect the Nucleo and flash}
 \begin{enumerate}[leftmargin=2em]
 	\item Plug the Nucleo into your PC via USB Mini-B. The \texttt{LD1} ST-LINK status \mbox{LED} should turn red, then blink red/green while enumerating.
 	\item On Windows, Device Manager should show ``ST-Link Debug'' and ``STLink Virtual COM Port'' after enumeration. On macOS/Linux, the device appears as \texttt{/dev/cu.usbmodemXXXX} or \texttt{/dev/ttyACMX}.
-	\item Command palette $\to$ ``CMake: Debug'' or press \texttt{F5}. VS Code launches the ST-LINK GDB server, flashes the ELF, halts at \texttt{main}, and waits at the first breakpoint.
-	\item Press \texttt{F5} again (Continue). The green \texttt{LD2} \mbox{LED} on the Nucleo should begin blinking at 1\,Hz.
+	\item Press \texttt{F5} (or Command palette $\to$ ``CMake: Debug''). VS Code launches the ST-LINK GDB server, flashes the ELF, halts at \texttt{main}, and waits at the first breakpoint.
+	\item Press \texttt{F5} again (Continue). Hold the blue user button (B1) on the Nucleo --- \texttt{LD2} should blink rapidly while the button is held and stop when released.
 \end{enumerate}
 
 \labfigure{LH1B_blinky_terminal.png}{0.85\textwidth}{VS Code terminal showing a successful CMake build and flash cycle for the blinky image.}{fig:lh1b-build}
 
 \newpage
-\subsection{Step 7 --- Verify the debug features}
+\subsection{Step 11 --- Verify the debug features}
 \begin{enumerate}[leftmargin=2em]
 	\item With the target halted, open the Peripheral Registers view (from the \texttt{stm32cube-ide-registers} extension). Expand \texttt{GPIOA} and locate the \texttt{ODR} register. Confirm that single-stepping past the \texttt{TogglePin} call flips bit 5.
 	\item Set a breakpoint inside the main loop. Resume. Confirm the debugger halts on the breakpoint and that variable values inspect correctly.
@@ -106,9 +187,11 @@ HAL_Delay(500);
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] All listed ST extensions are installed and enabled.
+	\item[$\square$] CMake installed and \texttt{cmake.cmakePath} set correctly in VS Code settings.
 	\item[$\square$] ARM toolchain and STM32Cube\mbox{L4} \HAL{} pack installed via Bundles Manager.
-	\item[$\square$] Empty project for Nucleo-L476RG builds with zero errors.
-	\item[$\square$] ELF flashes successfully over ST-LINK; \texttt{LD2} blinks at 1\,Hz.
+	\item[$\square$] \texttt{cube bundle init -{}-project} and \texttt{cube bundle show -{}-project} complete without errors.
+	\item[$\square$] Project for Nucleo-L476RG builds with zero errors.
+	\item[$\square$] ELF flashes successfully over ST-LINK; \texttt{LD2} blinks while the user button (B1) is held.
 	\item[$\square$] A breakpoint in the main loop halts execution as expected.
 	\item[$\square$] The \texttt{GPIOA->ODR} register view reflects the toggling state.
 	\item[$\square$] Serial Monitor opens the STLink Virtual COM port without errors.
@@ -116,10 +199,17 @@ HAL_Delay(500);
 
 \begin{tcolorbox}[warning={Common Pitfalls}]
 	\begin{itemize}[leftmargin=1.2em]
-		\item \textbf{ST-LINK not detected on Windows:} install the STSW-LINK009 driver from \texttt{st.com}. A reboot may be required.
-		\item \textbf{Firmware builds but fails to flash:} update the on-board ST-LINK firmware via the ``STM32: Update ST-LINK firmware'' command.
-		\item \textbf{Wrong board selected:} the L476RG has an ARM Cortex-M4 at 80\,MHz; if the build log mentions M0 or M3, you picked a different Nucleo variant.
+		\item \textbf{ST-LINK not connected / not detected on Windows:} Install the STSW-LINK009 driver from \texttt{st.com}. A reboot may be required.
+		\item \textbf{``Bad CMake executable: cube-cmake'':} CMake is not installed or the \texttt{cmake.cmakePath} setting does not point to the correct binary. Verify the path in both the global VS Code settings and the workspace-level \texttt{.vscode/settings.json}.
+		\item \textbf{Firmware builds but fails to flash / packages only partially installed:} Use the STM32Cube Bundles Manager to reinstall the affected bundles. Also ensure the on-board ST-LINK firmware is up to date (``STM32: Update ST-LINK firmware'') --- this should be done \emph{before} creating any project files.
+		\item \textbf{Wrong board selected:} The L476RG has an ARM Cortex-M4 at 80\,MHz. If the build log mentions M0 or M3, you selected a different Nucleo variant.
+		\item \textbf{Project stored in a OneDrive folder:} OneDrive can corrupt generated files by syncing mid-write. Move the project to a local directory outside any cloud-sync folder.
 	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[infobox={Additional Resource}]
+	The following video walkthrough covers the full VS Code + STM32 extension setup and may help clarify any steps above:\\
+	\href{https://www.youtube.com/watch?v=CDqQXCO6F4A}{youtube.com/watch?v=CDqQXCO6F4A}
 \end{tcolorbox}
 
 \begin{tcolorbox}[deliverable={Lab Handout 1-B Deliverable}]

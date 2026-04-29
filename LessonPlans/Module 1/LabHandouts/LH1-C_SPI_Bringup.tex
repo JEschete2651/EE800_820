@@ -29,18 +29,20 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\centering
 	\begin{tabular}{l l l l}
 		\toprule
-		\textbf{RFM95W Pin} & \textbf{Function} & \textbf{Nucleo Pin} & \textbf{Arduino Hdr} \\
+		\textbf{RFM95W Pin} & \textbf{Function} & \textbf{Nucleo Pin} & \textbf{Board Label} \\
 		\midrule
 		\texttt{VIN} & +3.3\,V supply & \texttt{3V3} & 3V3 \\
 		\texttt{GND} & Ground & \texttt{GND} & GND \\
-		\texttt{SCK} & \SPI{} clock & \texttt{PA5} & D13 \\
-		\texttt{MISO} & \SPI{} data in (to \MCU{}) & \texttt{PA6} & D12 \\
-		\texttt{MOSI} & \SPI{} data out (from \MCU{}) & \texttt{PA7} & D11 \\
-		\texttt{CS} & Chip select (active low) & \texttt{PB6} & D10 \\
+		\texttt{SCK} & \SPI{} clock & \texttt{PA5} & SCK/D13 \\
+		\texttt{MISO} & \SPI{} data in (to \MCU{}) & \texttt{PA6} & MISO/D12 \\
+		\texttt{MOSI} & \SPI{} data out (from \MCU{}) & \texttt{PA7} & PWM/MOSI/D11 \\
+		\texttt{CS} & Chip select (active low) & \texttt{PB6} & PWM/CS/D10 \\
 		\texttt{RST} & Reset (active low) & \texttt{PA9} & D8 \\
 		\texttt{G0} (\texttt{DIO0}) & Packet-done interrupt & \texttt{PA8} & D7 \\
 		\bottomrule
 	\end{tabular}
+	\\[4pt]
+	\footnotesize\textit{Board Label refers to the silkscreen text on the Nucleo CN10 connector. Locate pins by this label; the STM32 pin name (PA5, etc.) is the CubeMX reference.}
 \end{table}
 
 \labfigure{LH1C_wiring_diagram.png}{0.9\textwidth}{Schematic of the Nucleo-L476RG $\leftrightarrow$ RFM95W wiring. Power, ground, full-duplex \SPI{}1, chip-select, reset, and \texttt{DIO0} interrupt line are all shown.}{fig:lh1c-schematic}
@@ -56,13 +58,21 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 
 \subsection{Step 1 --- Configure peripherals via STM32CubeMX}
 \begin{enumerate}[leftmargin=2em]
-	\item Open the project from Lab Handout~1-B (or create a new one if you prefer to keep blinky separate). Open the CubeMX perspective.
-	\item Enable \textbf{\SPI{}1} in \textbf{Full-Duplex Master} mode.
-	\item Configure \SPI{}1 with the settings in Table~\ref{tab:spi-bringup}.
-	\item Configure \texttt{PB6}, \texttt{PA9}, \texttt{PA8} as \mbox{GPIO} outputs named \texttt{RFM\_CS}, \texttt{RFM\_RST}, \texttt{RFM\_DIO0} (\texttt{DIO0} will become an \texttt{EXTI} input later; leave as plain \mbox{GPIO} input for this handout).
-	\item Enable \textbf{USART2} in asynchronous mode at 115200\,8N1 (for \texttt{printf} redirection to the ST-LINK virtual COM port).
-	\item Generate code.
-\end{enumerate}
+	\item Create a new project in STM32CubeMX following the same steps as Lab Handout~1-B (STM icon $\to$ Launch STM32CubeMX $\to$ Board Selector $\to$ NUCLEO-L476RG $\to$ Start Project $\to$ Project Manager). Name the project \textbf{Nucleo\_RFM95W\_Base} and save it to a local folder outside OneDrive. Set the toolchain to \textbf{CMake}. This project will serve as the reusable base configuration for all subsequent RF labs.
+
+	\item \textbf{Enable SPI1:}
+	\begin{enumerate}[leftmargin=1.5em]
+		\item In the pinout view, click pin \texttt{PA5} and select \textbf{SPI1\_SCK} from the popup. Repeat for \texttt{PA6} $\to$ \textbf{SPI1\_MISO} and \texttt{PA7} $\to$ \textbf{SPI1\_MOSI}.
+		\item In the left-hand \textbf{Categories} tree, expand \textbf{Connectivity} and click \textbf{SPI1}.
+		\item Set the \textbf{Mode} dropdown to \textbf{Full-Duplex Master}. The pins assigned above will be confirmed in the pinout view.
+	\end{enumerate}
+
+	\item \textbf{Configure SPI1 parameters:}
+	\begin{enumerate}[leftmargin=1.5em]
+		\item With SPI1 still selected, click the \textbf{Configuration} tab (or \textbf{Parameter Settings} in newer CubeMX versions).
+		\item Set each parameter per Table~\ref{tab:spi-bringup} below. Pay particular attention to \mbox{CPOL}=0 and \mbox{CPHA}=1~Edge --- an incorrect clock phase is the most common cause of a failed \texttt{RegVersion} read.
+		\item Set \textbf{NSS} to \textbf{Software} --- chip select will be driven manually in firmware.
+	\end{enumerate}
 
 \begin{table}[h!]
 	\centering
@@ -75,7 +85,7 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 		Mode & Full-Duplex Master \\
 		Data size & 8 bits \\
 		First bit & \mbox{MSB} first \\
-		Prescaler & Set so that \SPI{} clock $\leq$5\,MHz (safe margin below the 10\,MHz max) \\
+		Prescaler & \textbf{32} (yields 2.5\,MHz at 80\,MHz PCLK2; safe margin below the 10\,MHz max) \\
 		\mbox{CPOL} & 0 (Low) \\
 		\mbox{CPHA} & 1 Edge \\
 		NSS & Software \\
@@ -83,18 +93,52 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\end{tabular}
 \end{table}
 
-\labfigure{LH1C_spi_config.png}{0.85\textwidth}{STM32CubeMX \SPI{}1 parameter panel configured per Table~\ref{tab:spi-bringup}: 8-bit data, MSB first, \mbox{CPOL}=0, \mbox{CPHA}=1~Edge, prescaler chosen for $\leq$5\,MHz clock.}{fig:lh1c-cubemx}
+	\item \textbf{Configure GPIO pins for CS, RST, and DIO0:}
+	\begin{enumerate}[leftmargin=1.5em]
+		\item In the pinout view, click pin \texttt{PB6}. Select \textbf{GPIO\_Output} from the popup.
+		\item Repeat for \texttt{PA9} and \texttt{PA8}.
+		\item To assign user labels, click \textbf{System Core} $\to$ \textbf{GPIO} in the categories tree. Select each pin and set its \textbf{User Label}: \texttt{PB6} $\to$ \texttt{RFM\_CS}, \texttt{PA9} $\to$ \texttt{RFM\_RST}, \texttt{PA8} $\to$ \texttt{RFM\_DIO0}. These labels become the \texttt{\_GPIO\_Port} and \texttt{\_Pin} macro names in generated code.
+		\item Leave \texttt{PA8} (\texttt{RFM\_DIO0}) as a plain GPIO output for now; it will be reconfigured as an \texttt{EXTI} interrupt input in a later handout.
+	\end{enumerate}
+
+	\item \textbf{Enable USART2} (used to send \texttt{printf} output to the ST-LINK virtual COM port):
+	\begin{enumerate}[leftmargin=1.5em]
+		\item In the categories tree, expand \textbf{Connectivity} and click \textbf{USART2}.
+		\item Set \textbf{Mode} to \textbf{Asynchronous}.
+		\item In \textbf{Parameter Settings}, confirm \textbf{Baud Rate} is \textbf{115200}, \textbf{Word Length} 8~bits, \textbf{Parity} None, \textbf{Stop Bits} 1.
+	\end{enumerate}
+
+	\item Click \textbf{Generate Code}. Return to VS Code and run \texttt{cube bundle init -{}-project} in the terminal if prompted.
+\end{enumerate}
+
+\labfigure{LH1C_spi_config.png}{0.85\textwidth}{STM32CubeMX \SPI{}1 parameter panel configured per Table~\ref{tab:spi-bringup}: 8-bit data, MSB first, \mbox{CPOL}=0, \mbox{CPHA}=1~Edge, prescaler 32.}{fig:lh1c-cubemx}
 
 \subsection{Step 2 --- Redirect \texttt{printf} to USART2}
 \begin{enumerate}[leftmargin=2em]
-	\item In \texttt{main.c}, add an override for \texttt{\_\_io\_putchar} that calls \texttt{HAL\_UART\_Transmit(\&huart2, ...)}. A standard snippet:
+	\item In \texttt{main.c}, locate the \texttt{/* USER CODE BEGIN Includes */} section near the top of the file and add:
 \begin{verbatim}
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+/* USER CODE END Includes */
+\end{verbatim}
+	\item Locate the \texttt{/* USER CODE BEGIN PFP */} section and add prototypes for every function you will define in this lab:
+\begin{verbatim}
+/* USER CODE BEGIN PFP */
+int __io_putchar(int ch);
+uint8_t rfm_read_reg(uint8_t addr);
+void rfm_write_reg(uint8_t addr, uint8_t val);
+/* USER CODE END PFP */
+\end{verbatim}
+	\item Scroll to the \texttt{/* USER CODE BEGIN 4 */} section near the bottom of the file and add the definition:
+\begin{verbatim}
+/* USER CODE BEGIN 4 */
 int __io_putchar(int ch) {
     HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, HAL_MAX_DELAY);
     return ch;
 }
+/* USER CODE END 4 */
 \end{verbatim}
-	\item In the build configuration, ensure the \texttt{--specs=nano.specs} and \texttt{-u \_printf\_float} flags (or equivalent) are set so the reduced-newlib \texttt{printf} links.
+	Keeping the prototype and definition inside the \texttt{USER CODE} comment blocks ensures they are preserved if you regenerate code from CubeMX.
 \end{enumerate}
 
 \subsection{Step 3 --- Write a minimal register-read function}
@@ -109,15 +153,50 @@ uint8_t rfm_read_reg(uint8_t addr) {
     return rx[1];
 }
 \end{verbatim}
-And the matching write helper (bit 7 = 1, followed by the value byte).
+Add the write helper immediately after in the same \texttt{USER CODE BEGIN 4} section:
+\begin{verbatim}
+void rfm_write_reg(uint8_t addr, uint8_t val) {
+    uint8_t tx[2] = { addr | 0x80, val };  // bit 7 = 1 => write
+    HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_RESET);
+    HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_SET);
+}
+\end{verbatim}
 
 \newpage
 \subsection{Step 4 --- Reset the module and read \texttt{RegVersion}}
 \begin{enumerate}[leftmargin=2em]
-	\item In \texttt{main} after \HAL{} init, drive \texttt{RFM\_RST} low for at least 100\,$\mu$s, then high, then wait 10\,ms for the module to come out of reset.
-	\item Call \texttt{rfm\_read\_reg(0x42)} and \texttt{printf} the result.
-	\item Flash and run. Open the serial monitor (115200,8N1).
-	\item You should see \texttt{RegVersion = 0x12}. Any other value indicates a wiring or configuration error.
+	\item In \texttt{main.c}, locate the \texttt{/* USER CODE BEGIN 2 */} section (after all HAL and peripheral initialization). Add the following reset sequence and register read:
+\begin{verbatim}
+/* USER CODE BEGIN 2 */
+
+/* Reset the RFM95W */
+HAL_GPIO_WritePin(RFM_RST_GPIO_Port, RFM_RST_Pin, GPIO_PIN_RESET);
+HAL_Delay(1);  // hold reset low for at least 100 us
+HAL_GPIO_WritePin(RFM_RST_GPIO_Port, RFM_RST_Pin, GPIO_PIN_SET);
+HAL_Delay(10); // wait for module to come out of reset
+
+/* Read and print the version register */
+uint8_t version = rfm_read_reg(0x42);
+printf("RegVersion = 0x%02X\r\n", version);
+
+/* USER CODE END 2 */
+\end{verbatim}
+	\item Build the project: Command Palette $\to$ \textbf{CMake: Build}. Confirm zero errors.
+	\item Flash and run: press \texttt{F5}. Once the debugger halts at \texttt{main}, press \texttt{F5} again to continue.
+	\item Open the Serial Monitor panel:
+	\begin{enumerate}[leftmargin=1.5em]
+		\item Command Palette (\texttt{Ctrl+Shift+P}) $\to$ \textbf{Serial Monitor: Focus on Serial Monitor View}.
+		\item In the Serial Monitor panel at the bottom of VS Code, click \textbf{Open Serial Monitor}.
+		\item Select the \textbf{STLink Virtual COM Port} from the port dropdown.
+		\item Set the baud rate to \textbf{115200}.
+		\item Click \textbf{Start Monitoring}.
+	\end{enumerate}
+	\item You should see the following output:
+\begin{verbatim}
+RegVersion = 0x12
+\end{verbatim}
+	Any other value indicates a wiring or configuration error --- see the Troubleshooting section.
 \end{enumerate}
 
 \begin{tcolorbox}[infobox={Why 0x12?}]
@@ -127,17 +206,57 @@ And the matching write helper (bit 7 = 1, followed by the value byte).
 \labfigure{LH1C_regversion_printf.png}{0.75\textwidth}{Serial monitor output showing the first successful \texttt{RegVersion = 0x12} read. This is the canonical sanity check for the entire \SPI{} stack.}{fig:lh1c-regversion}
 
 \subsection{Step 5 --- Register write / read-back}
+
+Add the following code in \texttt{main.c} inside the \texttt{/* USER CODE BEGIN 2 */} block, immediately after the \texttt{RegVersion} read from Step~4:
+
 \begin{enumerate}[leftmargin=2em]
-	\item Write the sequence \texttt{0xD9 0x0C 0xCC} to \texttt{RegFrfMsb}, \texttt{RegFrfMid}, \texttt{RegFrfLsb} (address \texttt{0x06}--\texttt{0x08}). This sets the carrier frequency to 906.5\,MHz. Note: the module must be in \texttt{SLEEP} mode before frequency writes take effect.
-	\item Read the same registers back. Verify that all three values match what you wrote.
+	\item First put the module into \texttt{SLEEP} mode --- the SX1276 requires this before frequency registers can be written:
+\begin{verbatim}
+rfm_write_reg(0x01, 0x80);  // LoRa mode, SLEEP
+HAL_Delay(10);
+\end{verbatim}
+	\item Write the three frequency registers to set the carrier to 906.5\,MHz:
+\begin{verbatim}
+rfm_write_reg(0x06, 0xD9);  // RegFrfMsb
+rfm_write_reg(0x07, 0x0C);  // RegFrfMid
+rfm_write_reg(0x08, 0xCC);  // RegFrfLsb
+\end{verbatim}
+	\item Read the same registers back and print each value:
+\begin{verbatim}
+printf("FrfMsb = 0x%02X\r\n", rfm_read_reg(0x06));
+printf("FrfMid = 0x%02X\r\n", rfm_read_reg(0x07));
+printf("FrfLsb = 0x%02X\r\n", rfm_read_reg(0x08));
+\end{verbatim}
+	\item Build, flash (\texttt{F5}), and check the serial monitor. The three printed values should match \texttt{0xD9}, \texttt{0x0C}, \texttt{0xCC}. A mismatch usually indicates a \mbox{CPOL}/\mbox{CPHA} error or a floating \texttt{MISO} line.
 \end{enumerate}
 
 \subsection{Step 6 --- Mode transitions}
+The \texttt{RegOpMode} register (\texttt{0x01}) controls the radio operating state. The low 3~bits select the mode; bit~7 selects LoRa vs.\ FSK. Add the following to \texttt{/* USER CODE BEGIN 2 */} after the Step~5 code, then build and flash to observe each transition in the serial monitor.
+
 \begin{enumerate}[leftmargin=2em]
-	\item Read \texttt{RegOpMode} (\texttt{0x01}). Confirm the low 3 bits reflect the current mode.
-	\item Write \texttt{0x80} to \texttt{RegOpMode} (LoRa mode, \texttt{SLEEP}).
-	\item Write \texttt{0x81} (LoRa mode, \texttt{STANDBY}). Read back and confirm.
-	\item Write \texttt{0x83} (LoRa mode, \texttt{TX}). Read back and confirm. The module will return to \texttt{STANDBY} after any transmission attempt; this is expected.
+	\item Read the current mode and print it:
+\begin{verbatim}
+printf("OpMode = 0x%02X\r\n", rfm_read_reg(0x01));
+\end{verbatim}
+	\item Transition to LoRa \texttt{SLEEP} (bits [2:0] = \texttt{000}):
+\begin{verbatim}
+rfm_write_reg(0x01, 0x80);
+HAL_Delay(10);
+printf("OpMode (SLEEP)    = 0x%02X\r\n", rfm_read_reg(0x01));
+\end{verbatim}
+	\item Transition to LoRa \texttt{STANDBY} (bits [2:0] = \texttt{001}):
+\begin{verbatim}
+rfm_write_reg(0x01, 0x81);
+HAL_Delay(10);
+printf("OpMode (STANDBY)  = 0x%02X\r\n", rfm_read_reg(0x01));
+\end{verbatim}
+	\item Transition to LoRa \texttt{TX} (bits [2:0] = \texttt{011}):
+\begin{verbatim}
+rfm_write_reg(0x01, 0x83);
+HAL_Delay(10);
+printf("OpMode (TX)       = 0x%02X\r\n", rfm_read_reg(0x01));
+\end{verbatim}
+	The module will return to \texttt{STANDBY} automatically after any transmission attempt; seeing \texttt{0x81} on a subsequent read is expected.
 \end{enumerate}
 
 \section{Verification Checklist}
