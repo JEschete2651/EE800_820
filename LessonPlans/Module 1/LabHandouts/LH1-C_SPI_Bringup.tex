@@ -183,7 +183,7 @@ printf("RegVersion = 0x%02X\r\n", version);
 /* USER CODE END 2 */
 \end{verbatim}
 	\item Build the project: Command Palette $\to$ \textbf{CMake: Build}. Confirm zero errors.
-	\item Flash and run: press \texttt{F5}. Once the debugger halts at \texttt{main}, press \texttt{F5} again to continue.
+	\item Flash and run: in the \textbf{Run and Debug} panel, click the green \textbf{Start Debugging} arrow. Once the debugger halts at \texttt{main}, click the green \textbf{Continue} button in the debug toolbar.
 	\item Open the Serial Monitor panel:
 	\begin{enumerate}[leftmargin=1.5em]
 		\item Command Palette (\texttt{Ctrl+Shift+P}) $\to$ \textbf{Serial Monitor: Focus on Serial Monitor View}.
@@ -227,7 +227,7 @@ printf("FrfMsb = 0x%02X\r\n", rfm_read_reg(0x06));
 printf("FrfMid = 0x%02X\r\n", rfm_read_reg(0x07));
 printf("FrfLsb = 0x%02X\r\n", rfm_read_reg(0x08));
 \end{verbatim}
-	\item Build, flash (\texttt{F5}), and check the serial monitor. The three printed values should match \texttt{0xD9}, \texttt{0x0C}, \texttt{0xCC}. A mismatch usually indicates a \mbox{CPOL}/\mbox{CPHA} error or a floating \texttt{MISO} line.
+	\item Build (CMake: Build), then flash using the green \textbf{Start Debugging} arrow in the \textbf{Run and Debug} panel. Check the serial monitor. The three printed values should match \texttt{0xD9}, \texttt{0x0C}, \texttt{0xCC}. A mismatch usually indicates a \mbox{CPOL}/\mbox{CPHA} error or a floating \texttt{MISO} line.
 \end{enumerate}
 
 \subsection{Step 6 --- Mode transitions}

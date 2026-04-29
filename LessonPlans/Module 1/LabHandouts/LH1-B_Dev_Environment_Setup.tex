@@ -170,9 +170,9 @@ if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET)
 \begin{enumerate}[leftmargin=2em]
 	\item Plug the Nucleo into your PC via USB Mini-B. The \texttt{LD1} ST-LINK status \mbox{LED} should turn red, then blink red/green while enumerating.
 	\item On Windows, Device Manager should show ``ST-Link Debug'' and ``STLink Virtual COM Port'' after enumeration. On macOS/Linux, the device appears as \texttt{/dev/cu.usbmodemXXXX} or \texttt{/dev/ttyACMX}.
-	\item Press \texttt{F5} (or Command palette $\to$ ``CMake: Debug''). VS Code launches the ST-LINK GDB server, flashes the ELF, halts at \texttt{main}, and waits at the first breakpoint.
-	\item Press \texttt{F5} again (Continue). Hold the blue user button (B1) on the Nucleo --- \texttt{LD2} should blink rapidly while the button is held and stop when released.
-	\item \textbf{Repeat for all three Nucleo boards.} Disconnect the current board, connect the next one, and press \texttt{F5} to flash and verify. Each board must pass before proceeding to Lab Handout~1-C.
+	\item In the \textbf{Run and Debug} panel, click the green \textbf{Start Debugging} arrow (top of the panel, next to the configuration name). VS Code launches the ST-LINK GDB server, flashes the ELF, halts at \texttt{main}, and waits at the first breakpoint.
+	\item Click the green \textbf{Continue} button in the debug toolbar that appears at the top of the screen. Hold the blue user button (B1) on the Nucleo --- \texttt{LD2} should blink rapidly while the button is held and stop when released.
+	\item \textbf{Repeat for all three Nucleo boards.} Click the red \textbf{Stop} button in the debug toolbar, disconnect the current board, and plug in the next one. Click the green \textbf{Start Debugging} arrow again to flash and verify --- no reconfiguration is needed, just swap the USB cable and re-flash. Each board must pass before proceeding to Lab Handout~1-C.
 \end{enumerate}
 
 \labfigure{LH1B_blinky_terminal.png}{0.85\textwidth}{VS Code terminal showing a successful CMake build and flash cycle for the blinky image.}{fig:lh1b-build}
