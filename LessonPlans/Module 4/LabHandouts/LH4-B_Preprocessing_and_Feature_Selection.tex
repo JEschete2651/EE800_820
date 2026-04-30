@@ -7,7 +7,7 @@
 \labheader{4-B}{Preprocessing Pipeline, Feature Selection, and Label-Leakage Prevention}
 
 \section{Objective}
-Convert the validated dataset from LH4-A into model-ready matrices: drop sentinel rows, encode labels, select task-specific feature sets that avoid label leakage, and fit a \texttt{StandardScaler} that downstream classifiers will reuse. The deliverable is a reusable \texttt{Preprocessor} class and three saved artifacts (\texttt{X\_train.npy}, \texttt{y\_train.npy}, \texttt{scaler.pkl}) per classification task.
+Convert the validated dataset from LH4-A into model-ready matrices: drop sentinel rows, encode labels, select task-specific feature sets that avoid label leakage, and fit a \texttt{StandardScaler} that downstream classifiers will reuse. The deliverable is a reusable \texttt{Preprocessor} class and saved artifacts (\texttt{X\_train.npy}, \texttt{y\_train.npy}, \texttt{scaler.pkl}) for all four classification tasks (SF, modulation, emitter ID, packet type).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -15,8 +15,8 @@ Convert the validated dataset from LH4-A into model-ready matrices: drop sentine
 	\item Python with \texttt{scikit-learn} and \texttt{joblib} installed.
 \end{itemize}
 
-\section{Background: Why Three Feature Sets, Not One?}
-Module~4 trains three classifiers: spreading-factor detection, modulation classification, and emitter identification. Each has a different list of columns that are \emph{forbidden} because they would trivially reveal the label:
+\section{Background: Why Four Feature Sets, Not One?}
+Module~4 trains four classifiers: spreading-factor detection, modulation classification, emitter identification, and packet-type classification (DATA / ACK / PAUSE). Each has a different list of columns that are \emph{forbidden} because they would trivially reveal the label:
 
 \begin{table}[h!]
 	\centering
@@ -26,11 +26,12 @@ Module~4 trains three classifiers: spreading-factor detection, modulation classi
 		\textbf{Task} & \textbf{Label} & \textbf{Columns Forbidden (Would Leak Label)} \\
 		\midrule
 		SF Detection & \texttt{label\_sf} & \texttt{spread\_factor} (self-reported copy of the label) \\
-		Modulation   & \texttt{label\_mod} & \texttt{mod\_code}, \texttt{spread\_factor} (SF is 0 for \mbox{FSK}) \\
+		Modulation   & \texttt{label\_mod} & \texttt{mod\_kind}, \texttt{spread\_factor} (SF is 0 for \mbox{FSK}) \\
 		Emitter ID   & \texttt{label\_beacon} & \texttt{beacon\_id} (self-reported copy of the label) \\
+		Packet Type  & \texttt{label\_pkt}    & \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units} (\texttt{pkt\_type} is the canonical answer; the PAUSE-only fields are non-zero only on PAUSE rows and trivially leak the type) \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Label-leakage table. Any of these forbidden columns left in the feature matrix will push test accuracy to $\sim$100\% --- not because the classifier works, but because it is reading the answer.}
+	\caption{Label-leakage table. Any of these forbidden columns left in the feature matrix will push test accuracy to $\sim$100\% --- not because the classifier works, but because it is reading the answer. The packet-type task is the most aggressive trap because \texttt{pkt\_type} is itself a feature column extracted from the radio packet's \texttt{Modulation Code} byte's low 2 bits.}
 \end{table}
 
 \begin{tcolorbox}[warning={The Silent Leak}]
@@ -66,14 +67,16 @@ FEATURE_COLS_BASE = [
 
 FORBIDDEN = {
     "sf":     ["spread_factor"],
-    "mod":    ["mod_code", "spread_factor"],
+    "mod":    ["mod_kind", "spread_factor"],
     "beacon": ["beacon_id"],
+    "pkt":    ["pkt_type", "target_id_if_pause", "pause_duration_units"],
 }
 
 LABEL_COL = {
     "sf":     "label_sf",
     "mod":    "label_mod",
     "beacon": "label_beacon",
+    "pkt":    "label_pkt",
 }
 
 class Preprocessor:
@@ -110,11 +113,11 @@ class Preprocessor:
 
 \subsection{Step 3 --- Generate task-specific matrices}
 
-\begin{lstlisting}[language=Python, caption={Run preprocessing for all three tasks.}]
+\begin{lstlisting}[language=Python, caption={Run preprocessing for all four tasks.}]
 from preprocess import Preprocessor
 import numpy as np
 
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
     pre = Preprocessor(task)
     X_tr, y_tr = pre.fit_transform(df)
     X_va, y_va = pre.transform(df, "val")
@@ -136,7 +139,7 @@ for task in ["sf", "mod", "beacon"]:
 A fitted \texttt{StandardScaler} on the training set produces zero mean and unit variance per feature:
 
 \begin{lstlisting}[language=Python]
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
     X_tr = np.load(f"artifacts/{task}/X_train.npy")
     mu, sd = X_tr.mean(axis=0), X_tr.std(axis=0)
     print(f"{task}: mean max|mu|={np.abs(mu).max():.3e}, "
@@ -180,17 +183,17 @@ A result below $\sim$0.95 means the forbidden list is incomplete for that task; 
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Sentinel rows dropped; count matches LH4-A audit summary.
 	\item[$\square$] \texttt{Preprocessor} class saves and reloads without error.
-	\item[$\square$] All three tasks have six saved arrays (\texttt{X\_train}, \texttt{X\_val}, \texttt{X\_test} and three matching \texttt{y\_}).
+	\item[$\square$] All four tasks have six saved arrays (\texttt{X\_train}, \texttt{X\_val}, \texttt{X\_test} and three matching \texttt{y\_}).
 	\item[$\square$] Training-set scaler produces zero mean / unit variance within $10^{-5}$.
-	\item[$\square$] Leakage sanity check: each task's forbidden-only classifier scores $\geq$0.95.
+	\item[$\square$] Leakage sanity check: each task's forbidden-only classifier scores $\geq$0.95 (including the packet-type task, where the \texttt{pkt\_type}-only classifier should score 1.00 trivially because the feature \emph{is} the label).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-B Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item \texttt{preprocess.py}: the reusable \texttt{Preprocessor} class.
-		\item \texttt{artifacts/\{sf,mod,beacon\}/} directories, each containing \texttt{preprocessor.pkl} and six \texttt{.npy} matrices.
+		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/} directories, each containing \texttt{preprocessor.pkl} and six \texttt{.npy} matrices.
 		\item Leakage sanity-check output showing $\geq$0.95 test accuracy for each task when only forbidden columns are used.
-		\item Feature-list manifest: one page per task listing (a) the chosen feature columns, (b) the forbidden columns, and (c) a 1-sentence physical justification for why each forbidden column leaks.
+		\item Feature-list manifest: one page per task (four pages total) listing (a) the chosen feature columns, (b) the forbidden columns, and (c) a 1-sentence physical justification for why each forbidden column leaks. The packet-type page should explicitly call out that \texttt{pkt\_type} is itself the label (extracted from the low 2 bits of the radio packet's \texttt{Modulation Code} byte).
 	\end{enumerate}
 \end{tcolorbox}
 

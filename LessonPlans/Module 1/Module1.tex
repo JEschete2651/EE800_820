@@ -88,7 +88,7 @@
 		{\Huge\bfseries\color{stevens} Lesson Plan: Module~1\par}
 		\vspace{0.5cm}
 		{\LARGE\color{darkgray} Radio Frequency Module Selection, Hardware Bring-Up,\\[4pt]
-			and Beacon--Receiver Subsystem Design\par}
+			and Cooperative Target--Interceptor Subsystem Design\par}
 		
 		\vspace{1.5cm}
 		\rule{0.6\textwidth}{1pt}
@@ -113,8 +113,11 @@
 			\centering\small
 			This document presents a lesson plan for the first module of the capstone project,
 			covering Radio Frequency transceiver selection, hardware platform validation, and the design of the
-			beacon--receiver subsystem that forms the foundation for all subsequent Field-Programmable Gate Array processing
-			and Machine Learning work.
+			cooperative-target / interceptor subsystem that forms the foundation for all subsequent Field-Programmable
+			Gate Array processing and Machine Learning work. Two STM32+RFM95W stations exchange DATA and ACK traffic
+			on a shared 906.5\,MHz channel; a third STM32+RFM95W interceptor (``Threat'') passively captures the
+			bidirectional traffic, forwards it to the FPGA, and operates a button-gated PAUSE protocol that targets
+			the highest-RSSI station --- closing the intercept-and-act loop without violating FCC ISM-band rules.
 		\end{tcolorbox}
 		
 		\vfill
@@ -137,14 +140,14 @@
 			\item Evaluate commercially available \RF{} transceiver modules against project-specific requirements and justify a final selection with quantitative criteria.
 			\item Verify end-to-end hardware communication between the STMicroelectronics STM32 Nucleo-L476RG microcontroller and the selected \RF{} module using basic firmware.
 			\item Confirm \FPGA{} toolchain readiness on the Digilent Nexys A7-100T and validate a minimal loopback design.
-			\item Design a complete \RF{} beacon and receiver subsystem architecture, including transmission scheduling, packet formatting, and receiver data flow.
+			\item Design a complete \RF{} cooperative-target and interceptor subsystem architecture, including bidirectional DATA/ACK traffic, transmission scheduling, packet formatting, the button-gated PAUSE protocol, and the interceptor-to-FPGA data flow.
 			\item Produce a hardware requirements document and subsystem design specification that downstream modules can build upon directly.
 		\end{enumerate}
 	\end{tcolorbox}
 	
 	\subsection{Context Within the Project}
 	
-	This module spans the first two milestones in the project timeline. It establishes the hardware baseline and subsystem architecture upon which all subsequent modules depend. The \RF{} module trade study and hardware bring-up validate that the chosen components can communicate reliably, while the beacon--receiver subsystem design defines the architecture that the \FPGA{} register-transfer level (\RTL{}) design (Module~2) and \ML{} pipeline (Module~3) will consume.
+	This module spans the first two milestones in the project timeline. It establishes the hardware baseline and subsystem architecture upon which all subsequent modules depend. The \RF{} module trade study and hardware bring-up validate that the chosen components can communicate reliably, while the cooperative-target / interceptor subsystem design defines the architecture that the \FPGA{} register-transfer level (\RTL{}) design (Module~2) and \ML{} pipeline (Module~3) will consume.
 	
 	\subsection{Prerequisites}
 	
@@ -159,35 +162,35 @@
 	
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Weekly Schedule}
+	\section{Session Schedule}
 	% ══════════════════════════════════════════════════════════════
-	
-	The module spans four weeks across two project milestones. Each week has a thematic focus, concrete tasks, and a deliverable checkpoint.
-	
+
+	The module spans four sessions across two project milestones. Each session has a thematic focus, concrete tasks, and a deliverable checkpoint.
+
 	\begin{table}[ht!]
 		\centering
-		\caption{Module 1 weekly breakdown.}
+		\caption{Module 1 session breakdown.}
 		\label{tab:schedule}
 		\renewcommand{\arraystretch}{1.4}
 		\begin{tabularx}{\textwidth}{c l X}
 			\toprule
-			\textbf{Week} & \textbf{Focus Area} & \textbf{Key Activities} \\
+			\textbf{Session} & \textbf{Focus Area} & \textbf{Key Activities} \\
 			\midrule
 			1 & \RF{} Module Trade Study &
 			Define selection criteria; evaluate candidate modules (RFM95W, SX1276, Ra-02, E32); perform link budget analysis; select and procure final module. \\
 			2 & Hardware Bring-Up &
 			Flash STM32 with \SPI{} driver firmware; verify \RF{} module register access; transmit/receive basic packets; confirm Nexys A7 toolchain and loopback; produce hardware requirements document. \\
-			3 & Beacon Subsystem Design &
-			Define beacon transmission architecture; design packet format and framing protocol; implement configurable transmission scheduling on STM32; validate multi-beacon operation. \\
-			4 & Receiver Subsystem Design &
-			Design receiver data path from \RF{} front-end to \FPGA{} input; define \FPGA{} ingestion interface; implement receiver firmware; validate end-to-end beacon-to-\FPGA{} data flow. \\
+			3 & Cooperative Target Subsystem Design &
+			Define cooperative-target transmission architecture (Target~A initiates DATA, Target~B replies with ACK); design 32-byte packet format with packed DATA/ACK/PAUSE type field; implement configurable transmission scheduling and the PAUSE listener path on STM32; validate two-target ping-pong operation. \\
+			4 & Interceptor (Threat) Subsystem Design &
+			Design interceptor data path from \RF{} front-end to \FPGA{} input; implement passive capture of every DATA, ACK, and PAUSE frame on the channel; implement the per-Beacon-ID RSSI table and the button-gated PAUSE scheduler that targets the highest-RSSI station; define \FPGA{} ingestion interface; validate end-to-end target-to-\FPGA{} data flow including PAUSE behavioral response on the targets. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 	
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 1: RF Module Trade Study}
+	\section{Session 1: RF Module Trade Study}
 	\label{sec:tradestudy}
 	% ══════════════════════════════════════════════════════════════
 	
@@ -275,13 +278,13 @@
 		Verify that $P_{\text{rx}}$ exceeds the SX1276 receiver sensitivity ($-137$\,dBm at SF12, 125\,kHz BW) by a comfortable margin. Document the link margin and discuss its implications for multi-beacon scaling.
 	\end{tcolorbox}
 	
-	\begin{tcolorbox}[deliverable={Week 1 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 1 Deliverable}]
 		\textbf{\RF{} Module Trade Study Report} --- A 3--5 page document containing the weighted evaluation matrix, link budget calculations, final module selection with justification, and a procurement plan (vendor, cost, estimated delivery).
 	\end{tcolorbox}
 	
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 2: Hardware Bring-Up and Validation}
+	\section{Session 2: Hardware Bring-Up and Validation}
 	\label{sec:bringup}
 	% ══════════════════════════════════════════════════════════════
 	
@@ -289,7 +292,7 @@
 	
 	\begin{itemize}[leftmargin=2em]
 		\item Establish \SPI{} communication between the STM32 Nucleo-L476RG and the selected \RF{} module.
-		\item Transmit and receive basic test packets between two beacon nodes.
+		\item Transmit and receive basic test packets between two cooperative-target nodes (DATA from Target~A, ACK reply from Target~B).
 		\item Validate the Nexys A7-100T \FPGA{} toolchain (Vivado) with a minimal loopback design.
 		\item Document all hardware interfaces, pin assignments, and power requirements.
 	\end{itemize}
@@ -397,7 +400,7 @@
 		\item \textbf{Clock Verification:} Use an \ILA{} (Integrated Logic Analyzer) core to probe a free-running counter driven by the 100\,MHz oscillator. Verify the expected count rate.
 	\end{enumerate}
 	
-	\begin{tcolorbox}[deliverable={Week 2 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 2 Deliverable}]
 		\textbf{Hardware Requirements Document} --- A formal document capturing:
 		\begin{enumerate}
 			\item \textbf{Bill of Materials (\BOM{}):} Part numbers, quantities, unit costs, vendors, and lead times for all components.
@@ -410,35 +413,35 @@
 	
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 3: Beacon Subsystem Design}
+	\section{Session 3: Cooperative Target Subsystem Design}
 	\label{sec:beacon}
 	% ══════════════════════════════════════════════════════════════
-	
+
 	\subsection{Objectives}
-	
+
 	\begin{itemize}[leftmargin=2em]
-		\item Define the role and behavior of each beacon node within the system.
-		\item Design a packet format that carries the metadata required for downstream classification.
-		\item Implement configurable transmission scheduling that supports multiple simultaneous beacons.
-		\item Validate multi-beacon operation and characterize the \RF{} channel under concurrent transmissions.
+		\item Define the role and behavior of each cooperative-target node within the system.
+		\item Design a packet format that carries the metadata required for downstream classification \emph{and} encodes the DATA / ACK / PAUSE packet type without modifying the 32-byte radio frame layout.
+		\item Implement bidirectional firmware: Target~A initiates DATA transmissions; Target~B replies with ACK; both listen continuously for PAUSE commands addressed to their own Beacon~ID.
+		\item Validate two-target ping-pong operation including the PAUSE behavioral response (target prints \texttt{"I'm Jammed"} on USART2 while held in PAUSE).
 	\end{itemize}
-	
-	\subsection{Beacon Architecture Overview}
-	
-	Each beacon consists of an STM32 Nucleo-L476RG paired with the selected LoRa transceiver module. Beacons operate as cooperative targets: they transmit known signals at configurable intervals and parameters so that the receiver and \FPGA{} processing chain have a controlled, characterizable input. The beacon subsystem must be designed so that students can scale from a single beacon to $N$ simultaneous beacons, progressively increasing the demands on the receiver and \FPGA{}.
-	
-	\begin{tcolorbox}[infobox={Design Principle: Controlled Complexity}]
-		The beacon subsystem is intentionally designed to give students direct control over the \RF{} environment. By parameterizing transmission power, modulation type, spreading factor, and timing, students can systematically vary the input to the \FPGA{} and \ML{} pipeline, creating a structured experimental platform rather than relying on uncontrolled ambient signals.
+
+	\subsection{Cooperative Target Architecture Overview}
+
+	Each cooperative target consists of an STM32 Nucleo-L476RG paired with an RFM95W LoRa transceiver. Both targets are TX+RX-capable and operate as a half-duplex pair: Target~A (Beacon~ID \texttt{0x01}) initiates DATA on a configurable schedule and listens briefly for an ACK from Target~B (Beacon~ID \texttt{0x02}); Target~B normally listens, replies with ACK on every successfully received DATA, and may optionally initiate its own DATA on its own schedule. Both targets continuously monitor the channel for PAUSE commands from the interceptor (Threat, Beacon~ID \texttt{0xFF}) addressed to their own ID. The cooperative-target subsystem must scale from a single initiator (Target~A only, no responder) up to two initiators (Target~A and Target~B both initiating) plus interleaved PAUSE captures, progressively increasing the demands on the interceptor and \FPGA{}.
+
+	\begin{tcolorbox}[infobox={Design Principle: Bidirectional but Half-Duplex}]
+		The cooperative-target subsystem is intentionally bidirectional --- the third radio in the system (the interceptor / Threat) is hardware-symmetric with the targets, but the targets themselves never communicate with the Threat directly. Instead, the Threat passively captures every DATA and ACK frame on the channel and, when its user button is held, emits PAUSE commands on the same channel; targets that receive a PAUSE addressed to their own ID enter a 500\,ms transmit hold-off. Each radio is half-duplex (it cannot transmit and receive simultaneously); the firmware design must explicitly switch the RFM95W between \texttt{TX}, \texttt{STANDBY}, and \texttt{RXCONTINUOUS} modes around every operation. The half-duplex constraint is itself a teaching point: students discover that an ACK that arrives before the originator switches back into RX is silently lost, and the system-level fix is a deterministic post-TX RX-window timeout rather than a tighter ACK schedule.
 	\end{tcolorbox}
-	
+
 	\newpage
 	\subsection{Packet Format Design}
-	
-	Each beacon transmission must carry sufficient metadata for the receiver and \FPGA{} to identify, classify, and prioritize it. The following packet structure is recommended:
-	
+
+	All three packet types (DATA, ACK, PAUSE) share a single fixed-length 32-byte radio frame layout. The packet type is encoded in the low two bits of the \texttt{Modulation Code} byte (offset~6); the modulation kind --- LoRa, \FSK{}, or \OOK{} --- occupies the upper six bits. This packing keeps the FPGA ingestion pipeline (Module~2) and the forwarding-frame layout (Session~4 below) unchanged across all packet types: a downstream parser sees a 32-byte payload regardless of whether the packet is DATA, ACK, or PAUSE.
+
 	\begin{table}[ht!]
 		\centering
-		\caption{Beacon packet format (fixed-length, 32 bytes).}
+		\caption{Radio packet format (fixed-length, 32 bytes; same layout for DATA, ACK, PAUSE).}
 		\label{tab:packet}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
@@ -446,160 +449,180 @@
 			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 			\midrule
 			Preamble Sync & 0 & 2\,B & Fixed sync word (\texttt{0xAE5A}) for frame detection. \\
-			Beacon ID & 2 & 1\,B & Unique identifier for this beacon (0x01--0xFF). \\
-			Sequence Number & 3 & 2\,B & Monotonically increasing counter; enables packet loss detection. \\
+			Beacon ID (sender) & 2 & 1\,B & Sender ID. Target~A = \texttt{0x01}, Target~B = \texttt{0x02}, Threat = \texttt{0xFF}. \\
+			Sequence Number & 3 & 2\,B & Monotonically increasing per-sender. For ACK, echoes the acknowledged DATA sequence. \\
 			TX Power & 5 & 1\,B & Transmit power setting (dBm), encoded as unsigned integer. \\
-			Modulation Code & 6 & 1\,B & Identifies modulation type: 0x01=LoRa, 0x02=\FSK{}, 0x03=\OOK{}. \\
+			Modulation Code & 6 & 1\,B & Packed: bits [7:2] = modulation kind (\texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{}, each shifted left by 2); bits [1:0] = packet type (\texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE, \texttt{11}=reserved). \\
 			Spreading Factor & 7 & 1\,B & LoRa SF value (7--12); 0x00 if non-LoRa modulation. \\
 			Bandwidth Code & 8 & 1\,B & Encoded BW setting (e.g., 0x00=125\,kHz, 0x01=250\,kHz). \\
 			Timestamp & 9 & 4\,B & STM32 system tick (ms) at time of transmission. \\
-			Payload & 13 & 17\,B & User-defined data or pseudo-random training sequence. \\
-			\CRC{}-16 & 30 & 2\,B & \CRC{} over bytes 0--29 for integrity verification. \\
+			Payload (DATA/ACK) or PAUSE args & 13 & 17\,B & DATA/ACK: pseudo-random or structured pattern. PAUSE: byte~0 = target Beacon~ID being paused; byte~1 = hold-off duration in 100\,ms units; bytes 2--16 = \texttt{0xAA} fill. \\
+			\CRC{}-16 & 30 & 2\,B & \CRC{}-16/CCITT-FALSE over bytes 0--29. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
-	
-	\begin{tcolorbox}[infobox={Design Rationale: Why These Fields?}]
-		The metadata fields (TX Power, Modulation Code, SF, BW) serve a dual purpose. First, they provide ground-truth labels for the \ML{} classification pipeline in later modules --- the receiver knows what the beacon \emph{claims} it transmitted, enabling supervised training. Second, they allow the \FPGA{} processing chain to verify its own detection and identification logic against known parameters.
-		
-		The 17-byte payload region can carry pseudo-random bit sequences for bit-error-rate (BER) testing or structured data patterns that exercise specific aspects of the demodulator.
+
+	\begin{tcolorbox}[infobox={Design Rationale: Why Pack the Type into the Modulation Code Byte?}]
+		The \texttt{Modulation Code} byte already exists in the packet for a different reason --- it labels the modulation kind so the downstream classifier has a ground-truth label for the modulation classification task. Packing the 2-bit packet type into the low bits of the same byte avoids changing the 32-byte frame layout (no downstream consumer breaks) and creates a deliberate label-leakage trap that Module~4 students must reason about: a model trained with the raw \texttt{Modulation Code} byte as a feature column trivially learns the packet type from the low two bits, even when the task is supposed to be modulation classification only. The Module~4 leakage check (LH4-B) catches this by training a logistic regression on forbidden columns alone and requiring $\geq$95\% accuracy --- a passing leakage check forces students to mask the low two bits before using \texttt{mod\_code} as a label.
+
+		The 17-byte payload region of DATA and ACK packets carries pseudo-random bit sequences for bit-error-rate (BER) testing or structured patterns that exercise specific demodulator behavior. PAUSE packets reuse the same payload region for two purpose-specific bytes (target ID, hold-off duration) plus \texttt{0xAA} fill, keeping the radio frame size constant.
 	\end{tcolorbox}
+
 	\newpage
-	\subsection{Transmission Scheduling}
-	
-	When multiple beacons share the same frequency band, uncoordinated transmissions will collide. The scheduling strategy must balance simplicity (suitable for an educational context) with sufficient sophistication to create realistic multi-access scenarios.
-	
-	\subsubsection{Scheduling Modes}
-	
-	Students should implement at least two scheduling modes:
-	
+	\subsection{Transmission Scheduling and Bidirectional Behavior}
+
+	The cooperative-target subsystem's traffic pattern is determined jointly by Target~A's initiator schedule, Target~B's responder behavior, and any optional initiator activity from Target~B. The scheduling strategy must balance simplicity (suitable for an educational context) with sufficient sophistication to create realistic multi-access scenarios.
+
+	\subsubsection{Initiator Scheduling Modes}
+
+	Students implement at least two initiator scheduling modes:
+
 	\begin{enumerate}[leftmargin=2em]
-		\item \textbf{Fixed Interval (TDMA-like):} Each beacon is assigned a time slot within a repeating frame. Slot assignments are configured at compile time or via \UART{} command. This mode produces predictable, non-colliding traffic and is the starting point for initial receiver validation.
-		
+		\item \textbf{Fixed Interval (TDMA-like):} The initiator emits DATA on a periodic schedule.
 		\begin{equation}
 			t_{\text{tx}}^{(k)} = T_{\text{frame}} \cdot n + \Delta t \cdot k, \quad k = 0, 1, \ldots, N-1
 			\label{eq:tdma}
 		\end{equation}
-		
-		where $T_{\text{frame}}$ is the frame period, $\Delta t$ is the slot duration, $k$ is the beacon index, and $n$ is the frame counter.
-		
-		\item \textbf{Randomized Interval (ALOHA-like):} Each beacon transmits after a random back-off drawn from a configurable uniform distribution $[T_{\min}, T_{\max}]$. This mode introduces collisions and partial overlaps, creating a more challenging scenario for the \FPGA{} detection and the \ML{} classifier.
+		where $T_{\text{frame}}$ is the frame period, $\Delta t$ is the slot duration, $k$ is the initiator index (only meaningful when both targets initiate), and $n$ is the frame counter. This mode produces predictable, non-colliding traffic and is the starting point for initial validation.
+
+		\item \textbf{Randomized Interval (ALOHA-like):} The initiator emits DATA after a random back-off drawn from a configurable uniform distribution $[T_{\min}, T_{\max}]$. This mode introduces collisions and partial overlaps, creating a more challenging scenario for the \FPGA{} detection and the \ML{} classifier in later modules.
 	\end{enumerate}
-	
+
+	\subsubsection{Responder Behavior}
+
+	Target~B's responder path is event-driven, not scheduled: every successfully received DATA addressed (implicitly, by ID context) to the cooperative-target group triggers a single ACK transmission whose \texttt{Sequence Number} field echoes the received DATA's sequence. The responder does not retransmit on missed DATA; the originator detects the missed ACK via its own RX-window timeout and proceeds.
+
+	\subsubsection{PAUSE Listener Behavior}
+
+	Both targets continuously monitor the channel between scheduled transmissions for PAUSE packets. On receiving a PAUSE whose payload byte~0 matches the target's own Beacon~ID, the firmware sets \texttt{paused\_until\_ms = HAL\_GetTick() + (payload[1] $\times$ 100)}. While \texttt{HAL\_GetTick()} $<$ \texttt{paused\_until\_ms}: scheduled DATA transmissions are skipped, ACK responses are still permitted (the framework treats ACK as a higher-priority response to a real DATA reception), and the firmware prints \texttt{"I'm Jammed"} on USART2 once per pause-entry (throttled, not per-tick). When \texttt{paused\_until\_ms} elapses without further PAUSE refresh, the target resumes normal initiator behavior. PAUSEs addressed to a different ID are received and discarded silently --- the firmware does not log them, and they do not affect the receiving target's behavior.
+
 	\subsubsection{Timing Implementation}
-	
-	Transmission timing is driven by the STM32's hardware timer peripheral (TIM2 or TIM6) configured in one-shot or periodic mode. Key implementation details:
-	
+
+	Transmission timing is driven by the STM32's hardware timer peripheral (\texttt{TIM2} or \texttt{TIM6}) configured in periodic mode at a 1\,ms tick. Key implementation details:
 	\begin{itemize}[leftmargin=2em]
-		\item Use the STM32 \HAL{} timer interrupt callback (\texttt{\HAL{}\_TIM\_PeriodElapsedCallback}) to trigger transmissions with minimal jitter.
-		\item For randomized mode, seed the pseudo-random number generator with a unique value per beacon (e.g., beacon ID XOR'd with an ADC noise sample).
-		\item Log each transmission timestamp over \UART{} for ground-truth correlation with receiver data.
+		\item Use the STM32 \HAL{} timer interrupt callback (\texttt{\HAL{}\_TIM\_PeriodElapsedCallback}) to maintain a \texttt{volatile uint32\_t ms\_count} that the main-loop \FSM{} polls.
+		\item For randomized initiator mode, seed the pseudo-random number generator with a unique value per target (e.g., Beacon~ID XOR'd with an ADC noise sample).
+		\item Log each transmission, ACK, and PAUSE-receive event over USART2 with a millisecond timestamp for ground-truth correlation with the interceptor's captured dataset.
 	\end{itemize}
-	
-	\subsection{Beacon Firmware Architecture}
-	
-	The beacon firmware should be structured as a simple state machine:
-	
+
+	\subsection{Cooperative Target Firmware Architecture}
+
+	The cooperative-target firmware should be structured as an \FSM{} with explicit states for the bidirectional path:
+
 	\begin{figure}[ht!]
 		\centering
 		\modulefigureplaceholder{0.85\textwidth}{Images/BFA.png}
-		\caption{Beacon firmware state machine. The IDLE$\rightarrow$BUILD$\rightarrow$TRANSMIT$\rightarrow$LOG cycle repeats for each scheduled transmission.}
+		\caption{Cooperative-target firmware state machine. Target~A: \texttt{INIT}$\to$\texttt{CONFIG}$\to$\texttt{IDLE}$\to$\texttt{BUILD\_DATA}$\to$\texttt{TX\_DATA}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG}$\to$\texttt{IDLE}, with a \texttt{PAUSED} branch entered from any state on PAUSE reception. Target~B: same skeleton with \texttt{RX\_LISTEN} replacing the scheduled-IDLE wait, and a \texttt{BUILD\_ACK}$\to$\texttt{TX\_ACK} branch on each successful DATA reception.}
 		\label{fig:beacon_fsm}
 	\end{figure}
-	
-	\subsection{Multi-Beacon Validation}
-	
-	\begin{tcolorbox}[infobox={Exercise: Two-Beacon Concurrent Operation}]
-		Configure two beacons with the following parameters and verify correct operation:
-		
+
+	\subsection{Validation: Two-Target Ping-Pong with PAUSE Behavioral Response}
+
+	\begin{tcolorbox}[infobox={Exercise: Bidirectional Ping-Pong Operation}]
+		Configure Target~A and Target~B with the parameters below and verify correct operation:
+
 		\medskip
 		\begin{tabular}{l c c}
 			\toprule
-			\textbf{Parameter} & \textbf{Beacon A} & \textbf{Beacon B} \\
+			\textbf{Parameter} & \textbf{Target~A} & \textbf{Target~B} \\
 			\midrule
-			Beacon ID & \texttt{0x01} & \texttt{0x02} \\
-			TX Power & +14\,dBm & +10\,dBm \\
-			Spreading Factor & SF7 & SF10 \\
-			Scheduling Mode & Fixed, 2\,s interval & Fixed, 3\,s interval \\
+			Beacon ID            & \texttt{0x01} & \texttt{0x02} \\
+			Role                 & Initiator     & Responder \\
+			TX Power             & +14\,dBm      & +14\,dBm \\
+			Spreading Factor     & SF7           & SF7 \\
+			Initiator schedule   & Fixed, 1\,s   & --- (event-driven on DATA RX) \\
 			\bottomrule
 		\end{tabular}
-		
+
 		\medskip
-		Using a third STM32+\RF{} module as a simple packet sniffer, capture 60 seconds of traffic and verify:
+		Using the interceptor (Threat) firmware as a passive sniffer, capture 60 seconds of traffic and verify:
 		\begin{enumerate}
-			\item Both beacon IDs appear in received packets.
-			\item Sequence numbers are monotonically increasing for each beacon.
-			\item \RSSI{} values differ between the two beacons (reflecting the TX power difference).
+			\item Each Target~A DATA (\texttt{Beacon ID} = \texttt{0x01}, \texttt{pkt\_type} = DATA) is followed by a Target~B ACK (\texttt{Beacon ID} = \texttt{0x02}, \texttt{pkt\_type} = ACK) whose \texttt{Sequence Number} matches the DATA's.
+			\item Sequence numbers are monotonically increasing on Target~A's DATA stream.
 			\item No \CRC{} failures occur under the fixed-interval schedule.
+			\item Round-trip time (DATA TX timestamp to ACK RX timestamp on Target~A) is bounded (typically $<$120\,ms at SF7 for a 32-byte packet).
 		\end{enumerate}
 	\end{tcolorbox}
-	
-	\begin{tcolorbox}[deliverable={Week 3 Deliverable}]
-		\textbf{Beacon Subsystem Design Document} --- A document containing:
+
+	\begin{tcolorbox}[infobox={Exercise: PAUSE Behavioral Response}]
+		With the ping-pong above running, hold the user button (B1) on the interceptor (Threat) board and verify:
 		\begin{enumerate}
-			\item Packet format specification with field descriptions and byte layout diagram.
-			\item Transmission scheduling design (both TDMA and ALOHA modes) with timing equations.
-			\item Beacon firmware architecture (state machine diagram and module descriptions).
-			\item Multi-beacon validation test results (packet captures, \RSSI{} logs, sequence verification).
+			\item Target~A's USART2 log prints \texttt{"I'm Jammed"} within one PAUSE cadence interval (100\,ms) of the button being pressed.
+			\item Target~A's DATA transmissions stop while the button is held.
+			\item Target~A resumes normal DATA transmissions within ($\sim$500\,ms +$T_{\mathrm{slot}}$) of the button being released.
+			\item Target~B's log does not print \texttt{"I'm Jammed"} (the Threat targets the higher-RSSI station, which at equal-distance is whichever is closer to the Threat antenna; if both are equidistant, the choice may alternate --- this is a measurement, not a fault).
 		\end{enumerate}
 	\end{tcolorbox}
-	
+
+	\begin{tcolorbox}[deliverable={Session 3 Deliverable}]
+		\textbf{Cooperative Target Subsystem Design Document} --- A document containing:
+		\begin{enumerate}
+			\item Packet format specification with field descriptions, byte layout diagram, and the packed \texttt{Modulation Code} bit-field decoded.
+			\item Initiator scheduling design (both TDMA and ALOHA modes) with timing equations.
+			\item Cooperative target firmware architecture: \FSM{} diagram showing the \texttt{WAIT\_ACK} branch (Target~A), the \texttt{BUILD\_ACK}$\to$\texttt{TX\_ACK} branch (Target~B), and the shared \texttt{PAUSED} branch.
+			\item Two-target ping-pong validation results: 60-second packet captures showing matched DATA/ACK sequence numbers, round-trip latency CSV, and \texttt{"I'm Jammed"} response/recovery log.
+		\end{enumerate}
+	\end{tcolorbox}
+
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 4: Receiver Subsystem Design}
+	\section{Session 4: Interceptor (Threat) Subsystem Design}
 	\label{sec:receiver}
 	% ══════════════════════════════════════════════════════════════
-	
+
 	\subsection{Objectives}
-	
+
 	\begin{itemize}[leftmargin=2em]
-		\item Design the receiver data path from the \RF{} module through the STM32 to the \FPGA{}.
-		\item Define the interface protocol between the receiver \MCU{} and the Nexys A7 \FPGA{}.
-		\item Implement receiver firmware that captures, timestamps, and forwards received packets.
-		\item Validate end-to-end data flow from beacon transmission to \FPGA{} ingestion.
+		\item Design the interceptor data path from the \RF{} module through the STM32 to the \FPGA{}.
+		\item Implement passive capture of every DATA, ACK, and PAUSE frame on the shared channel.
+		\item Implement the per-Beacon-ID \RSSI{} observation table and the button-gated PAUSE TX scheduler that targets the highest-\RSSI{} non-stale station.
+		\item Define the interface protocol between the interceptor \MCU{} and the Nexys A7 \FPGA{}.
+		\item Validate end-to-end data flow from cooperative-target transmission through interceptor capture to \FPGA{} ingestion, plus the closed-loop PAUSE behavioral response on the targets.
 	\end{itemize}
-	
-	\subsection{Receiver Architecture}
-	
-	The receiver station uses a dedicated STM32 Nucleo-L476RG paired with an \RF{} module configured in continuous receive mode. Unlike the beacons, the receiver must handle packets from multiple asynchronous sources. Its primary responsibilities are:
-	
+
+	\subsection{Interceptor Architecture}
+
+	The interceptor (``Threat'') station uses a third STM32 Nucleo-L476RG paired with an RFM95W module, hardware-symmetric with the two cooperative targets but operated under a different firmware role. Unlike the targets, the interceptor handles packets from multiple asynchronous senders without ever participating in the DATA/ACK exchange. Its responsibilities are:
+
 	\begin{enumerate}[leftmargin=2em]
-		\item \textbf{Packet Reception:} Detect and demodulate incoming LoRa/\FSK{} packets using the SX1276's internal packet engine and DIO interrupt lines.
+		\item \textbf{Packet Reception:} Detect and demodulate every incoming DATA, ACK, and PAUSE packet using the SX1276's internal packet engine and \texttt{DIO0} interrupt line in continuous-RX mode.
 		\item \textbf{Metadata Extraction:} Read hardware-reported \RSSI{}, \SNR{}, and frequency error from the SX1276 registers for each received packet.
-		\item \textbf{Timestamping:} Capture the STM32 system tick at the moment the \texttt{RxDone} interrupt fires, providing a receiver-side timestamp independent of the beacon's claimed timestamp.
-		\item \textbf{Forwarding:} Package the received payload and metadata into a structured frame and transmit it to the \FPGA{} over the chosen interface (\SPI{} or \UART{}).
+		\item \textbf{Timestamping:} Capture the STM32 system tick at the moment the \texttt{RxDone} interrupt fires, providing an interceptor-side timestamp independent of the sender's claimed timestamp.
+		\item \textbf{RSSI Observation Table:} Maintain a 256-entry per-Beacon-ID table of \texttt{\{int8\_t rssi\_dbm, uint32\_t last\_seen\_ms\}} updated in the ISR alongside the ring-buffer push. Entries older than a configurable staleness threshold (5\,s default) are excluded from highest-\RSSI{} lookups.
+		\item \textbf{Forwarding:} Package the received packet plus interceptor-side metadata into a 43-byte structured frame and transmit it to the \FPGA{} over \UART{}.
+		\item \textbf{Button-Gated PAUSE TX:} While the user button (B1, \texttt{PC13}, active-low) is held, every $\sim$100\,ms scan the \RSSI{} table, pick the non-stale Beacon~ID with the highest \RSSI{}, build a PAUSE packet targeting that ID with hold-off duration \texttt{0x05} (500\,ms), and transmit. The Threat's own PAUSE TX is logged on USART2 but \emph{not} forwarded to the \FPGA{}; the dataset captures only what the interceptor receives off-air, which intentionally usually does not include the Threat's own transmissions (own-transmit is shadowed by the half-duplex switch).
 	\end{enumerate}
-	
-	\subsection{Receiver-to-FPGA Interface}
-	
+
+	\subsection{Interceptor-to-FPGA Interface}
+
 	\subsubsection{Interface Selection}
-	
+
 	\begin{table}[ht!]
 		\centering
-		\caption{Interface options for receiver--\FPGA{} communication.}
+		\caption{Interface options for interceptor--\FPGA{} communication.}
 		\label{tab:interface}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
 			\toprule
 			\textbf{Interface} & \textbf{Throughput} & \textbf{Complexity} & \textbf{Trade-offs} \\
 			\midrule
-			\UART{} & $\leq 921.6$\,kbps & Low & Simple two-wire connection; sufficient for low beacon counts; well-supported in both STM32 \HAL{} and \VHDL{}. \\
+			\UART{} & $\leq 921.6$\,kbps & Low & Simple two-wire connection; sufficient for low station counts; well-supported in both STM32 \HAL{} and \VHDL{}. \\
 			\SPI{} (\MCU{} as master) & $\leq 10$\,Mbps & Medium & Higher throughput for scaling; requires clock, MOSI, MISO, and CS lines; \FPGA{} acts as \SPI{} slave. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
-	
+
 	\begin{tcolorbox}[infobox={Recommendation}]
-		Begin with \UART{} at 115200 baud for initial integration. At 32 bytes per packet with framing overhead ($\sim$40 bytes total), \UART{} supports approximately 28 packets per second, which is sufficient for the initial two-beacon configuration. Transition to \SPI{} when scaling beyond 4--5 beacons or when latency requirements tighten in later modules.
+		Begin with \UART{} at 115200 baud for initial integration. At 32 bytes per radio packet wrapped into the 43-byte forwarding frame, \UART{} supports approximately 28 frames per second --- comfortably above the operating envelope of the two-target ping-pong configuration plus interleaved PAUSE captures. Transition to \SPI{} only when scaling beyond three concurrent stations or when latency requirements tighten in later modules.
 	\end{tcolorbox}
-	
-	\subsubsection{Receiver-to-FPGA Frame Format}
-	
-	The receiver wraps each received packet with additional metadata before forwarding to the \FPGA{}:
-	
+
+	\subsubsection{Interceptor-to-FPGA Frame Format}
+
+	The interceptor wraps every received radio packet (DATA, ACK, or PAUSE) with additional metadata before forwarding to the \FPGA{}. The forwarding-frame layout is unchanged from the original receiver design --- the FPGA pipeline (Module~2) does not need to know what the radio packet's type is, only that it received 32 bytes of packet content with valid CRC.
+
 	\begin{table}[ht!]
 		\centering
-		\caption{Receiver-to-\FPGA{} forwarding frame (43 bytes).}
+		\caption{Interceptor-to-\FPGA{} forwarding frame (43 bytes).}
 		\label{tab:rxframe}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
@@ -607,83 +630,85 @@
 			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 			\midrule
 			Start Delimiter & 0 & 1\,B & Fixed byte \texttt{0x7E} for frame synchronization. \\
-			Frame Length & 1 & 1\,B & Total frame length (excluding start delimiter and \CRC{}). \\
-			RX Timestamp & 2 & 4\,B & Receiver-side system tick (ms) at \texttt{RxDone} interrupt. \\
+			Frame Length & 1 & 1\,B & Total frame length excluding start delimiter and \CRC{}; always \texttt{0x29} (41 decimal). \\
+			RX Timestamp & 2 & 4\,B & Interceptor-side system tick (ms) at \texttt{RxDone} interrupt. \\
 			\RSSI{} & 6 & 1\,B & Received signal strength (dBm, two's complement). \\
 			\SNR{} & 7 & 1\,B & Signal-to-noise ratio (dB, signed, 0.25\,dB resolution). \\
 			Freq.\ Error & 8 & 2\,B & Frequency error estimate from SX1276 (Hz, signed 16-bit). \\
-			Beacon Payload & 10 & 32\,B & Complete beacon packet as received (Table~\ref{tab:packet}). \\
+			Radio Packet & 10 & 32\,B & Complete 32-byte radio packet as received: DATA, ACK, or PAUSE per Table~\ref{tab:packet}. \\
 			Frame \CRC{}-8 & 42 & 1\,B & \CRC{} over bytes 1--41 for transport integrity. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
-	
-	\subsection{Receiver Firmware Architecture}
-	
-	The receiver firmware operates in an interrupt-driven architecture:
-	
+
+	\subsection{Interceptor Firmware Architecture}
+
+	The interceptor firmware operates in an interrupt-driven architecture with two main producers (RF \texttt{RxDone} ISR and the button-poll PAUSE scheduler) and one main consumer (the UART forwarder in the main loop):
+
 	\begin{figure}[ht!]
 		\centering
 		\modulefigureplaceholder{0.9\textwidth}{Images/RFA.png}
-		\caption{Receiver firmware architecture. The ISR captures packets into a ring buffer; the main loop drains the buffer and forwards frames to the \FPGA{}.}
+		\caption{Interceptor firmware architecture. The \texttt{DIO0 RxDone} ISR captures packets into a ring buffer and updates the per-Beacon-ID \RSSI{} table; the main loop drains the ring buffer and forwards 43-byte frames to the \FPGA{} via UART DMA. A separate main-loop poll of \texttt{B1} drives the PAUSE TX scheduler at $\sim$100\,ms cadence whenever the button is held.}
 		\label{fig:rx_fw}
 	\end{figure}
-	
+
 	\begin{tcolorbox}[warning={Concurrency Considerations}]
 		\begin{itemize}
-			\item The ring buffer must be sized to handle burst arrivals. With two beacons at 1-second intervals and a 43-byte frame, a 512-byte buffer (11 frames) provides ample margin.
-			\item Use \texttt{volatile} qualifiers and disable/enable interrupts around shared index variables to prevent race conditions between the ISR and main loop.
-			\item If the main loop cannot drain the buffer fast enough (detectable by a buffer-full flag), log an overflow event --- this becomes a design constraint that informs \FPGA{} throughput requirements in Module~2.
+			\item The ring buffer must be sized to handle burst arrivals. With two targets in 1\,s ping-pong (effectively two frames per second) plus PAUSE bursts at 10\,Hz while the button is held, a 16-entry ring (640\,B of beacon structs) is comfortable.
+			\item Use \texttt{volatile} qualifiers and a \texttt{\_\_DMB()} memory barrier between the buffer write and the head increment to prevent reordering between the ISR producer and main-loop consumer on Cortex-M4.
+			\item Do \emph{not} call \HAL{} \texttt{printf} from inside the ISR --- it blocks on UART transmit and will drop \RF{} packets. All \texttt{printf} debug output happens from the main loop after dequeue.
+			\item The PAUSE TX path must serialize with the receive path: switching the radio into \texttt{TX} mode for a PAUSE blocks reception for $\sim$50\,ms (the SF7 airtime of a 32-byte packet). At 10\,Hz this consumes $\sim$50\% of the channel time --- acceptable while the button is held, but a deliberate measurement consideration.
 		\end{itemize}
 	\end{tcolorbox}
-	
+
 	\subsection{FPGA Ingestion Interface}
-	
-	On the \FPGA{} side, the receiver data is captured by a simple \UART{} receiver module (or \SPI{} slave, if that interface is selected). The Week~4 scope is limited to:
-	
+
+	On the \FPGA{} side, the interceptor data is captured by a simple \UART{} receiver module (or \SPI{} slave, if that interface is selected). The Session~4 scope is limited to:
+
 	\begin{enumerate}[leftmargin=2em]
 		\item \textbf{\UART{} Receiver IP:} Implement or instantiate a \UART{} RX module on the Nexys A7 that receives bytes at the configured baud rate and writes them to a small \FIFO{}.
 		\item \textbf{Frame Detection:} Implement start-delimiter detection (\texttt{0x7E}) and frame-length extraction to identify complete frames in the byte stream.
-		\item \textbf{Verification:} Display received beacon IDs on the Nexys A7 seven-segment display or LEDs, confirming end-to-end data flow from beacon through receiver to \FPGA{} fabric.
+		\item \textbf{Verification:} Display received Beacon~IDs on the Nexys A7 seven-segment display or LEDs, confirming end-to-end data flow from cooperative target through interceptor to \FPGA{} fabric.
 	\end{enumerate}
-	
+
 	\begin{tcolorbox}[infobox={Exercise: End-to-End Data Flow Validation}]
-		With two beacons transmitting in fixed-interval mode:
+		With Target~A and Target~B running the ping-pong configuration from Session~3:
 		\begin{enumerate}
-			\item Verify that the \FPGA{} receives frames from both beacons by displaying alternating beacon IDs on the seven-segment display.
-			\item Compare the receiver-side \RSSI{} values displayed on the \FPGA{} with the values logged by the STM32 over \UART{} debug to confirm data integrity across the interface.
-			\item Introduce a deliberate \CRC{} error (corrupt one byte in the receiver firmware before forwarding) and confirm the \FPGA{}'s frame \CRC{} check rejects the corrupted frame.
+			\item Verify that the \FPGA{} receives frames from both Beacon~IDs by displaying alternating Beacon~IDs on the seven-segment display (\texttt{01} and \texttt{02} interleaving).
+			\item Compare the interceptor-side \RSSI{} values displayed on the \FPGA{} with the values logged by the STM32 over USART2 debug to confirm data integrity across the interface.
+			\item Hold the user button on the interceptor and verify the seven-segment display occasionally shows \texttt{FF} (the Threat's own Beacon~ID), or alternatively that the \texttt{"I'm Jammed"} log appears on the targeted Target's USART2 within 100\,ms of button press.
+			\item Introduce a deliberate \CRC{} error (corrupt one byte in the interceptor firmware before forwarding) and confirm the \FPGA{}'s frame \CRC{} check rejects the corrupted frame.
 		\end{enumerate}
 	\end{tcolorbox}
-	
+
 	\subsection{System Architecture Diagram}
-	
+
 	Figure~\ref{fig:arch} shows the complete subsystem architecture validated by the end of this module.
-	
+
 	\begin{figure}[ht!]
 		\centering
 		\modulefigureplaceholder{\textwidth}{Images/Module1Subsystem.png}
-		\caption{Module~1 subsystem architecture. Solid blocks and arrows indicate components and data paths validated by end of Week~4. The dashed \ML{} Pipeline block indicates a downstream module.}
+		\caption{Module~1 subsystem architecture. Solid blocks and arrows indicate components and data paths validated by end of Session~4: bidirectional DATA/ACK between Target~A and Target~B, passive capture by the interceptor (Threat), button-gated PAUSE TX from the Threat back to the targets, and UART forwarding to the FPGA. The dashed \ML{} Pipeline block indicates a downstream module.}
 		\label{fig:arch}
 	\end{figure}
-	
-	\begin{tcolorbox}[deliverable={Week 4 Deliverable}]
-		\textbf{Receiver Subsystem Design Document} --- A document containing:
+
+	\begin{tcolorbox}[deliverable={Session 4 Deliverable}]
+		\textbf{Interceptor Subsystem Design Document} --- A document containing:
 		\begin{enumerate}
-			\item Receiver architecture description and data flow diagram.
-			\item Receiver-to-\FPGA{} interface selection rationale and frame format specification.
-			\item Receiver firmware design (interrupt architecture, ring buffer sizing, forwarding logic).
+			\item Interceptor architecture description and data flow diagram.
+			\item Interceptor-to-\FPGA{} interface selection rationale and frame format specification.
+			\item Interceptor firmware design: interrupt architecture, ring buffer sizing, RSSI observation table, button-gated PAUSE TX scheduler with cadence and hold-off rationale.
 			\item \FPGA{} ingestion module description (\UART{} RX, frame detection, verification outputs).
-			\item End-to-end validation test results (beacon$\rightarrow$receiver$\rightarrow$\FPGA{} data flow confirmation).
+			\item End-to-end validation test results: cooperative-target ping-pong $\to$ interceptor $\to$ \FPGA{} data flow confirmation, and PAUSE behavioral response measurements (response and recovery latency).
 		\end{enumerate}
 	\end{tcolorbox}
-	
+
 	\newpage
 	% ══════════════════════════════════════════════════════════════
 	\section{Hardware Platform Reference}
 	\label{sec:hardware}
 	% ══════════════════════════════════════════════════════════════
-	
+
 	\begin{table}[ht!]
 		\centering
 		\caption{Required hardware components for Module 1.}
@@ -693,9 +718,9 @@
 			\toprule
 			\textbf{Component} & \textbf{Qty} & \textbf{Purpose} \\
 			\midrule
-			STM32 Nucleo-L476RG & $\geq 3$ & Two beacon MCUs + one receiver \MCU{} \\
-			\RF{} Transceiver Module & $\geq 3$ & Sub-GHz LoRa communication (e.g., RFM95W, 915\,MHz) \\
-			915\,MHz Whip Antenna & $\geq 3$ & Required for \RF{} transmission/reception \\
+			STM32 Nucleo-L476RG & $\geq 3$ & Two cooperative-target MCUs (Target~A and Target~B) + one interceptor (Threat) \MCU{} \\
+			\RF{} Transceiver Module & $\geq 3$ & Sub-GHz LoRa communication (RFM95W, 906.5\,MHz operating carrier in the U.S.\ 915\,MHz ISM band) \\
+			915\,MHz Spring Antenna & $\geq 3$ & Required for \RF{} transmission/reception \\
 			Digilent Nexys A7-100T & 1 & \FPGA{} development board (Artix-7, 100T) \\
 			USB Micro-B Cables & 4--5 & Power and programming for Nucleo and Nexys boards \\
 			Breadboard + Jumper Wires & --- & Prototyping connections (\SPI{}, \GPIO{}, power, \UART{}) \\
@@ -703,11 +728,11 @@
 			\bottomrule
 		\end{tabularx}
 	\end{table}
-	
+
 	% ══════════════════════════════════════════════════════════════
 	\section{Assessment Rubric}
 	% ══════════════════════════════════════════════════════════════
-	
+
 	\begin{table}[ht!]
 		\centering
 		\caption{Module 1 assessment rubric.}
@@ -717,10 +742,10 @@
 			\toprule
 			\textbf{Assessment Item} & \textbf{Weight} & \textbf{Due} \\
 			\midrule
-			\RF{} Module Trade Study Report (weighted matrix, link budget, justification) & 20\% & Week 1 \\
-			Hardware Requirements Document (\BOM{}, interfaces, power budget, validation evidence) & 20\% & Week 2 \\
-			Beacon Subsystem Design (packet format, scheduling, firmware, multi-beacon tests) & 30\% & Week 3 \\
-			Receiver Subsystem Design (data path, interface, firmware, end-to-end validation) & 30\% & Week 4 \\
+			\RF{} Module Trade Study Report (weighted matrix, link budget, justification) & 20\% & Session 1 \\
+			Hardware Requirements Document (\BOM{}, interfaces, power budget, validation evidence) & 20\% & Session 2 \\
+			Cooperative Target Subsystem Design (packet format with packed type field, ping-pong firmware, PAUSE listener, two-target tests) & 30\% & Session 3 \\
+			Interceptor Subsystem Design (data path, RSSI table, PAUSE scheduler, end-to-end + PAUSE behavioral validation) & 30\% & Session 4 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -766,14 +791,14 @@
 	
 	Upon successful completion of Module~1, students will have:
 	\begin{itemize}[leftmargin=2em]
-		\item A validated hardware platform with confirmed \SPI{} communication across all nodes.
-		\item A fully specified and tested beacon subsystem capable of multi-beacon concurrent operation.
-		\item A receiver subsystem that captures, timestamps, and forwards packets to the \FPGA{}.
-		\item End-to-end data flow from beacon transmission through receiver to \FPGA{} frame ingestion.
-		\item Comprehensive design documentation covering packet formats, interfaces, and firmware architectures.
+		\item A validated hardware platform with confirmed \SPI{} communication across all three nodes.
+		\item A fully specified and tested cooperative-target subsystem (Target~A and Target~B) capable of bidirectional ping-pong operation with PAUSE behavioral response.
+		\item An interceptor (Threat) subsystem that passively captures DATA, ACK, and PAUSE traffic, maintains a per-Beacon-ID \RSSI{} observation table, and operates the button-gated PAUSE TX scheduler.
+		\item End-to-end data flow from cooperative-target transmission through interceptor to \FPGA{} frame ingestion.
+		\item Comprehensive design documentation covering the 32-byte packet format with packed DATA/ACK/PAUSE type field, the 43-byte forwarding frame, the firmware architectures for both cooperative-target and interceptor roles, and the closed-loop intercept-and-act behavior of the PAUSE protocol.
 	\end{itemize}
-	
-	Module~2 will build directly on these foundations with \FPGA{} \RTL{} design and signal processing simulation. The \UART{}/\SPI{} ingestion interface validated in Week~4 becomes the input to the \FPGA{} processing pipeline, and the beacon packet format defines the data structures that the \RTL{} must parse, classify, and prioritize in real time.
+
+	Module~2 will build directly on these foundations with \FPGA{} \RTL{} design and signal processing simulation. The \UART{}/\SPI{} ingestion interface validated in Session~4 becomes the input to the \FPGA{} processing pipeline; the 32-byte radio packet format defines the data structures that the \RTL{} must parse; and the packed \texttt{Modulation Code} byte's low two bits become the \texttt{pkt\_type} field in the Module~2 feature vector, classified at the data-to-model interface in Module~4.
 	
 	\vfill
 	\clearpage

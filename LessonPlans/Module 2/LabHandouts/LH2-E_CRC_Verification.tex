@@ -7,7 +7,7 @@
 \labheader{2-E}{Hardware \CRC{}-8 and \CRC{}-16 Verification}
 
 \section{Objective}
-Replace the \CRC{} stub in the packet parser with two real hardware \CRC{} engines: a \CRC{}-8 over the full receiver frame and a \CRC{}-16 over the embedded beacon payload. Both engines must run in a single clock cycle per byte and must gate downstream processing.
+Replace the \CRC{} stub in the packet parser with two real hardware \CRC{} engines: a \CRC{}-8 over the full interceptor forwarding frame and a \CRC{}-16 over the embedded radio packet (DATA, ACK, or PAUSE --- they share the same 32-byte layout and the same embedded \CRC{}-16 location). Both engines must run in a single clock cycle per byte and must gate downstream processing.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -17,12 +17,12 @@ Replace the \CRC{} stub in the packet parser with two real hardware \CRC{} engin
 \section{Background}
 Two \CRC{}s cover two different failure modes:
 \begin{itemize}[leftmargin=2em]
-	\item \textbf{\CRC{}-8} on the receiver forwarding frame detects corruption between the STM32 and the \FPGA{} \UART{}. Polynomial $x^8 + x^2 + x + 1$ (0x07), initial value 0x00.
-	\item \textbf{\CRC{}-16} embedded inside the beacon payload detects over-the-air corruption end-to-end (beacon $\to$ receiver $\to$ \FPGA{}). Polynomial $x^{16} + x^{12} + x^5 + 1$ (0x1021, CRC-CCITT), initial value 0xFFFF.
+	\item \textbf{\CRC{}-8} on the interceptor forwarding frame detects corruption between the STM32 interceptor and the \FPGA{} \UART{}. Polynomial $x^8 + x^2 + x + 1$ (0x07), initial value 0x00.
+	\item \textbf{\CRC{}-16} embedded inside the radio packet detects over-the-air corruption end-to-end (originating cooperative target or Threat $\to$ interceptor $\to$ \FPGA{}). Polynomial $x^{16} + x^{12} + x^5 + 1$ (0x1021, CRC-CCITT), initial value 0xFFFF.
 \end{itemize}
 
 \begin{tcolorbox}[infobox={Why not one \CRC{}?}]
-	Two \CRC{}s give independent visibility into where corruption happened. If \CRC{}-16 fails but \CRC{}-8 passes, the problem occurred over the air and the receiver delivered the corrupted payload faithfully. If both fail, the serial link itself is suspect. This separation becomes actionable in Module~3 system integration.
+	Two \CRC{}s give independent visibility into where corruption happened. If \CRC{}-16 fails but \CRC{}-8 passes, the problem occurred over the air and the interceptor delivered the corrupted payload faithfully. If both fail, the serial link itself is suspect. This separation becomes actionable in Module~3 system integration.
 \end{tcolorbox}
 
 \section{Procedure}
@@ -42,7 +42,7 @@ Create \texttt{rtl/crc16\_ccitt.vhd}. Use a pre-generated lookup-free parallel e
 \begin{enumerate}[leftmargin=2em]
 	\item Reset \texttt{crc8} to 0x00 and \texttt{crc16} to 0xFFFF on every transition into \texttt{LEN}.
 	\item Update \texttt{crc8} on every byte from \texttt{LEN} through the last \texttt{PAYLOAD} byte (bytes 1--41).
-	\item Update \texttt{crc16} on every byte of the beacon payload only (bytes 10--39; bytes 40--41 are the embedded \CRC{}-16 itself).
+	\item Update \texttt{crc16} on every byte of the radio packet only (bytes 10--39; bytes 40--41 are the embedded \CRC{}-16 itself).
 	\item In \texttt{CRC} state: compare \texttt{crc8} against the captured byte 42 and compare \texttt{crc16} against bytes 40--41 of the payload. Both must match to transition to \texttt{VALID}; any mismatch transitions to \texttt{REJECT}.
 \end{enumerate}
 
@@ -54,7 +54,7 @@ Generate reference \CRC{} values in Python (\texttt{crcmod} or \texttt{pycrc}) f
 \subsection{Step 5 --- Negative tests}
 Flip a single bit in the payload of an otherwise-valid frame and confirm:
 \begin{enumerate}[leftmargin=2em]
-	\item \CRC{}-8 still matches (because the \CRC{}-8 was computed \textit{over} the corrupted bytes by the receiver).
+	\item \CRC{}-8 still matches (because the \CRC{}-8 was computed \textit{over} the corrupted bytes by the interceptor).
 	\item \CRC{}-16 does not match, and the parser issues \texttt{frame\_reject}.
 \end{enumerate}
 

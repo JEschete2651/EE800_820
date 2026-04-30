@@ -1,17 +1,17 @@
 \documentclass[11pt,letterpaper]{article}
 \newcommand{\labid}{1-D}
-\newcommand{\labtitleshort}{Two-Node Packet Test}
+\newcommand{\labtitleshort}{Bidirectional Ping-Pong}
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{1-D}{Two-Node Packet Transmission and Reception}
+\labheader{1-D}{Bidirectional DATA/ACK Ping-Pong Between Two Cooperative Targets}
 
 \section{Objective}
-Transmit a known payload from one STM32+RFM95W node (Node~A) and verify reception with correct \CRC{}, \RSSI{}, and \SNR{} readings on a second node (Node~B). This is the first time the full \RF{} link is exercised end-to-end and the baseline against which all Module~1 link-budget assumptions are validated.
+Implement bidirectional half-duplex LoRa communication between two STM32+RFM95W nodes. Target~A transmits DATA packets on a 1\,s schedule; Target~B receives every DATA and immediately replies with an ACK whose sequence number echoes the received DATA. Both nodes log timestamps so that round-trip latency, packet error rate, and \RSSI{}/\SNR{} can be measured. This handout establishes the bidirectional baseline that Lab Handout~1-F (cooperative target firmware with full \FSM{}) and Lab Handout~1-G (interceptor / Threat firmware) build on.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handouts~1-A, 1-B, 1-C complete for at least \textbf{two} nodes.
+	\item Lab Handouts~1-A, 1-B, 1-C complete for at least \textbf{two} nodes. The two projects \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} must already exist from LH1-C Step~1, and at least \texttt{TargetA} must have demonstrated \texttt{RegVersion = 0x12} on its Nucleo in LH1-C Step~5.
 \end{itemize}
 
 \section{Materials}
@@ -25,8 +25,27 @@ Transmit a known payload from one STM32+RFM95W node (Node~A) and verify receptio
 \newpage
 \section{Procedure}
 
-\subsection{Step 1 --- Configure LoRa modem parameters}
-Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora-params} for this handout; these are the Module~1 reference settings and will also be used in Lab Handouts~1-F and 1-G.
+\subsection{Step 1 --- Open the pre-existing TargetA and TargetB projects}
+
+The two projects \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} were created up front in Lab Handout~1-C, Step~1, with identical baseline peripheral configurations (SPI1, USART2, USART3 with DMA, TIM2 1\,ms tick, GPIO labels for \texttt{RFM\_CS}/\texttt{RFM\_RST}/\texttt{RFM\_DIO0}, EXTI on PA8). \textbf{Do not copy, rename, or move these folders} --- moving STM32 project folders breaks the CMake cache, the launch.json paths, and the STM32 extension's project detection. Instead, open each in its own VS Code window and add code in place.
+
+\begin{enumerate}[leftmargin=2em]
+	\item Open \texttt{Nucleo\_RFM95W\_TargetA} in VS Code: \textbf{File $\to$ Open Folder} $\to$ select the \texttt{Nucleo\_RFM95W\_TargetA} folder created in LH1-C. The folder must be the root of the VS Code window.
+	\item Press \texttt{F7} to confirm the project still builds. (At this point \texttt{TargetA} contains the LH1-C SPI-bring-up code, which will be removed in Step~2 below.)
+	\item Open \texttt{Nucleo\_RFM95W\_TargetB} in a \textbf{second VS Code window} so both projects are open simultaneously, each with its own Run-and-Debug panel and Serial Monitor.
+	\item Press \texttt{F7} in the second window to confirm \texttt{TargetB} builds. (\texttt{TargetB} is freshly generated from LH1-C with no application code beyond the CubeMX peripheral init, so it will build immediately with no warnings.)
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why two physically separate projects with hard-coded roles?}]
+	The cooperative targets (Target~A and Target~B) implement different firmware paths --- Target~A initiates DATA, Target~B responds with ACK. Two physically separate projects let students keep both VS Code windows open, each pointing at a different Nucleo, and flash each one independently with a single \textbf{Start Debugging} click. In Lab Handout~1-F, both projects gain the full cooperative-target \FSM{} (including the PAUSE listener path) and remain physically separate; the role distinction does not move to a runtime flag.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 2 --- Add the shared LoRa initialization function}
+
+This step applies to \textbf{both} the \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects. Make the same edits in each project's \texttt{main.c}.
+
+Both targets must use identical physical-layer parameters. Table~\ref{tab:lora-params} lists the Module~1 reference settings; these will also be used in Lab Handouts~1-F and 1-G.
 
 \begin{table}[h!]
 	\centering
@@ -34,103 +53,535 @@ Both nodes must use identical physical-layer parameters. Use Table~\ref{tab:lora
 	\label{tab:lora-params}
 	\begin{tabular}{l l l}
 		\toprule
-		\textbf{Parameter} & \textbf{Value} & \textbf{Register(s)} \\
+		\textbf{Parameter} & \textbf{Value} & \textbf{Register / Value} \\
 		\midrule
-		Carrier frequency & 915.0\,MHz & \texttt{RegFrfMsb/Mid/Lsb} \\
-		Spreading factor & SF7 & \texttt{RegModemConfig2[7:4]} \\
-		Bandwidth & 125\,kHz & \texttt{RegModemConfig1[7:4]} \\
-		Coding rate & 4/5 & \texttt{RegModemConfig1[3:1]} \\
-		Header mode & Explicit & \texttt{RegModemConfig1[0]} \\
-		\CRC{} & On & \texttt{RegModemConfig2[2]} \\
-		Preamble length & 8 symbols & \texttt{RegPreambleMsb/Lsb} \\
-		Sync word & \texttt{0x34} (private) & \texttt{RegSyncWord} \\
-		Output power & +14\,dBm (PA\_BOOST) & \texttt{RegPaConfig} \\
-		Payload length (\texttt{TX}) & 16 bytes & \texttt{RegPayloadLength} \\
+		Carrier frequency & 906.5\,MHz & \texttt{RegFrfMsb=0xE2, Mid=0xA0, Lsb=0x00} \\
+		Spreading factor & SF7 & \texttt{RegModemConfig2 = 0x74} \\
+		Bandwidth & 125\,kHz & \texttt{RegModemConfig1 = 0x72} \\
+		Coding rate & 4/5 & (combined into \texttt{RegModemConfig1 = 0x72}) \\
+		Header mode & Explicit & (combined into \texttt{RegModemConfig1 = 0x72}) \\
+		\CRC{} & On & (combined into \texttt{RegModemConfig2 = 0x74}) \\
+		Preamble length & 8 symbols & \texttt{RegPreambleMsb=0x00, Lsb=0x08} \\
+		Sync word & \texttt{0x34} (private) & \texttt{RegSyncWord = 0x34} \\
+		Output power & +14\,dBm (\mbox{PA\_BOOST}) & \texttt{RegPaConfig = 0x8C} \\
+		Payload length (\mbox{TX}) & 32 bytes & \texttt{RegPayloadLength = 0x20} \\
+		\mbox{TX} FIFO base addr & --- & \texttt{RegFifoTxBaseAddr = 0x80} \\
+		\mbox{RX} FIFO base addr & --- & \texttt{RegFifoRxBaseAddr = 0x00} \\
 		\bottomrule
 	\end{tabular}
 \end{table}
 
-\subsection{Step 2 --- Node~A transmitter firmware}
+\begin{tcolorbox}[warning={Frequency Match is Critical}]
+	Both targets \textbf{must} write the same \texttt{RegFrf*} values. A frequency offset of even a few kHz will prevent reception at SF7. Copy the three bytes from Table~\ref{tab:lora-params} exactly --- do not substitute 915.0\,MHz or any other frequency.
+\end{tcolorbox}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Starting from your Lab Handout~1-C project, add an initialization routine that programs all registers in Table~\ref{tab:lora-params}, then leaves the modem in \texttt{STANDBY}.
-	\item In the main loop:
-	\begin{enumerate}[leftmargin=1.2em, label=(\alph*)]
-		\item Build a 16-byte test payload. Bytes 0--3: ASCII \texttt{"TEST"}. Bytes 4--7: little-endian 32-bit sequence counter that increments each transmission. Bytes 8--15: arbitrary pattern (e.g., \texttt{0xDE 0xAD 0xBE 0xEF 0xCA 0xFE 0xBA 0xBE}).
-		\item Write the payload to the \texttt{FIFO} at \texttt{FifoTxBaseAddr}.
-		\item Set \texttt{RegPayloadLength = 16}.
-		\item Command \texttt{TX} mode (\texttt{RegOpMode = 0x83}).
-		\item Poll \texttt{RegIrqFlags} for \texttt{TxDone} (bit 3). Clear by writing \texttt{1} to that bit.
-		\item \texttt{printf} the sequence number over the virtual COM port.
-		\item Delay 1000\,ms.
+	\item In \texttt{main.c}, locate \texttt{/* USER CODE BEGIN PFP */} and add prototypes for every function you will define in this lab, alongside the existing LH1-C prototypes:
+\begin{verbatim}
+/* USER CODE BEGIN PFP */
+int __io_putchar(int ch);
+uint8_t rfm_read_reg(uint8_t addr);
+void rfm_write_reg(uint8_t addr, uint8_t val);
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb);
+void lora_init(void);
+void rfm_set_mode_rx(void);
+void rfm_set_mode_standby(void);
+void build_packet(uint8_t *buf, uint8_t sender_id, uint16_t seq,
+                  uint8_t pkt_type, uint8_t mod_kind);
+uint16_t crc16_ccitt(const uint8_t *data, int len);
+/* USER CODE END PFP */
+\end{verbatim}
+
+	\item Scroll to \texttt{/* USER CODE BEGIN 4 */} near the bottom of \texttt{main.c} and add the \texttt{lora\_init()} definition immediately after the existing helpers from LH1-C:
+\begin{verbatim}
+void lora_init(void) {
+    /* 1. Enter LoRa SLEEP (required before writing FRF registers) */
+    rfm_write_reg(0x01, 0x80);
+    HAL_Delay(10);
+
+    /* 2. Carrier frequency: 906.5 MHz */
+    rfm_write_reg(0x06, 0xE2);  // RegFrfMsb
+    rfm_write_reg(0x07, 0xA0);  // RegFrfMid
+    rfm_write_reg(0x08, 0x00);  // RegFrfLsb
+
+    /* 3. Modem config: BW=125 kHz, CR=4/5, explicit header */
+    rfm_write_reg(0x1D, 0x72);
+
+    /* 4. Modem config: SF7, single packet, CRC on */
+    rfm_write_reg(0x1E, 0x74);
+
+    /* 5. Preamble length: 8 symbols */
+    rfm_write_reg(0x20, 0x00);
+    rfm_write_reg(0x21, 0x08);
+
+    /* 6. Sync word: 0x34 (private LoRa network) */
+    rfm_write_reg(0x39, 0x34);
+
+    /* 7. PA: PA_BOOST, +14 dBm */
+    rfm_write_reg(0x09, 0x8C);
+
+    /* 8. FIFO base addresses */
+    rfm_write_reg(0x0E, 0x80);
+    rfm_write_reg(0x0F, 0x00);
+
+    /* 9. Return to STANDBY */
+    rfm_write_reg(0x01, 0x81);
+    HAL_Delay(10);
+
+    printf("lora_init done\r\n");
+}
+
+void rfm_set_mode_standby(void) {
+    rfm_write_reg(0x01, 0x81);  // LoRa STANDBY
+}
+
+void rfm_set_mode_rx(void) {
+    /* Reset FIFO RX pointer and enter RXCONTINUOUS */
+    rfm_write_reg(0x0D, rfm_read_reg(0x0F));  // RegFifoAddrPtr = RxBase
+    rfm_write_reg(0x12, 0xFF);                 // Clear all IRQ flags
+    rfm_write_reg(0x01, 0x85);                 // LoRa RXCONTINUOUS
+}
+/* USER CODE END 4 */
+\end{verbatim}
+
+	\item Add the \texttt{crc16\_ccitt} helper inside the same \texttt{USER CODE BEGIN 4} block. The polynomial is \texttt{0x1021}, init \texttt{0xFFFF}, no reflect, no XOR-out (CCITT-FALSE):
+\begin{verbatim}
+uint16_t crc16_ccitt(const uint8_t *data, int len) {
+    uint16_t crc = 0xFFFF;
+    for (int i = 0; i < len; i++) {
+        crc ^= ((uint16_t)data[i]) << 8;
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021)
+                                 : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+\end{verbatim}
+
+	\item Add the \texttt{build\_packet} helper that constructs a 32-byte radio packet per the Module~1 packet format (Table~4 in the lesson plan). For LH1-D the payload region is filled with a fixed 17-byte test pattern; LH1-F will replace this with structured per-packet payloads.
+\begin{verbatim}
+void build_packet(uint8_t *buf, uint8_t sender_id, uint16_t seq,
+                  uint8_t pkt_type, uint8_t mod_kind) {
+    /* 0-1: Preamble sync 0xAE5A (big-endian) */
+    buf[0] = 0xAE; buf[1] = 0x5A;
+    /* 2: Sender Beacon ID */
+    buf[2] = sender_id;
+    /* 3-4: Sequence number (little-endian) */
+    buf[3] = (uint8_t)(seq);
+    buf[4] = (uint8_t)(seq >> 8);
+    /* 5: TX power (dBm) */
+    buf[5] = 14;
+    /* 6: Modulation Code, packed: bits[7:2]=mod_kind<<2, bits[1:0]=pkt_type */
+    buf[6] = (uint8_t)((mod_kind << 2) | (pkt_type & 0x03));
+    /* 7: Spreading factor */
+    buf[7] = 7;
+    /* 8: Bandwidth code (0x00 = 125 kHz) */
+    buf[8] = 0x00;
+    /* 9-12: Timestamp */
+    uint32_t ts = HAL_GetTick();
+    buf[9]  = (uint8_t)(ts);
+    buf[10] = (uint8_t)(ts >> 8);
+    buf[11] = (uint8_t)(ts >> 16);
+    buf[12] = (uint8_t)(ts >> 24);
+    /* 13-29: Payload (fixed test pattern for LH1-D) */
+    for (int i = 13; i < 30; i++) buf[i] = 0xA5;
+    /* 30-31: CRC-16/CCITT-FALSE over bytes 0-29, MSB-first */
+    uint16_t crc = crc16_ccitt(buf, 30);
+    buf[30] = (uint8_t)(crc >> 8);
+    buf[31] = (uint8_t)(crc);
+}
+\end{verbatim}
+
+	\item Locate \texttt{/* USER CODE BEGIN 2 */}. The LH1-C reset sequence and \texttt{RegVersion} read are already there. Add a call to \texttt{lora\_init()} immediately after the \texttt{RegVersion} print, and \textbf{remove or comment out} any LH1-C demo code that follows (the frequency write/read-back and the mode-transition demo). Final state of the block:
+\begin{verbatim}
+/* USER CODE BEGIN 2 */
+
+/* Reset the RFM95W (from LH1-C) */
+HAL_GPIO_WritePin(RFM_RST_GPIO_Port, RFM_RST_Pin, GPIO_PIN_RESET);
+HAL_Delay(1);
+HAL_GPIO_WritePin(RFM_RST_GPIO_Port, RFM_RST_Pin, GPIO_PIN_SET);
+HAL_Delay(10);
+
+/* Sanity check (from LH1-C) */
+uint8_t version = rfm_read_reg(0x42);
+printf("RegVersion = 0x%02X\r\n", version);
+
+/* Configure the LoRa modem */
+lora_init();
+
+/* USER CODE END 2 */
+\end{verbatim}
+
+	\item Press \texttt{F7} in each VS Code window to build both projects. Confirm zero errors before continuing.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Packet-type and modulation-kind constants}]
+	For convenience and readability, define these constants near the top of \texttt{main.c} (in \texttt{/* USER CODE BEGIN PD */} or similar):
+\begin{verbatim}
+#define PKT_TYPE_DATA   0x00
+#define PKT_TYPE_ACK    0x01
+#define PKT_TYPE_PAUSE  0x02
+
+#define MOD_KIND_LORA   0x01
+#define MOD_KIND_FSK    0x02
+#define MOD_KIND_OOK    0x03
+
+#define BEACON_ID_A     0x01
+#define BEACON_ID_B     0x02
+#define BEACON_ID_THREAT 0xFF
+\end{verbatim}
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 3 --- Add Target~A (DATA initiator + ACK listener) main-loop code}
+
+This step applies \textbf{only} to the \texttt{Nucleo\_RFM95W\_TargetA} project.
+
+\begin{enumerate}[leftmargin=2em]
+	\item In \texttt{main.c} of the \texttt{Nucleo\_RFM95W\_TargetA} project, locate \texttt{/* USER CODE BEGIN 2 */} and add a sequence counter and timing variables immediately after the \texttt{lora\_init()} call:
+\begin{verbatim}
+/* USER CODE BEGIN 2 */
+/* ... reset, RegVersion read, lora_init() above ... */
+
+uint16_t seq = 0;
+uint32_t next_tx_ms = HAL_GetTick() + 1000;  // first DATA at t=1s
+uint16_t acks_received = 0;
+uint16_t data_sent = 0;
+
+printf("Target A initiator ready\r\n");
+
+/* USER CODE END 2 */
+\end{verbatim}
+
+	\item Locate \texttt{/* USER CODE BEGIN WHILE */} and add the per-iteration TX-then-RX-window code. Target~A transmits a DATA packet, switches into RX, polls for an ACK with a 200\,ms RX-window timeout, then logs the round-trip outcome:
+\begin{verbatim}
+/* USER CODE BEGIN WHILE */
+while (1)
+{
+    if (HAL_GetTick() >= next_tx_ms) {
+        next_tx_ms += 1000;  // schedule next DATA in 1 second
+
+        /* --- Build and transmit DATA --- */
+        uint8_t pkt[32];
+        build_packet(pkt, BEACON_ID_A, seq,
+                     PKT_TYPE_DATA, MOD_KIND_LORA);
+
+        rfm_set_mode_standby();
+        /* Point FIFO to TX base address */
+        rfm_write_reg(0x0D, rfm_read_reg(0x0E));
+        /* Write packet into FIFO */
+        for (int i = 0; i < 32; i++) rfm_write_reg(0x00, pkt[i]);
+        rfm_write_reg(0x22, 32);  // RegPayloadLength
+
+        uint32_t t_tx_ms = HAL_GetTick();
+        rfm_write_reg(0x12, 0xFF);  // Clear IRQ flags
+        rfm_write_reg(0x01, 0x83);  // LoRa TX
+
+        /* Wait for TxDone (IRQ flag bit 3) */
+        uint8_t irq;
+        do {
+            irq = rfm_read_reg(0x12);
+        } while ((irq & 0x08) == 0);
+        rfm_write_reg(0x12, 0xFF);
+
+        data_sent++;
+
+        /* --- Switch to RX and wait up to 200 ms for an ACK --- */
+        rfm_set_mode_rx();
+        uint32_t rx_window_end = HAL_GetTick() + 200;
+        uint8_t got_ack = 0;
+        uint32_t t_ack_ms = 0;
+        uint16_t ack_seq = 0;
+        int16_t ack_rssi = 0;
+
+        while (HAL_GetTick() < rx_window_end) {
+            irq = rfm_read_reg(0x12);
+            if (irq & 0x40) {  /* RxDone */
+                if ((irq & 0x20) == 0) {  /* CRC ok */
+                    uint8_t rx_addr = rfm_read_reg(0x10);
+                    rfm_write_reg(0x0D, rx_addr);
+                    uint8_t rx[32] = {0};
+                    for (int i = 0; i < 32; i++) {
+                        rx[i] = rfm_read_reg(0x00);
+                    }
+                    /* Validate sender = B and pkt_type = ACK */
+                    uint8_t pkt_type_rx = rx[6] & 0x03;
+                    if (rx[2] == BEACON_ID_B
+                        && pkt_type_rx == PKT_TYPE_ACK) {
+                        got_ack = 1;
+                        t_ack_ms = HAL_GetTick();
+                        ack_seq = (uint16_t)rx[3]
+                                | ((uint16_t)rx[4] << 8);
+                        ack_rssi = (int16_t)rfm_read_reg(0x1A) - 157;
+                    }
+                }
+                rfm_write_reg(0x12, 0xFF);
+                if (got_ack) break;
+            }
+        }
+        rfm_set_mode_standby();
+
+        /* --- Log CSV: seq, t_tx_ms, t_ack_ms, rtt_ms, rssi_dbm --- */
+        if (got_ack) {
+            acks_received++;
+            uint32_t rtt = t_ack_ms - t_tx_ms;
+            printf("CSV,%u,%lu,%lu,%lu,%d\r\n",
+                   (unsigned)seq, (unsigned long)t_tx_ms,
+                   (unsigned long)t_ack_ms, (unsigned long)rtt,
+                   (int)ack_rssi);
+        } else {
+            printf("CSV,%u,%lu,0,0,0  (no ACK; seq=%u)\r\n",
+                   (unsigned)seq, (unsigned long)t_tx_ms,
+                   (unsigned)seq);
+        }
+
+        if ((data_sent % 10) == 0) {
+             uint32_t ack_x10 = (1000UL * acks_received) / data_sent;
+             printf("# stats: sent=%u acked=%u (%lu.%lu%%)\r\n",
+                 data_sent, acks_received,
+                 ack_x10 / 10UL, ack_x10 % 10UL);
+        }
+
+        seq++;
+    }
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+}
+/* USER CODE END 3 */
+\end{verbatim}
+	The \texttt{USER CODE END WHILE} and \texttt{USER CODE BEGIN 3} markers are already present in the CubeMX-generated file --- do not add or remove them. Your code goes \emph{between} \texttt{USER CODE BEGIN WHILE} and \texttt{USER CODE END WHILE}.
+
+	\item Press \texttt{F7} to build. Confirm zero errors.
+\end{enumerate}
+
+\newpage
+\subsection{Step 4 --- Add Target~B (DATA listener + ACK responder) main-loop code}
+
+This step applies \textbf{only} to the \texttt{Nucleo\_RFM95W\_TargetB} project.
+
+\begin{enumerate}[leftmargin=2em]
+	\item In \texttt{main.c} of the \texttt{Nucleo\_RFM95W\_TargetB} project, locate \texttt{/* USER CODE BEGIN 2 */} and immediately after \texttt{lora\_init()} put the radio into continuous RX:
+\begin{verbatim}
+/* USER CODE BEGIN 2 */
+/* ... reset, RegVersion read, lora_init() above ... */
+
+rfm_set_mode_rx();
+uint16_t data_rx = 0;
+uint16_t acks_sent = 0;
+
+printf("Target B responder ready\r\n");
+
+/* USER CODE END 2 */
+\end{verbatim}
+
+	\item Locate \texttt{/* USER CODE BEGIN WHILE */} and add the per-iteration RX-then-ACK code:
+\begin{verbatim}
+/* USER CODE BEGIN WHILE */
+while (1)
+{
+    uint8_t irq = rfm_read_reg(0x12);
+
+    if (irq & 0x40) {  /* RxDone */
+        if (irq & 0x20) {  /* CRC error */
+            printf("CRC error\r\n");
+            rfm_write_reg(0x12, 0xFF);
+        } else {
+            /* Read packet */
+            uint8_t rx_addr = rfm_read_reg(0x10);
+            rfm_write_reg(0x0D, rx_addr);
+            uint8_t rx[32] = {0};
+            for (int i = 0; i < 32; i++) {
+                rx[i] = rfm_read_reg(0x00);
+            }
+            int16_t rssi = (int16_t)rfm_read_reg(0x1A) - 157;
+            int8_t  snr_raw = (int8_t)rfm_read_reg(0x19);
+            int16_t snr = snr_raw / 4;
+            rfm_write_reg(0x12, 0xFF);  /* clear IRQs */
+
+            uint8_t sender = rx[2];
+            uint8_t pkt_type_rx = rx[6] & 0x03;
+            uint16_t rx_seq = (uint16_t)rx[3]
+                            | ((uint16_t)rx[4] << 8);
+
+            if (sender == BEACON_ID_A
+                && pkt_type_rx == PKT_TYPE_DATA) {
+                data_rx++;
+                printf("RX DATA seq=%u rssi=%d snr=%d\r\n",
+                       (unsigned)rx_seq, (int)rssi, (int)snr);
+
+                /* --- Build and TX ACK echoing the DATA's seq --- */
+                uint8_t ack[32];
+                build_packet(ack, BEACON_ID_B, rx_seq,
+                             PKT_TYPE_ACK, MOD_KIND_LORA);
+
+                rfm_set_mode_standby();
+                rfm_write_reg(0x0D, rfm_read_reg(0x0E));
+                for (int i = 0; i < 32; i++) {
+                    rfm_write_reg(0x00, ack[i]);
+                }
+                rfm_write_reg(0x22, 32);
+                rfm_write_reg(0x12, 0xFF);
+                rfm_write_reg(0x01, 0x83);  /* LoRa TX */
+
+                /* Wait for TxDone */
+                do {
+                    irq = rfm_read_reg(0x12);
+                } while ((irq & 0x08) == 0);
+                rfm_write_reg(0x12, 0xFF);
+
+                acks_sent++;
+
+                /* Return to RXCONTINUOUS for next DATA */
+                rfm_set_mode_rx();
+            }
+        }
+    }
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+}
+/* USER CODE END 3 */
+\end{verbatim}
+
+	\item Press \texttt{F7} to build. Confirm zero errors.
+\end{enumerate}
+
+\newpage
+\subsection{Step 5 --- Run the ping-pong end-to-end}
+\begin{enumerate}[leftmargin=2em]
+	\item Plug both Nucleos into the host PC via USB.
+	\item Open the Serial Monitor in each VS Code window using the procedure from LH1-C: Command Palette ($\texttt{Ctrl+Shift+P}$) $\to$ \textbf{Serial Monitor: Focus on Serial Monitor View} $\to$ \textbf{Open Serial Monitor} $\to$ select the STLink Virtual COM port $\to$ baud \textbf{115200} $\to$ \textbf{Start Monitoring}. Identify which COM port belongs to which Nucleo by unplugging one board and observing which port disappears from the dropdown.
+	\item In the Target~B VS Code window, click \textbf{Start Debugging} first (so the responder is listening before the initiator starts). Wait for \texttt{Target B responder ready} on its Serial Monitor.
+	\item In the Target~A VS Code window, click \textbf{Start Debugging}. The Target~A monitor should begin printing one \texttt{CSV,...} line per second; the Target~B monitor should print one \texttt{RX DATA seq=...} line per matching DATA reception.
+	\item Place the two Nucleos approximately 1\,m apart on the bench with their spring antennas upright.
+\end{enumerate}
+
+Expected steady-state output on Target~A's monitor:
+\begin{verbatim}
+RegVersion = 0x12
+lora_init done
+Target A initiator ready
+CSV,0,1041,1191,150,-40
+CSV,1,2041,2191,150,-40
+CSV,2,3041,3191,150,-39
+...
+# stats: sent=10 acked=10 (100.0%)
+\end{verbatim}
+And on Target~B's monitor:
+\begin{verbatim}
+RegVersion = 0x12
+lora_init done
+Target B responder ready
+RX DATA seq=0 rssi=-40 snr=9
+RX DATA seq=1 rssi=-40 snr=10
+RX DATA seq=2 rssi=-40 snr=9
+...
+\end{verbatim}
+
+\begin{tcolorbox}[infobox={Optional diagnostic logging is acceptable}]
+\textbf{Optional extra logging} is allowed and may be useful during bring-up. For example, your firmware may also print a board-identifier line such as \texttt{UID: ... --> Board X} at startup, and it may print periodic summary lines such as \texttt{\# stats: sent=... acked=...}. Those lines do \emph{not} change the required radio behavior. If you manually reboot boards or restart monitoring while capturing logs, you may also see repeated startup banners and the sequence counter restarting at zero. That is acceptable for debugging; for the Step~6 analysis, extract one continuous run of at least 100 \texttt{CSV,...} rows from a single steady-state session.
+\end{tcolorbox}
+
+\labfigure{LH1D_two_node_bench.jpg}{0.75\textwidth}{Both Nucleo+RFM95W nodes on the bench $\approx$1\,m apart with spring antennas upright. Target~A (initiator) on the left, Target~B (responder) on the right.}{fig:lh1d-bench}
+
+\labfigure{LH1D_dual_serial.png}{0.9\textwidth}{Side-by-side Serial Monitors: Target~A's per-second \texttt{CSV} ping-pong log on the left and Target~B's matching \texttt{RX DATA} log on the right. Sequence numbers must match across the two windows.}{fig:lh1d-serial}
+
+\newpage
+\subsection{Step 6 --- Capture 100 ping-pong pairs and analyze}
+
+\begin{tcolorbox}[infobox={How to interpret RSSI and SNR}]
+For the SX1276 LoRa receiver, the two link-quality numbers used in this lab are \RSSI{} and \SNR{}.
+
+\textbf{In real RF terms, RSSI is just received power.} The link-budget form is
+\[
+P_{\mathrm{rx,dBm}} = P_{\mathrm{tx,dBm}} + G_{\mathrm{tx,dBi}} + G_{\mathrm{rx,dBi}} - L_{\mathrm{path,dB}} - L_{\mathrm{other,dB}}
+\]
+where transmit power, antenna gains, path loss, and other losses determine how much signal power arrives at the receiver. More positive (or less negative) values indicate a stronger received signal. For example, $-35$\,dBm is stronger than $-50$\,dBm.
+
+\textbf{SNR is signal power relative to the noise floor.} In real-world form,
+\[
+\SNR{}_{\mathrm{dB}} = P_{\mathrm{signal,dBm}} - P_{\mathrm{noise,dBm}}
+\]
+with the thermal-noise estimate
+\[
+P_{\mathrm{noise,dBm}} = -174\,\mathrm{dBm/Hz} + 10\log_{10}(B) + NF
+\]
+where $B$ is receiver bandwidth in Hz and $NF$ is receiver noise figure in dB. Positive \SNR{} means the signal is above the noise floor; negative \SNR{} means the radio is receiving a signal buried below the noise floor but still potentially decodable because LoRa processing gain is high.
+
+\textbf{In firmware, the SX1276 estimates these values from its packet-status registers.} For the high-frequency port used by the RFM95W around 906.5\,MHz, the code in this lab converts the register values as
+\[
+\RSSI{}_{\mathrm{dBm}} = \texttt{RegPktRssiValue} - 157
+\]
+and
+\[
+\SNR{}_{\mathrm{dB}} = \frac{\texttt{RegPktSnrValue}}{4}
+\]
+These are not separate physics formulas; they are the SX1276's mapping from its internal measurements to estimated real-world units.
+
+These two numbers are related but not interchangeable:
+\begin{itemize}[leftmargin=1.5em]
+    \item \RSSI{} tells you \emph{how much signal power arrived} at the receiver.
+    \item \SNR{} tells you \emph{how clean that signal is relative to noise}.
+    \item A link can have low \RSSI{} but still work well if \SNR{} remains comfortably positive.
+    \item A link can have fairly strong \RSSI{} and still perform poorly if the noise floor rises and \SNR{} falls.
+\end{itemize}
+In this handout, \RSSI{} is used for the link-budget comparison, while \SNR{} is a quick indicator of demodulation margin and channel cleanliness.
+\end{tcolorbox}
+
+\begin{enumerate}[leftmargin=2em]
+	\item In the Target~A Serial Monitor, capture at least 100 consecutive \texttt{CSV,...} lines:
+	\begin{enumerate}[leftmargin=1.5em]
+		\item Right-click in the Serial Monitor output area $\to$ \textbf{Select All} $\to$ \textbf{Copy} (or press \texttt{Ctrl+A} then \texttt{Ctrl+C}).
+        \item Paste into a text editor and save as \texttt{LH1D\_pingpong\_log.csv}. Strip the non-CSV lines (for example \texttt{UID: ...}, \texttt{RegVersion}, \texttt{lora\_init done}, \texttt{Target A initiator ready}, periodic \texttt{\# stats} lines, and any repeated startup block caused by a manual reset or monitor restart) so only one continuous set of \texttt{CSV,seq,t\_tx\_ms,t\_ack\_ms,rtt\_ms,rssi\_dbm} rows remains. Add a header row.
 	\end{enumerate}
+	\item From \texttt{LH1D\_pingpong\_log.csv}, compute:
+	\begin{itemize}[leftmargin=1.5em]
+		\item \textbf{ACK reception rate}: rows with \texttt{t\_ack\_ms} $\ne$ 0 divided by total rows. Target: $\geq$95\%.
+        \item \textbf{Round-trip latency statistics}: mean, standard deviation, minimum, maximum, and 99th-percentile of \texttt{rtt\_ms} across rows where \texttt{t\_ack\_ms} $\ne$ 0. With the simple polling implementation used in LH1-D, a steady-state mean around $\sim$140--160\,ms is normal at SF7 with a 32-byte payload.
+		\item \textbf{Mean \RSSI{}} and \textbf{standard deviation of \RSSI{}} across all rows with valid ACK.
+		\item \textbf{Sequence gaps}: any jump in \texttt{seq} indicates a dropped DATA on Target~B; any \texttt{t\_ack\_ms} $=$ 0 with later sequence numbers continuing indicates a dropped ACK on Target~A.
+	\end{itemize}
+	\item Compare mean \RSSI{} against the Module~1 link budget estimate for 1\,m indoor separation. For Friis free-space path loss at 906.5\,MHz over 1\,m:
+	\[
+		L_{\text{fs}} = 20\log_{10}\!\left(\frac{4\pi d f}{c}\right) \approx 31.6\,\text{dB}
+	\]
+	With +14\,dBm transmit power and $\sim-2$\,dBi antenna efficiency on each end, expected received power $\approx -22$\,dBm. Indoor multipath will shift this; a measured value between $-30$ and $-50$\,dBm at 1\,m is typical. A discrepancy $>$10\,dB warrants an antenna inspection.
 \end{enumerate}
 
-\newpage
-\subsection{Step 3 --- Node~B receiver firmware}
-\begin{enumerate}[leftmargin=2em]
-	\item Use the same initialization, but set \texttt{FifoRxBaseAddr} and put the modem into continuous \mbox{RX} mode (\texttt{RegOpMode = 0x85}).
-	\item In the main loop (or in the \texttt{DIO0} interrupt, if you're ready), poll \texttt{RegIrqFlags} for \texttt{RxDone} (bit 6).
-	\item When \texttt{RxDone} asserts:
-	\begin{enumerate}[leftmargin=1.2em, label=(\alph*)]
-		\item Check \texttt{PayloadCrcError} (bit 5). If set, increment a \CRC{}-error counter and skip the payload; if clear, read the payload.
-		\item Read \texttt{RegRxNbBytes} for the received payload length.
-		\item Read \texttt{RegFifoRxCurrentAddr}, write it to \texttt{RegFifoAddrPtr}, then read \texttt{RxNbBytes} bytes from \texttt{RegFifo}.
-		\item Read \texttt{RegPktRssiValue} and convert: $\text{\RSSI{}}[\text{dBm}] = \text{raw} - 157$ (high-frequency port).
-		\item Read \texttt{RegPktSnrValue} and convert: $\text{\SNR{}}[\text{dB}] = \text{raw}/4$ (signed byte).
-		\item \texttt{printf} the sequence number, \RSSI{}, and \SNR{}.
-		\item Clear \texttt{RegIrqFlags} by writing \texttt{0xFF}.
-	\end{enumerate}
-\end{enumerate}
-
-\newpage
-\subsection{Step 4 --- Run the link}
-\begin{enumerate}[leftmargin=2em]
-	\item Plug both nodes into the host PC.
-	\item Open two serial monitor instances (one per virtual COM port).
-	\item Flash Node~B (receiver) first and confirm it prints an ``awaiting packets'' banner.
-	\item Flash Node~A (transmitter) and confirm it starts incrementing the sequence counter.
-	\item Place the nodes approximately 1\,m apart on the bench with antennas upright.
-\end{enumerate}
-
-\labfigure{LH1D_two_node_bench.jpg}{0.75\textwidth}{Both Nucleo+RFM95W nodes on the bench $\approx$1\,m apart with spring antennas upright. Node~A (TX) on the left, Node~B (RX) on the right.}{fig:lh1d-bench}
-
-\labfigure{LH1D_dual_serial.png}{0.9\textwidth}{Side-by-side serial monitors: Node~A incrementing the sequence counter (left) and Node~B printing matching sequence numbers with \RSSI{}/\SNR{} (right).}{fig:lh1d-serial}
-
-\newpage
-\subsection{Step 5 --- Log 100 packets and analyze}
-\begin{enumerate}[leftmargin=2em]
-	\item Capture 100 consecutive receptions on Node~B (copy from the serial monitor or pipe to a file).
-	\item Compute: packet reception rate (received / transmitted), mean \RSSI{}, standard deviation of \RSSI{}, mean \SNR{}, and the count of \CRC{} errors.
-	\item Compare mean \RSSI{} against the Module~1 link budget estimate for 1\,m indoor separation.
-\end{enumerate}
-
-\labfigure{LH1D_rssi_histogram.png}{0.7\textwidth}{Example \RSSI{} histogram across 100 consecutive receptions at 1\,m bench separation. Students generate their own version from the captured log as part of the deliverable.}{fig:lh1d-rssi}
+\labfigure{LH1D_rssi_histogram.png}{0.7\textwidth}{Example \RSSI{} histogram across 100 consecutive ping-pong receptions at 1\,m bench separation. Students generate their own version from the captured CSV as part of the deliverable.}{fig:lh1d-rssi}
 
 \newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] $\geq$95\% packet reception rate at 1\,m indoor line-of-sight.
-	\item[$\square$] Zero \CRC{} errors across 100 consecutive packets.
-	\item[$\square$] Sequence counter values are contiguous on Node~B (no gaps).
-	\item[$\square$] Mean \RSSI{} is within $\pm$6\,dB of the computed link budget.
-	\item[$\square$] Mean \SNR{} is $>$+5\,dB.
+	\item[$\square$] Both \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects build with zero errors.
+	\item[$\square$] \texttt{lora\_init done} prints on both targets at startup.
+	\item[$\square$] Target~B prints \texttt{Target B responder ready} before Target~A is started.
+	\item[$\square$] Target~A's \texttt{CSV} log shows matching sequence numbers and non-zero \texttt{t\_ack\_ms} for $\geq$95\% of rows.
+	\item[$\square$] Target~B's \texttt{RX DATA seq} log matches Target~A's outgoing sequence numbers one-for-one.
+    \item[$\square$] Round-trip latency mean is between 120 and 180\,ms for the polling-based LH1-D implementation at SF7.
+	\item[$\square$] Zero \CRC{} errors on Target~B across 100 consecutive DATA receptions.
+	\item[$\square$] Mean \RSSI{} is within $\pm$10\,dB of the computed link budget.
 \end{itemize}
 
 \begin{tcolorbox}[warning={Troubleshooting}]
 	\begin{itemize}[leftmargin=1.2em]
-		\item \textbf{No packets received}: check that both nodes use the same sync word and spreading factor. A one-bit mismatch yields silent failure.
-		\item \textbf{High \CRC{} error rate}: verify \texttt{CrcOn} in \texttt{RegModemConfig2} on both nodes, and confirm the preamble length matches.
-		\item \textbf{Very low \RSSI{} ($<-$90\,dBm at 1\,m)}: usually an antenna problem --- re-check the spring antenna solder joint.
-		\item \textbf{\texttt{TxDone} never asserts}: \texttt{DIO0} mapping wrong, or the modem is in \mbox{FSK} mode instead of LoRa (bit 7 of \texttt{RegOpMode}).
+		\item \textbf{No ACKs received on Target~A}: confirm Target~B's \texttt{Modulation Code} byte for ACK is \texttt{(MOD\_KIND\_LORA $\ll$ 2) | PKT\_TYPE\_ACK} = \texttt{0x05}, not bare \texttt{0x01}. The packed type field is the most common bug introduced in Step~2.
+        \item \textbf{Target~A logs all-zero ACKs}: Target~A's RX-window timeout (200\,ms) is too short for the round-trip at the current SF/payload. In the simple polling implementation used here, measured round-trip latency is often about 150\,ms at SF7 with 32-byte packets, so a 200\,ms window is only modestly above the observed nominal value. Widen the window to 300\,ms if Target~B is verifiably transmitting.
+		\item \textbf{Target~B prints \texttt{CRC error} on every packet}: verify \texttt{CrcOn} is set (\texttt{RegModemConfig2 = 0x74}) on the Target~A side and that the preamble length (\texttt{0x08}) matches.
+		\item \textbf{Sequence gaps on Target~B}: usually transient half-duplex collisions if Target~B failed to switch back into RX before the next Target~A DATA. Confirm that \texttt{rfm\_set\_mode\_rx()} is called at the end of the ACK path before the loop iterates.
+		\item \textbf{Very low \RSSI{} ($<-$90\,dBm at 1\,m)}: usually an antenna problem --- re-check the spring antenna solder joint on both modules (LH1-A).
+		\item \textbf{Build fails after the LH1-C demo code is removed}: stale \mbox{CMake} cache. Delete the \texttt{build/} folder in the project root and press \texttt{F7} again.
 	\end{itemize}
 \end{tcolorbox}
 
 \begin{tcolorbox}[deliverable={Lab Handout 1-D Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Source code for both Node~A (TX) and Node~B (RX).
-		\item Raw serial log of 100 consecutive receptions on Node~B.
-		\item Summary statistics: reception rate, mean \RSSI{}, \RSSI{} standard deviation, mean \SNR{}, \CRC{} error count.
-		\item One-paragraph comparison between measured mean \RSSI{} and the Module~1 link-budget prediction. Explain any discrepancy $>$6\,dB.
+		\item Source code for both \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects (or just the modified \texttt{main.c} files), including \texttt{lora\_init()}, \texttt{build\_packet()}, \texttt{crc16\_ccitt()}, and the role-specific main loops.
+		\item Captured \texttt{LH1D\_pingpong\_log.csv} containing at least 100 ping-pong pairs.
+		\item Summary statistics: ACK reception rate, mean / std / p99 of round-trip latency, mean \RSSI{}, \RSSI{} standard deviation, sequence-gap count.
+		\item One-paragraph comparison between measured mean \RSSI{} and the Module~1 link-budget prediction. Explain any discrepancy $>$10\,dB.
 	\end{enumerate}
 \end{tcolorbox}
 

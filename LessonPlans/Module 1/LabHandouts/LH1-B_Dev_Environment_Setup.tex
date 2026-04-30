@@ -7,7 +7,7 @@
 \labheader{1-B}{STM32 Development Environment Setup}
 
 \section{Objective}
-Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-L476RG over its on-board ST-LINK/V2.1, and successfully build, flash, and debug a ``blinky'' firmware image. On completion you will have a fully functional STM32 toolchain ready for \SPI{} bring-up in Lab Handout~1-C.
+Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-L476RG over its on-board ST-LINK/V2.1, and successfully build, flash, and debug a ``blinky'' firmware image. On completion you will have a fully functional STM32 toolchain ready for \SPI{} bring-up in Lab Handout~1-C, where you will communicate with the SX1276 transceiver on the RFM95W.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -161,7 +161,7 @@ if (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET)
 }
 \end{verbatim}
 	While the onboard user button (B1) is held, \texttt{LD2} will blink rapidly. The button reads \texttt{GPIO\_PIN\_RESET} when pressed because it is active-low.
-	\item Command palette $\to$ ``CMake: Build''. Confirm the build completes with zero errors.
+	\item Press \texttt{F7} to build (or Command Palette $\to$ \textbf{CMake: Build}). Confirm the build completes with zero errors. Use \texttt{F7} any time you want to check your code for errors without flashing.
 	\item Note the ELF output path reported at the end of the build log; you will use it in the next step.
 \end{enumerate}
 

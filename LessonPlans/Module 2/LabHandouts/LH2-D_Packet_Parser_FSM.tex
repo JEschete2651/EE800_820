@@ -7,16 +7,16 @@
 \labheader{2-D}{Packet Parser Finite State Machine}
 
 \section{Objective}
-Implement the \VHDL{} parser that drains \texttt{byte\_fifo}, locks onto the Module~1 receiver forwarding frame (start delimiter \texttt{0x7E}, 1-byte length, 8-byte metadata, 32-byte embedded beacon payload, 1-byte \CRC{}-8), and produces registered outputs for each field. By the end of this handout a valid frame will emit a \texttt{frame\_valid} pulse with the parsed fields stable on the same cycle.
+Implement the \VHDL{} parser that drains \texttt{byte\_fifo}, locks onto the Module~1 interceptor forwarding frame (start delimiter \texttt{0x7E}, 1-byte length, 8-byte metadata, 32-byte embedded radio packet, 1-byte \CRC{}-8), and produces registered outputs for each field. By the end of this handout a valid frame will emit a \texttt{frame\_valid} pulse with the parsed fields stable on the same cycle. The parser is type-agnostic: the same code path handles DATA, ACK, and PAUSE radio packets because they share the 32-byte layout. Packet-type discrimination happens later in the feature extraction module (Lab Handout~2-F).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~2-C (Week~1 pipeline integration verified).
+	\item Lab Handout~2-C (Session~5 pipeline integration verified).
 	\item Module~1 receiver frame format reference (43 bytes total).
 \end{itemize}
 
 \section{Background}
-The receiver forwarding frame is defined by the Module~1 lesson plan (Table~6) and is the single canonical spec across Modules~1--5. Reproduced verbatim below:
+The interceptor forwarding frame is defined by the Module~1 lesson plan (Table~6) and is the single canonical spec across Modules~1--5. Reproduced verbatim below:
 \begin{center}
 \begin{tabular}{c l c l}
 \toprule
@@ -28,7 +28,7 @@ The receiver forwarding frame is defined by the Module~1 lesson plan (Table~6) a
 6     & \RSSI{} (int8, dBm)                                   & 1\,B & Metadata \\
 7     & \SNR{} (int8, 0.25\,dB)                               & 1\,B & Metadata \\
 8--9  & Frequency error (int16, \mbox{LE}, Hz)                & 2\,B & Metadata \\
-10--41 & Beacon payload (32-byte beacon packet)               & 32\,B & Includes embedded \CRC{}-16 at beacon bytes 30--31 = frame 40--41 \\
+10--41 & Radio packet (32 bytes; DATA / ACK / PAUSE)           & 32\,B & Includes embedded \CRC{}-16 at packet bytes 30--31 = frame 40--41 \\
 42    & Frame \CRC{}-8/ITU (poly \texttt{0x07}) over bytes 1--41 & 1\,B & Transport integrity \\
 \bottomrule
 \end{tabular}
@@ -38,7 +38,7 @@ The receiver forwarding frame is defined by the Module~1 lesson plan (Table~6) a
 The length byte equals the count of bytes \emph{excluding the start delimiter and the trailing \CRC{}}. For a 43-byte frame, byte[1] must equal \texttt{0x29} (41 decimal). Reject any frame where byte[1] $\neq$ \texttt{0x29}.
 \end{tcolorbox}
 
-Byte 42 is the frame \CRC{}-8/ITU computed over bytes 1--41 (not 0--41 --- the start delimiter is excluded). The beacon payload also carries its own \CRC{}-16/CCITT-FALSE internally at beacon bytes 30--31 (frame offsets 40--41), checked in Lab Handout~2-E.
+Byte 42 is the frame \CRC{}-8/ITU computed over bytes 1--41 (not 0--41 --- the start delimiter is excluded). The radio packet also carries its own \CRC{}-16/CCITT-FALSE internally at packet bytes 30--31 (frame offsets 40--41), checked in Lab Handout~2-E.
 
 \begin{tcolorbox}[infobox={Pre-Check: Known-Good Reference Frame}]
 Before wiring this parser into \texttt{ingest\_top}, grab the reference frame hex and expected parser outputs bundled with Module~2 (\texttt{sim/reference\_frame.hex} and \texttt{sim/reference\_frame\_expected.txt}). Feed them through your parser in simulation. If the reference frame fails to parse, the bug is local to this handout, not a Module~1 spec drift issue. This pre-check eliminates false-negative debugging against Module~1 firmware.

@@ -4,14 +4,14 @@
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{1-E}{\FPGA{} Toolchain Validation: Nexys A7 Loopback Design}
+\labheader{1-E}{\FPGA{} Toolchain Validation: Nexys A7 Loopback Designs}
 
 \section{Objective}
-Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthesizing, implementing, and programming a trivial switch-to-\mbox{LED} loopback design. This is the \FPGA{}-side counterpart to Lab Handouts~1-B/1-C and confirms that you can move on to \RTL{} development in Module~2.
+Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthesizing, implementing, and programming two loopback designs: (1) a trivial switch-to-\mbox{LED} loopback that proves the Vivado flow end-to-end, and (2) a \mbox{UART} echo loopback that proves the USB-\mbox{UART} path that Module~2 will rely on. Both must pass before moving on to \RTL{} development.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item No prior lab handouts required for this one; it runs in parallel to the STM32 bring-up track.
+	\item No prior lab handouts required; runs in parallel to the STM32 bring-up track.
 	\item Basic \VHDL{} syntax familiarity (see Module~1 Prerequisites for references).
 \end{itemize}
 
@@ -20,6 +20,7 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 	\item Digilent Nexys A7-100T development board (XC7A100T-1CSG324C).
 	\item USB Micro-B cable.
 	\item Host PC with $\geq$50\,GB free disk space for Vivado.
+	\item Serial terminal program (PuTTY, Tera Term, or similar).
 \end{itemize}
 
 \newpage
@@ -27,17 +28,18 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 
 \subsection{Step 1 --- Install Vivado (first-time only)}
 \begin{enumerate}[leftmargin=2em]
-	\item Download Vivado ML Standard (the free edition that covers Artix-7) from \\  \href{https://www.xilinx.com/support/download.html}{xilinx.com/support/download.html}. Create a free AMD account if you don't already have one.
-	\item Run the installer. When prompted for device families, select \textbf{Artix-7} and \textbf{7 Series} at minimum; deselecting everything else saves substantial disk space and install time.
+	\item Download Vivado ML Standard (the free edition that covers Artix-7) from \\
+	      \href{https://www.xilinx.com/support/download.html}{xilinx.com/support/download.html}. Create a free AMD account if you do not already have one.
+	\item Run the installer. When prompted for device families, select \textbf{Artix-7} and \textbf{7~Series} at minimum; deselecting other families saves tens of GB.
 	\item On Windows, let the installer install the cable drivers when prompted at the end.
 	\item Launch Vivado once to verify the license. The free Standard edition does not require a license file for Artix-7 devices.
 \end{enumerate}
 
-\labfigure{LH1E_vivado_installer.png}{0.85\textwidth}{Vivado installer device-family selection screen with \textbf{Artix-7} and \textbf{7~Series} checked. Deselecting other families saves tens of GB.}{fig:lh1e-installer}
+\labfigure{LH1E_vivado_installer.png}{0.85\textwidth}{Vivado installer device-family selection screen with \textbf{Artix-7} and \textbf{7~Series} checked.}{fig:lh1e-installer}
 
 \subsection{Step 2 --- Obtain the master constraint file}
 \begin{enumerate}[leftmargin=2em]
-	\item Download \texttt{Nexys-A7-100T-Master.xdc} from Digilent's Nexys A7 reference page (search: ``Digilent Nexys A7 master XDC'').
+	\item Download \texttt{Nexys-A7-100T-Master.xdc} from Digilent's Nexys~A7 reference page (search: ``Digilent Nexys A7 master XDC'').
 	\item Save it locally. You will add it to the project and uncomment only the pins you need.
 \end{enumerate}
 
@@ -50,87 +52,182 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 	\item Finish the wizard.
 \end{enumerate}
 
-\labfigure{LH1E_part_selection.png}{0.85\textwidth}{Vivado ``Default Part'' dialog with \texttt{xc7a100tcsg324-1} highlighted. Any other part will fail implementation on the Nexys A7-100T.}{fig:lh1e-part}
+\labfigure{LH1E_part_selection.png}{0.85\textwidth}{Vivado ``Default Part'' dialog with \texttt{xc7a100tcsg324-1} highlighted.}{fig:lh1e-part}
 
-\subsection{Step 4 --- Add the \VHDL{} top module}
-Create a new source file \texttt{loopback\_top.vhd} with the following contents:
-\begin{verbatim}
+\subsection{Step 4 --- Add the \VHDL{} top module (switch-to-LED loopback)}
+\begin{enumerate}[leftmargin=2em]
+	\item In the \textit{Sources} panel, click \textbf{+} $\to$ \textit{Add or create design sources} $\to$ \textbf{Create File}.
+	\begin{itemize}[leftmargin=2em]
+		\item \textit{File type}: \textbf{VHDL}
+		\item \textit{File name}: \texttt{loopback\_top}
+		\item \textit{File location}: \textbf{\textless Local to Project\textgreater}
+	\end{itemize}
+	Click \textit{OK}, then \textit{Finish}. Dismiss the ``Define Module'' dialog with \textit{OK}.
+	\item Double-click \texttt{loopback\_top.vhd} and replace its entire contents with:
+\end{enumerate}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{loopback\_top.vhd} --- switch-to-LED direct assignment.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
 entity loopback_top is
-    Port ( sw  : in  STD_LOGIC_VECTOR(3 downto 0);
-           led : out STD_LOGIC_VECTOR(3 downto 0));
+    Port (
+        sw  : in  STD_LOGIC_VECTOR(3 downto 0);
+        led : out STD_LOGIC_VECTOR(3 downto 0)
+    );
 end loopback_top;
 
 architecture Behavioral of loopback_top is
 begin
     led <= sw;
 end Behavioral;
-\end{verbatim}
+\end{lstlisting}
 
-\newpage
-\subsection{Step 5 --- Add and prune the constraint file}
+Save (\texttt{Ctrl+S}). The entity \texttt{loopback\_top} should appear as the top-level design unit in the \textit{Sources} panel with no error markers.
+
+\subsection{Step 5 --- Add and configure the constraint file}
 \begin{enumerate}[leftmargin=2em]
-	\item Add \texttt{Nexys-A7-100T-Master.xdc} as a constraints source.
-	\item Open the file. Uncomment \textit{only} the lines for \texttt{sw[0]}--\texttt{sw[3]} (slide switches on pins J15, L16, M13, R15 --- double-check against the master file you downloaded) and \texttt{led[0]}--\texttt{led[3]} (pins H17, K15, J13, N14).
-	\item Save.
+	\item In the \textit{Sources} panel, click \textbf{+} $\to$ \textit{Add or create constraints} $\to$ \textit{Add Files}.
+	\item Navigate to \texttt{Nexys-A7-100T-Master.xdc}, ensure \textbf{Copy sources into project} is checked, and click \textit{Finish}.
+	\item Double-click the copied \texttt{.xdc} file and uncomment \emph{exactly} the lines below (remove the leading \texttt{\#} on each). All other lines must remain commented out.
 \end{enumerate}
+
+\begin{lstlisting}[caption={Active constraint lines for the switch-to-LED loopback. Copy these exact \texttt{set\_property} statements into your \texttt{.xdc}.}]
+## Slide Switches
+set_property -dict { PACKAGE_PIN J15  IOSTANDARD LVCMOS33 } [get_ports { sw[0] }];
+set_property -dict { PACKAGE_PIN L16  IOSTANDARD LVCMOS33 } [get_ports { sw[1] }];
+set_property -dict { PACKAGE_PIN M13  IOSTANDARD LVCMOS33 } [get_ports { sw[2] }];
+set_property -dict { PACKAGE_PIN R15  IOSTANDARD LVCMOS33 } [get_ports { sw[3] }];
+
+## LEDs
+set_property -dict { PACKAGE_PIN H17  IOSTANDARD LVCMOS33 } [get_ports { led[0] }];
+set_property -dict { PACKAGE_PIN K15  IOSTANDARD LVCMOS33 } [get_ports { led[1] }];
+set_property -dict { PACKAGE_PIN J13  IOSTANDARD LVCMOS33 } [get_ports { led[2] }];
+set_property -dict { PACKAGE_PIN N14  IOSTANDARD LVCMOS33 } [get_ports { led[3] }];
+\end{lstlisting}
+
+Save (\texttt{Ctrl+S}).
+
+\begin{tcolorbox}[warning={Do not uncomment extra pins}]
+	Leaving additional pins active causes port-mismatch errors during synthesis because the top-level entity does not declare those ports. The eight lines above are the \emph{only} ones that should be uncommented.
+\end{tcolorbox}
 
 \subsection{Step 6 --- Synthesize, implement, generate bitstream}
 \begin{enumerate}[leftmargin=2em]
-	\item In the Flow Navigator, click \textbf{Run Synthesis}. Wait for it to complete with zero errors.
-	\item Click \textbf{Run Implementation}. Wait for completion.
-	\item Click \textbf{Generate Bitstream}. This produces \texttt{loopback\_top.bit}.
-	\item Open the utilization report. You should see \mbox{LUT} usage in the single-digits out of 63{,}400 --- essentially nothing, which confirms the synthesizer optimized the direct assignment.
+	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Wait for completion with zero errors.
+	\item Flow Navigator $\to$ \textbf{Run Implementation}. Wait for completion.
+	\item Flow Navigator $\to$ \textbf{Generate Bitstream}. Output: \texttt{loopback\_top.bit}.
+	\item Open the \textbf{Utilization} report. Expect single-digit \mbox{LUT} usage out of 63{,}400. If you see more than 10 LUTs, you likely have unconstrained ports driving logic.
 \end{enumerate}
 
-\labfigure{LH1E_utilization.png}{0.85\textwidth}{Post-implementation utilization report. Expect single-digit \mbox{LUT} usage out of 63{,}400 --- the synthesizer optimizes the direct assignment to trivial routing.}{fig:lh1e-util}
+\labfigure{LH1E_utilization.png}{0.85\textwidth}{Post-implementation utilization report. Single-digit LUT usage confirms the synthesizer implemented the direct assignment as trivial routing.}{fig:lh1e-util}
+
+\subsection{Step 7 --- Program and verify the switch-to-LED loopback}
+\begin{enumerate}[leftmargin=2em]
+	\item Connect the Nexys A7 via USB, power on. Open Hardware Manager $\to$ \textit{Open Target} $\to$ \textit{Auto Connect}.
+	\item Right-click the XC7A100T $\to$ \textit{Program Device} $\to$ select \texttt{loopback\_top.bit} $\to$ \textit{Program}.
+	\item The DONE \mbox{LED} should illuminate.
+	\item Flip \texttt{SW0}: \texttt{LD0} should light. Flip \texttt{SW1}--\texttt{SW3} and verify \texttt{LD1}--\texttt{LD3} independently.
+	\item Power-cycle the board: the bitstream is volatile --- all \mbox{LED}s should go dark.
+\end{enumerate}
+
+\labfigure{LH1E_board_leds.jpg}{0.65\textwidth}{Nexys A7 with two slide switches up and the corresponding LEDs lit. DONE LED also illuminated.}{fig:lh1e-board}
 
 \newpage
-\subsection{Step 7 --- Program the Nexys A7}
+\subsection{Step 8 --- Add the UART echo loopback top module}
+
+The Nexys A7 connects its USB-\mbox{UART} bridge (Silicon Labs CP2102) to pins \texttt{E3} (TX to host) and \texttt{D3} (RX from host). Module~2 uses this path at 115{,}200 baud. This step verifies that path now so you are not debugging cabling during Module~2.
+
 \begin{enumerate}[leftmargin=2em]
-	\item Connect the Nexys A7 to the host PC via USB. Power the board on. The ``FPGA DONE'' \mbox{LED} will be off initially.
-	\item Open the Hardware Manager in Vivado. Click \textit{Open Target} $\to$ \textit{Auto Connect}. Vivado should detect the XC7A100T.
-	\item Right-click the device and select \textit{Program Device}. Point at the \texttt{loopback\_top.bit} file and click \textit{Program}.
-	\item After a successful program, the ``FPGA DONE'' \mbox{LED} should illuminate.
+	\item In the \textit{Sources} panel, click \textbf{+} $\to$ \textit{Add or create design sources} $\to$ \textbf{Create File}.
+	\begin{itemize}[leftmargin=2em]
+		\item \textit{File type}: \textbf{VHDL}
+		\item \textit{File name}: \texttt{uart\_echo\_top}
+	\end{itemize}
+	\item Double-click \texttt{uart\_echo\_top.vhd} and replace its entire contents with:
 \end{enumerate}
 
-\labfigure{LH1E_hw_manager.png}{0.85\textwidth}{Vivado Hardware Manager after Auto Connect, showing the detected XC7A100T on the USB-JTAG link.}{fig:lh1e-hwm}
+\begin{lstlisting}[language=VHDL, caption={\texttt{uart\_echo\_top.vhd} --- echoes every byte received from the host back to the host. No clock domain needed; this is a direct wire.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
 
-\subsection{Step 8 --- Verify physical behavior}
+entity uart_echo_top is
+    Port (
+        uart_rxd_out : out STD_LOGIC;   -- FPGA TX to USB-UART bridge (E3)
+        uart_txd_in  : in  STD_LOGIC    -- FPGA RX from USB-UART bridge (D3)
+    );
+end uart_echo_top;
+
+architecture Behavioral of uart_echo_top is
+begin
+    -- Direct loopback: echo every bit back immediately.
+    -- No baud-rate logic needed; the bridge handles framing.
+    uart_rxd_out <= uart_txd_in;
+end Behavioral;
+\end{lstlisting}
+
+Save (\texttt{Ctrl+S}).
+
+\begin{tcolorbox}[infobox={Why a direct wire works here}]
+	The CP2102 USB-\mbox{UART} bridge handles all framing and baud-rate generation. From the \FPGA{}'s perspective the signal is already a single-ended logic line that can be looped back without any internal logic. A proper \mbox{UART} receiver (\texttt{uart\_rx.vhd}) is built in LH2-B; this step only confirms the physical path is wired correctly.
+\end{tcolorbox}
+
+\subsection{Step 9 --- Constrain, synthesize, and program the UART echo design}
 \begin{enumerate}[leftmargin=2em]
-	\item Flip slide switch \texttt{SW0}. \mbox{LED} \texttt{LD0} should turn on.
-	\item Repeat for \texttt{SW1}--\texttt{SW3} and \texttt{LD1}--\texttt{LD3}. Each switch must drive exactly one \mbox{LED}.
-	\item Power-cycle the board. The bitstream is volatile --- the \mbox{LED}s should go dark and the DONE \mbox{LED} should turn off.
+	\item Open the \texttt{.xdc} file. Comment out the eight switch/\mbox{LED} lines from Step~5 and add the following two lines instead:
 \end{enumerate}
 
-\labfigure{LH1E_board_leds.jpg}{0.65\textwidth}{Nexys A7 with two slide switches up and the corresponding \mbox{LED}s lit. The DONE \mbox{LED} should also be illuminated.}{fig:lh1e-board}
+\begin{lstlisting}[caption={UART pin constraints to add for the echo loopback. Comment out the sw/led lines first.}]
+## USB-UART (Silicon Labs CP2102 on Nexys A7)
+set_property -dict { PACKAGE_PIN D4   IOSTANDARD LVCMOS33 } [get_ports { uart_txd_in  }];
+set_property -dict { PACKAGE_PIN C4   IOSTANDARD LVCMOS33 } [get_ports { uart_rxd_out }];
+\end{lstlisting}
+
+\begin{enumerate}[leftmargin=2em,start=2]
+	\item In the \textit{Sources} panel, right-click \texttt{uart\_echo\_top} and select \textbf{Set as Top}.
+	\item Run Synthesis $\to$ Implementation $\to$ Generate Bitstream. Output: \texttt{uart\_echo\_top.bit}.
+	\item Program the Nexys A7 with \texttt{uart\_echo\_top.bit}.
+	\item Open your serial terminal at \textbf{115200 baud, 8N1, no flow control}, connected to the Nexys A7's COM port.
+	\item Type any characters. Each character you type should appear immediately in the terminal (echo). If nothing appears, check:
+	\begin{itemize}[leftmargin=2em]
+		\item The correct COM port is selected (Device Manager $\to$ Ports $\to$ Silicon Labs CP210x).
+		\item The board is programmed (DONE \mbox{LED} on).
+		\item Local echo in the terminal is \emph{off} so you are seeing \FPGA{}-echoed characters, not the terminal's own echo.
+	\end{itemize}
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Pin numbers vary by board revision}]
+	The Nexys A7-100T uses \texttt{D4}/\texttt{C4} for the CP2102 \mbox{UART}. If you have a Nexys~A7-50T, the pins may differ. Always verify against the master XDC for your exact board SKU --- the \texttt{uart\_rxd\_out} and \texttt{uart\_txd\_in} net names in the master file are the authoritative source.
+\end{tcolorbox}
 
 \newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Vivado project created targeting \texttt{xc7a100tcsg324-1}.
-	\item[$\square$] Synthesis, implementation, and bitstream generation complete with zero errors.
-	\item[$\square$] Bitstream programs successfully over the Nexys A7 USB-JTAG link.
-	\item[$\square$] All four slide switches independently control their corresponding \mbox{LED}s.
+	\item[$\square$] Switch-to-LED loopback: synthesis, implementation, and bitstream with zero errors.
+	\item[$\square$] Switch-to-LED loopback: all four switches independently control their corresponding LEDs on hardware.
 	\item[$\square$] Power cycle clears the bitstream (expected for volatile configuration).
+	\item[$\square$] \mbox{UART} echo loopback: bitstream generated and programmed.
+	\item[$\square$] \mbox{UART} echo loopback: characters typed in the terminal at 115200 baud return immediately.
 \end{itemize}
 
 \begin{tcolorbox}[warning={Common Pitfalls}]
 	\begin{itemize}[leftmargin=1.2em]
-		\item \textbf{Constraint not found errors}: you edited the wrong \texttt{.xdc} file or added it as a generic source rather than a constraints source.
-		\item \textbf{Hardware Manager does not see the board}: on Linux, \texttt{cable drivers} must be installed manually (see \texttt{<Vivado>/data/xicom/cable\_drivers/}).
-		\item \textbf{Device programs but \mbox{LED}s don't respond}: the power switch on the Nexys A7 is off, or the board is powered from USB without the jumper set to USB --- check the \texttt{JP1} / \texttt{JP3} jumpers.
+		\item \textbf{Constraint not found errors:} you edited the wrong \texttt{.xdc} file or added it as a design source rather than a constraints source.
+		\item \textbf{Hardware Manager does not see the board:} on Linux, cable drivers must be installed manually (see \texttt{<Vivado>/data/xicom/cable\_drivers/}). On Windows, re-run the installer and select \textit{Install Cable Drivers}.
+		\item \textbf{Device programs but LEDs do not respond:} the power switch is off, or the \texttt{JP3} jumper is set to wall-power but no wall adapter is connected.
+		\item \textbf{UART echo: terminal shows nothing:} local echo is on (you are seeing your own keystrokes), or the wrong COM port is selected. Try toggling local echo off and retyping.
+		\item \textbf{UART echo: random garbage characters:} baud rate mismatch. Confirm the terminal is set to exactly 115200.
 	\end{itemize}
 \end{tcolorbox}
 
 \begin{tcolorbox}[deliverable={Lab Handout 1-E Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \VHDL{} source file \texttt{loopback\_top.vhd}.
-		\item Pruned \texttt{.xdc} constraints (just the 8 active lines).
-		\item Screenshot of the Vivado utilization report after successful bitstream generation.
-		\item Short video or photo sequence showing each switch independently controlling its \mbox{LED}.
+		\item \texttt{loopback\_top.vhd} and its pruned \texttt{.xdc} (8 active lines).
+		\item \texttt{uart\_echo\_top.vhd} and its pruned \texttt{.xdc} (2 active lines).
+		\item Screenshot of the Vivado utilization report for either design (single-digit LUT usage expected).
+		\item Photo or short video showing each switch controlling its LED.
+		\item Screenshot of the serial terminal showing typed characters echoed back by the \FPGA{} at 115200 baud.
 	\end{enumerate}
 \end{tcolorbox}
 

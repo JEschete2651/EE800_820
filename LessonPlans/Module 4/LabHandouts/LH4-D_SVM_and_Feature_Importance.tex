@@ -7,7 +7,7 @@
 \labheader{4-D}{Support Vector Machines with Grid Search and Permutation Importance}
 
 \section{Objective}
-Train an \texttt{SVC} classifier (with both linear and \mbox{RBF} kernels) for each of the three tasks, grid-search its hyperparameters over $C$ and $\gamma$, and produce a permutation-importance analysis that gives a \emph{model-agnostic} ranking of which features the classifier relied on. Permutation importance is trustworthy where Gini importance (from LH4-C) can be misleading for correlated features.
+Train an \texttt{SVC} classifier (with both linear and \mbox{RBF} kernels) for each of the four tasks, grid-search its hyperparameters over $C$ and $\gamma$, and produce a permutation-importance analysis that gives a \emph{model-agnostic} ranking of which features the classifier relied on. Permutation importance is trustworthy where Gini importance (from LH4-C) can be misleading for correlated features.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -28,7 +28,7 @@ The linear kernel gives you interpretable coefficients (one per feature per one-
 
 \subsection{Step 1 --- Grid search}
 
-\begin{lstlisting}[language=Python, caption={\texttt{train\_svm.py} --- SVM grid search for all three tasks.}]
+\begin{lstlisting}[language=Python, caption={\texttt{train\_svm.py} --- SVM grid search for all four tasks.}]
 import numpy as np, joblib
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
@@ -66,7 +66,7 @@ def grid_search_svm(task):
                 f"artifacts/{task}/svm.pkl")
     return best, X_te, y_te, pre
 
-for t in ["sf", "mod", "beacon"]:
+for t in ["sf", "mod", "beacon", "pkt"]:
     grid_search_svm(t)
 \end{lstlisting}
 
@@ -80,7 +80,7 @@ for t in ["sf", "mod", "beacon"]:
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
     d = joblib.load(f"artifacts/{task}/svm.pkl")
     svm = d["model"]
     _, _, _, _, X_te, y_te, pre = load_task(task)
@@ -122,7 +122,7 @@ def perm_importance(model, X_te, y_te, feature_names, task, n_repeats=20):
               f"mean={r.importances_mean[i]:+.3f}  "
               f"std={r.importances_std[i]:.3f}")
 
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
     d = joblib.load(f"artifacts/{task}/svm.pkl")
     _, _, _, _, X_te, y_te, pre = load_task(task)
     perm_importance(d["model"], X_te, y_te, pre["feature_cols"], task)
@@ -160,7 +160,7 @@ Rank the features by permutation importance (SVM, from Step~3) and by Gini impor
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \mbox{SVM} grid search complete for all three tasks.
+	\item[$\square$] \mbox{SVM} grid search complete for all four tasks.
 	\item[$\square$] Confusion matrix generated and inspected for physical plausibility.
 	\item[$\square$] Permutation importance computed with $\geq$20 repeats per task.
 	\item[$\square$] Cross-check against RF Gini importance performed.
@@ -170,7 +170,7 @@ Rank the features by permutation importance (SVM, from Step~3) and by Gini impor
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-D Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{artifacts/\{sf,mod,beacon\}/svm.pkl}: saved models, CV/test accuracies, chosen hyperparameters.
+		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/svm.pkl}: saved models, CV/test accuracies, chosen hyperparameters.
 		\item Confusion matrix figure per task.
 		\item Permutation-importance plot per task.
 		\item Head-to-head RF vs.\ SVM summary table with the winner annotated and a one-paragraph discussion of feature-importance agreement/disagreement.

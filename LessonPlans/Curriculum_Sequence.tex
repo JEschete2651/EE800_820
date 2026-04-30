@@ -16,35 +16,35 @@
 
 \begin{center}
     {\Huge\bfseries\color{stevens} Curriculum Module Sequence} \\[0.5em]
-    {\Large\color{darkgray} An Educational Framework for AI-Driven Signal Processing}
+    {\Large\color{darkgray} An Educational Framework for AI-Driven RF Signal Processing}
 \end{center}
 
 \vspace{1em}
 
 \section*{Overview}
-This document outlines the five-module sequence for the capstone project. Each module builds upon the previous one, guiding the student from hardware selection and embedded firmware development through FPGA logic design to the final integration of machine learning for RF signal classification.
+This document outlines the five-module sequence for the capstone project. Each module builds upon the previous one, guiding the student from hardware selection and embedded firmware development through FPGA logic design to the final integration of machine learning for RF signal classification. The platform uses three STM32 Nucleo-L476RG + RFM95W stations operating on a 906.5\,MHz carrier in the 915\,MHz ISM band: a cooperative Target~A (DATA initiator), a cooperative Target~B (ACK responder), and a Threat interceptor that forwards overheard frames to the FPGA and implements a button-gated PAUSE protocol.
 
 \section{Module 1: RF Hardware \& Subsystem Design}
 \textbf{Dates:} February 28 -- March 14 \\
 \textbf{Prerequisites:} Embedded C, Basic RF Theory \\
 \textbf{Objectives:}
 \begin{itemize}[noitemsep]
-    \item Select and validate RF transceiver hardware (LoRa/FSK).
-    \item Implement STM32 firmware for beacon transmission and receiver data collection.
-    \item Design the packet protocol and transmission scheduling algorithms.
-    \item Validate the receiver-to-FPGA physical interface (UART/SPI).
+    \item Select and validate RF transceiver hardware (SX1276; LoRa/FSK/OOK).
+    \item Implement STM32 firmware for all three stations: Target~A (DATA initiator), Target~B (ACK responder), and Threat (interceptor + PAUSE sender).
+    \item Design the 32-byte packet protocol with packed Modulation Code byte (mod\_kind + pkt\_type) and PAUSE behavioural response.
+    \item Validate the Threat-to-FPGA physical interface (UART, 43-byte forwarding frame).
 \end{itemize}
-\textbf{Deliverables:} Hardware Requirements Doc, Beacon/Receiver Subsystem Design Docs.
+\textbf{Deliverables:} Hardware Requirements Doc, Three-Station Subsystem Design Docs.
 
 \section{Module 2: FPGA RTL Design \& Simulation}
 \textbf{Dates:} March 15 -- March 28 \\
 \textbf{Prerequisites:} VHDL/Verilog, Digital Logic Design \\
 \textbf{Objectives:}
 \begin{itemize}[noitemsep]
-    \item Design FPGA RTL for ingesting serial data from the receiver MCU.
-    \item Implement packet parsing, buffering, and integrity checking (CRC) in hardware.
-    \item Develop simulation testbenches to verify logic against recorded beacon data.
-    \item Prepare the FPGA data path for feature extraction.
+    \item Design FPGA RTL for ingesting the Threat interceptor's 43-byte serial frames.
+    \item Implement packet parsing (including Modulation Code bit-field decoding), buffering, and CRC verification in hardware.
+    \item Extract the feature vector (including pkt\_type at offset 3) and present it to the host via UART.
+    \item Develop simulation testbenches to verify logic against recorded frame data.
 \end{itemize}
 \textbf{Deliverables:} FPGA RTL Source Code, Simulation Reports, Resource Utilization Report.
 
@@ -54,35 +54,35 @@ This document outlines the five-module sequence for the capstone project. Each m
 \textbf{Prerequisites:} Module 1 \& 2 Completion \\
 \textbf{Objectives:}
 \begin{itemize}[noitemsep]
-    \item Integrate the physical STM32 receiver with the programmed FPGA.
-    \item Verify end-to-end data flow: RF Beacon $\to$ STM32 Receiver $\to$ FPGA.
-    \item Execute data collection campaigns to build a labeled RF dataset.
-    \item Characterize system latency and throughput.
+    \item Integrate all three physical stations with the programmed FPGA.
+    \item Verify end-to-end data flow: Target~A / Target~B $\to$ 906.5\,MHz $\to$ Threat interceptor $\to$ FPGA.
+    \item Execute data collection campaigns C1--C5 (clean and contended regimes) to build a labeled RF dataset with regime and pkt\_type columns.
+    \item Characterize system latency and packet-error rate.
 \end{itemize}
-\textbf{Deliverables:} Integrated System Demo, Labeled RF Dataset, Integration Test Report.
+\textbf{Deliverables:} Integrated System Demo, Labeled RF Dataset (with regime column), Integration Test Report.
 
 \section{Module 4: AI-Driven Classification Pipeline}
 \textbf{Dates:} April 12 -- April 25 \\
 \textbf{Prerequisites:} Python, Intro to Machine Learning \\
 \textbf{Objectives:}
 \begin{itemize}[noitemsep]
-    \item Preprocess collected FPGA data for machine learning training.
-    \item Train and evaluate classifiers (e.g., Random Forest, MLP, CNN) on signal features.
-    \item Deploy the inference model (host-side or embedded) to classify signals in real-time.
-    \item Analyze classification accuracy against signal-to-noise ratio (SNR).
+    \item Preprocess collected FPGA data for four-task machine learning training (SF, modulation kind, emitter ID, packet type).
+    \item Train and evaluate classifiers (Random Forest, SVM, MLP, CNN-1D) on signal features.
+    \item Measure the operating-condition shift ($\Delta_{\text{op-shift}}$) between clean (C1--C4) and contended (C5) regimes.
+    \item Deploy the four-task inference suite (host-side) to classify signals in real time.
 \end{itemize}
-\textbf{Deliverables:} Trained Model Files, Classification Performance Report, Inference Script.
+\textbf{Deliverables:} Trained Model Files (one set per task), Classification Performance Report, Live Inference Script.
 
 \section{Module 5: System Validation \& Benchmarking}
 \textbf{Dates:} April 26 -- May 9 \\
 \textbf{Prerequisites:} Full System Integration \\
 \textbf{Objectives:}
 \begin{itemize}[noitemsep]
-    \item Conduct final system stress tests with multiple concurrent beacons.
-    \item Benchmark total system response time (Transmission to Classification).
-    \item Finalize all curriculum documentation and lab guides.
+    \item Conduct final system stress tests (S1--S5) including active-station density, low-SNR sweep, extended duration, and PAUSE behavioural response.
+    \item Benchmark total system response time (Target TX to four-task classification output) and PAUSE closed-loop latency.
+    \item Finalize all curriculum documentation and lab guides for the self-contained package.
     \item Prepare final project report and presentation.
 \end{itemize}
-\textbf{Deliverables:} Final Project Report, Presentation Slides, Complete Curriculum Package.
+\textbf{Deliverables:} Final Project Report, Presentation Slides, Complete Curriculum Package (11 items).
 
 \end{document}

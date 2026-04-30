@@ -13,7 +13,7 @@ Write the 15--20 page final project report that synthesizes all five modules int
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~5-A through~5-F complete (all quantitative results, the spec table, the failure catalog, and the packaged curriculum are available to draw from).
 	\item IEEE LaTeX template (or conforming Word template) set up and compiling.
-	\item Module~4 sim-to-real result and Module~5 system specification table in final form.
+	\item Module~4 LH4-F operating-condition shift result and Module~5 system specification table in final form.
 \end{itemize}
 
 \section{Report Structure}
@@ -29,9 +29,10 @@ Write the 15--20 page final project report that synthesizes all five modules int
 		2 & Introduction          & 1--2   & Problem statement, motivation, pedagogical goals, scope \\
 		3 & System Architecture   & 2--3   & Full system diagram; hardware/software components; inter-module data flow \\
 		4 & Module Summaries      & 4--5   & One subsection per module: decisions and downstream effects \\
-		5 & Experimental Results  & 3--4   & Stress tests, benchmarks, accuracy, spec table \\
-		6 & Discussion            & 2--3   & Cross-domain dependencies; sim-vs-hw gap; what would change \\
-		7 & Conclusion            & 0.5--1 & Achievements, limitations, future work \\
+		5 & Comparison to Single-Domain Prior Work & 1--2 & Why a unified four-task multi-domain pipeline is the contribution \\
+		6 & Experimental Results  & 3--4   & Stress tests, benchmarks, four-task accuracy, spec table \\
+		7 & Discussion            & 2--3   & Cross-domain dependencies; operating-condition shift; what would change \\
+		8 & Conclusion            & 0.5--1 & Achievements, limitations, future work \\
 		  & References            & 1--2   & IEEE format \\
 		  & Appendices            & ---    & BOM, pin assignments, long code listings \\
 		\midrule
@@ -40,50 +41,56 @@ Write the 15--20 page final project report that synthesizes all five modules int
 	\end{tabularx}
 \end{table}
 
+\textbf{Important reminder:} the engagement simulator exists in the codebase but is \emph{not} mentioned in the report. All cross-condition framing in this report uses the operating-condition shift on hardware data (LH4-F + LH5-D B5), not a sim-to-real comparison.
+
 \section{Procedure}
 
 \subsection{Step 1 --- Draft the Abstract last, but plan it first}
 Write a one-sentence answer to each of these questions on a scratch sheet before you begin the body:
 \begin{enumerate}[leftmargin=2em]
 	\item What problem does the project solve?
-	\item What was built?
-	\item What are the two or three most important quantitative results?
+	\item What was built? (Three bidirectional STM32 stations on 906.5\,MHz, an FPGA ingest pipeline, a four-task ML classifier suite, and a button-gated PAUSE protocol for behavioural-response measurement.)
+	\item What are the two or three most important quantitative results? (Per-task nominal accuracy; PAUSE response/recovery latency; operating-condition shift $\Delta_{\text{op-shift}}$.)
 	\item What is the single cross-module insight you want the reader to remember?
 \end{enumerate}
 These four sentences are the skeleton of the abstract; you will polish them after the body is complete.
 
-\subsection{Step 2 --- Section~1 introduction}
+\subsection{Step 2 --- Section~2 introduction}
 Introduce the pedagogical claim that the curriculum teaches: engineering systems are defined by their interfaces. Describe the project scope in 3--4 sentences and state what the report will demonstrate. Do \emph{not} duplicate Module~1's lesson-plan introduction --- the report is retrospective, the lesson plan was prospective.
 
 \subsection{Step 3 --- Section~3 system architecture}
-Reuse the Module~5 system diagram (lesson-plan Section~``Complete System Architecture'') as the anchor figure. The text should walk the reader through the diagram once in data-flow order: beacon $\to$ \mbox{RF} channel $\to$ receiver firmware $\to$ \UART{} $\to$ \FPGA{} pipeline $\to$ \UART{} $\to$ host inference. Every hardware / software component should be labelled with which module developed it.
+Reuse the Module~5 system diagram (lesson-plan Section~``Complete System Architecture'') as the anchor figure. The text should walk the reader through the diagram once in data-flow order: Target~A / Target~B (cooperative DATA/ACK ping-pong on 906.5\,MHz) $\to$ Threat interceptor (also receives the operator's PAUSE button) $\to$ \UART{} $\to$ \FPGA{} pipeline $\to$ \UART{} $\to$ host four-task inference. Every hardware / software component should be labelled with which module developed it.
 
 \subsection{Step 4 --- Section~4 module summaries}
 One subsection per module. Each subsection is \emph{not} a rewrite of the lesson plan; it is a three-paragraph synthesis:
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{Paragraph 1 --- what was built.} 4--5 sentences. Reference the module lesson plan for details, don't reproduce them.
-	\item \textbf{Paragraph 2 --- key design decisions.} Identify 2--3 decisions that propagated downstream. Each decision should link forward to a specific downstream consequence (``the choice of 32-byte packet format in Module~1 determined the feature vector schema in Module~2 and the classifier input dimensionality in Module~4'').
+	\item \textbf{Paragraph 2 --- key design decisions.} Identify 2--3 decisions that propagated downstream. Each decision should link forward to a specific downstream consequence (``the choice of a packed Modulation Code byte in Module~1 determined the four-task feature vector schema in Module~2 and enabled the packet-type classifier in Module~4'').
 	\item \textbf{Paragraph 3 --- headline result.} One figure or table from that module's deliverables, with a short interpretation.
 \end{enumerate}
 
-\subsection{Step 5 --- Section~5 experimental results}
+\subsection{Step 5 --- Section~5 comparison to single-domain prior work}
+This section is the contribution claim. Briefly survey the three single-domain neighbours --- (a) RF-only datasets and modulation-classification benchmarks, (b) FPGA RF front-ends without ML, (c) host-side ML for spectrum sensing without a hardware-in-the-loop emitter $\to$ feature pipeline --- and explain why each leaves a gap that the four-task unified pipeline closes. Keep the tone critical-but-defensible: name the prior work fairly, then state precisely which axis (multi-task, hardware-in-the-loop, behavioural-response) is added here.
+
+\subsection{Step 6 --- Section~6 experimental results}
 Present results in the order needed to tell the story, not the order the experiments ran. Suggested flow:
 \begin{enumerate}[leftmargin=2em]
-	\item System specification table (LH5-D) as the section opener --- it is the one-glance summary.
-	\item Classification accuracy summary (from LH4-C/D/E/F) showing the winning model per task.
-	\item Stress test findings (LH5-A/B): maximum beacon count, low-\mbox{SNR} degradation, 30-min stability.
+	\item System specification table (LH5-D) as the section opener --- it is the one-glance summary, including PAUSE response/recovery latency and RSSI-targeting accuracy.
+	\item Four-task classification accuracy summary (from LH4-C/D/E + LH5-D B5) showing the winning model per task.
+	\item Stress test findings (LH5-A/B): maximum active-station count, low-\mbox{SNR} per-task degradation, 30-min stability.
 	\item Latency decomposition (LH5-C/D): per-stage contribution, architectural implication.
-	\item Sim-to-real gap (LH4-F) as the bridge into the Discussion.
+	\item PAUSE behavioural response (LH5-C S5): four-interval table with mean / std / p99.
+	\item Operating-condition shift (LH4-F + LH5-D B5) as the bridge into the Discussion. \emph{Do not call this a sim-to-real gap; it is entirely a hardware-to-hardware regime comparison between the clean C1--C4 collection and the contended C5 / B5 operating point.}
 \end{enumerate}
 
-\subsection{Step 6 --- Section~6 discussion}
+\subsection{Step 7 --- Section~7 discussion}
 This is the intellectual core of the report. Address all of the following:
 
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{Cross-domain dependencies.} Cite the LH5-E catalog. Which design decisions had the most far-reaching downstream consequences? Which modules had the tightest mutual coupling? Use the dependency diagram as a figure.
-	\item \textbf{Simulation vs.\ hardware.} Quantify the sim-to-real gap from LH4-F. Explain \emph{which} features contributed most to the distribution shift (\mbox{RSSI} and \texttt{inter\_arrival\_ms} are the usual suspects) and what that implies about simulator fidelity.
-	\item \textbf{Redesign decisions.} If starting over, which \emph{single} decision would you change? Candidates: upgrading \UART{} $\to$ \mbox{SPI}, widening the feature vector, collecting more low-\mbox{SNR} data. Argue for one and quantify its expected benefit.
-	\item \textbf{Scalability.} How would the architecture evolve to support 10 beacons? 100? What are the architectural bottlenecks at each scale?
+	\item \textbf{Operating-condition shift.} Quantify the $\Delta_{\text{op-shift}}$ from LH4-F per task. Explain \emph{which} features contributed most to the shift between the clean and contended regimes (\mbox{RSSI}, \texttt{inter\_arrival\_ms}, and the PAUSE-only fields are the usual suspects) and what that implies about Module~3 dataset coverage.
+	\item \textbf{Redesign decisions.} If starting over, which \emph{single} decision would you change? Candidates: upgrading \UART{} $\to$ \mbox{SPI}, widening the feature vector, collecting more contended-regime data. Argue for one and quantify its expected benefit.
+	\item \textbf{Scalability.} How would the architecture evolve to support 10 active stations? 100? What are the architectural bottlenecks at each scale (FIFO depth, SX1276 half-duplex, RSSI table aging)?
 	\item \textbf{Pedagogical reflection.} Which cross-domain skill was hardest? Where did the staged-development approach help? Where did it create artificial difficulty?
 \end{enumerate}
 
@@ -91,33 +98,34 @@ This is the intellectual core of the report. Address all of the following:
 	Every claim in this section must cite a specific experimental result. ``The FPGA pipeline was adequate'' is not a claim --- it is an assertion. ``The FPGA pipeline contributed $<$0.1\,ms to total latency across all six LH5-D benchmarks; this is 0.2\% of $T_{\text{total}}$ at SF7 and 0.007\% at SF12 (Table~5), confirming the pipeline is not a bottleneck at any measured operating point'' is a claim: it cites evidence, quantifies it, and draws a bounded conclusion. Hold every paragraph in the Discussion to this standard.
 \end{tcolorbox}
 
-\subsection{Step 7 --- Section~7 conclusion}
+\subsection{Step 8 --- Section~8 conclusion}
 Summarise achievements in three or four sentences. Then a short ``Future Work'' list (3--5 bullet items, each one sentence). Examples:
 \begin{itemize}[leftmargin=2em]
-	\item Low-\mbox{SNR} training data collection to close the S3d/e accuracy collapse.
-	\item On-\FPGA{} inference for a standalone embedded deployment.
-	\item Support for additional modulation schemes (\mbox{FSK} data-whitening, \mbox{OOK}).
-	\item Adaptive scheduling: beacons that switch SF based on link quality.
+	\item Contended-regime training data collection to close the $\Delta_{\text{op-shift}}$ on the modulation-kind and packet-type tasks.
+	\item On-\FPGA{} four-task inference for a standalone embedded deployment.
+	\item Support for additional modulation schemes (\mbox{FSK} data-whitening, \mbox{OOK}) on the same packed Modulation Code byte.
+	\item Adaptive scheduling: cooperative targets that switch SF based on link quality.
+	\item RSSI-table aging policy at the Threat to mitigate the F5 stale-target failure mode.
 \end{itemize}
 
-\subsection{Step 8 --- References}
+\subsection{Step 9 --- References}
 IEEE format. The minimum set must include:
 \begin{itemize}[leftmargin=2em]
 	\item Semtech SX1276/77/78/79 datasheet.
 	\item STM32L476xx reference manual.
 	\item Digilent Nexys A7 reference manual.
 	\item AMD/Xilinx Artix-7 data sheet (timing characteristics).
-	\item Any textbooks or papers cited (Weste \& Harris, Lee \& Seshia, Géron as typical).
+	\item Any textbooks or papers cited (Weste \& Harris, Lee \& Seshia, G\'eron as typical), plus the prior-work papers cited in Section~5.
 \end{itemize}
 
-\subsection{Step 9 --- Appendices}
+\subsection{Step 10 --- Appendices}
 \begin{itemize}[leftmargin=2em]
 	\item Appendix A: Hardware bill of materials (can be a trimmed version of the packaged \texttt{BOM.md}).
-	\item Appendix B: Pin assignments for the \FPGA{} \mbox{XDC} and STM32 boards.
+	\item Appendix B: Pin assignments for the \FPGA{} \mbox{XDC} and the three STM32 boards (Target~A, Target~B, Threat).
 	\item Appendix C: One representative code listing per module (optional; reference the curriculum package otherwise).
 \end{itemize}
 
-\subsection{Step 10 --- Self-review pass}
+\subsection{Step 11 --- Self-review pass}
 Before submission, do one read-through answering these checks:
 \begin{itemize}[leftmargin=2em]
 	\item Does the abstract summarize the Discussion's cross-domain claim? (If not, either the abstract is too shallow or the Discussion is too timid.)
@@ -125,6 +133,7 @@ Before submission, do one read-through answering these checks:
 	\item Is every claim in the Discussion backed by a cited result?
 	\item Are acronyms defined at first use? (Use the shared \texttt{glossary.tex}; do not redefine.)
 	\item Does the page count fit 15--20 including references but excluding appendices?
+	\item \textbf{Engagement-simulator audit:} grep the report for the word ``simulator'' or ``simulation''. The only acceptable matches are FPGA testbench simulation context. There must be no mention of an engagement simulator anywhere in the report.
 \end{itemize}
 
 \begin{tcolorbox}[warning={Common Report Failure Modes}]
@@ -132,7 +141,7 @@ Before submission, do one read-through answering these checks:
 	\begin{itemize}[leftmargin=1.2em]
 		\item \textbf{Log-book disease:} The report reads as a chronological narrative of what the student did. The reader does not care. Structure the report \emph{by result}, not by activity.
 		\item \textbf{Module rehash:} Section~4 becomes five copies of each module's own conclusion. The synthesis is missing. Replace any paragraph that could have been lifted from a lesson plan with one that says ``and here is how this affected Module $N+1$''.
-		\item \textbf{Discussion as summary:} Section~6 restates Section~5 instead of interpreting it. The Discussion should contain at least one insight that is not visible from the Results alone --- typically, that insight is a cross-module causal chain.
+		\item \textbf{Discussion as summary:} Section~7 restates Section~6 instead of interpreting it. The Discussion should contain at least one insight that is not visible from the Results alone --- typically, that insight is a cross-module causal chain.
 	\end{itemize}
 \end{tcolorbox}
 
@@ -140,9 +149,9 @@ Before submission, do one read-through answering these checks:
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Report compiles from LaTeX source without errors.
 	\item[$\square$] Page count is 15--20 (body + references), excluding appendices.
-	\item[$\square$] All seven sections present and of the target length.
+	\item[$\square$] All eight sections present and of the target length.
 	\item[$\square$] Every Discussion claim cites a specific experimental result.
-	\item[$\square$] Self-review pass completed.
+	\item[$\square$] Self-review pass completed, including the engagement-simulator audit.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 5-G Deliverable}]

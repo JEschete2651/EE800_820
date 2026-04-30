@@ -124,11 +124,12 @@
 		\begin{tcolorbox}[colback=lightgray, colframe=darkgray, width=0.85\textwidth, arc=2pt]
 			\centering\small
 			This document presents the lesson plan for the third module of the capstone project.
-			Students connect the STM32 beacon--receiver subsystem (Module~1) with the Field-Programmable Gate Array signal
-			processing pipeline (Module~2), diagnose and resolve integration failures that surface
-			when individually tested subsystems operate together on real hardware, characterize
-			end-to-end latency and throughput, and execute structured data collection campaigns
-			that produce the labeled Radio Frequency dataset for the Machine Learning pipeline in Module~4.
+			Students connect the STM32 cooperative-target / interceptor (Threat) subsystem (Module~1) with the
+			Field-Programmable Gate Array signal processing pipeline (Module~2), diagnose and resolve integration
+			failures that surface when individually tested subsystems operate together on real hardware, characterize
+			end-to-end latency and throughput on intercepted DATA / ACK / PAUSE traffic, and execute structured data
+			collection campaigns that produce the labeled Radio Frequency dataset for the Machine Learning pipeline in
+			Module~4.
 		\end{tcolorbox}
 
 		\vfill
@@ -148,66 +149,66 @@
 	\begin{tcolorbox}[objective={Module 3 Learning Objectives}]
 		Upon completion of this module, the student (or future learner following this curriculum) will be able to:
 		\begin{enumerate}[label=\textbf{LO-\arabic*}]
-			\item Deploy the Module~2 \FPGA{} bitstream to the Nexys A7-100T and verify correct operation against live \UART{} data from the STM32 receiver, identifying and resolving discrepancies between simulation behavior and hardware behavior.
+			\item Deploy the Module~2 \FPGA{} bitstream to the Nexys A7-100T and verify correct operation against live \UART{} data from the STM32 interceptor (Threat), identifying and resolving discrepancies between simulation behavior and hardware behavior.
 			\item Diagnose integration failures that span disciplinary boundaries---firmware timing errors that corrupt the \FPGA{} data stream, baud rate drift, impedance mismatches, and protocol synchronization faults---using systematic debugging techniques (\ILA{} probes, logic analyzer captures, \UART{} logging).
-			\item Measure and characterize end-to-end system performance metrics: \PER{}, end-to-end latency (beacon TX to feature vector availability), sustained throughput, and \FIFO{} utilization under load.
-			\item Design and execute a structured data collection campaign that systematically varies beacon parameters (TX power, spreading factor, modulation type, number of concurrent beacons, physical distance) to produce a labeled \RF{} dataset with controlled experimental conditions.
-			\item Implement a host-side Python data collection script that receives feature vectors from the \FPGA{}, attaches ground-truth labels, and stores the dataset in a format ready for machine learning ingestion.
-			\item Identify and articulate the distribution shift between simulation data and hardware-collected data, understanding how real-world channel impairments, timing offsets, and hardware non-idealities produce feature distributions that differ from idealized models.
+			\item Measure and characterize end-to-end system performance metrics: \PER{}, end-to-end latency (radio packet TX to feature vector availability), sustained throughput, and \FIFO{} utilization under load.
+			\item Design and execute a structured data collection campaign that systematically varies cooperative-target parameters (TX power, spreading factor, modulation type, number of concurrent stations, physical distance) and includes interleaved PAUSE bursts to produce a labeled \RF{} dataset with controlled experimental conditions across all three packet types (DATA, ACK, PAUSE).
+			\item Implement a host-side Python data collection script that receives feature vectors from the \FPGA{}, attaches ground-truth labels (including the \texttt{pkt\_type} ground truth that decodes the bit-field-extracted packet type), and stores the dataset in a format ready for machine learning ingestion.
+			\item Identify and articulate the operating-condition shift between clean single-station regimes and contended multi-station regimes (cooperative-target ping-pong with PAUSE bursts), understanding how real-world channel impairments, half-duplex collisions, and timing variations produce feature distributions that differ across operating conditions on the same hardware.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\subsection{Context Within the Project}
 
-	Module~3 represents the critical integration point of the curriculum. Modules~1 and~2 each developed and validated subsystems in isolation: Module~1 produced a working beacon--receiver \RF{} subsystem with known packet formats and timing; Module~2 produced a simulated-and-verified \FPGA{} ingestion pipeline that parses those packets and extracts feature vectors. Neither module tested whether these subsystems work correctly when connected to each other through a physical interface carrying real signals.
+	Module~3 represents the critical integration point of the curriculum. Modules~1 and~2 each developed and validated subsystems in isolation: Module~1 produced a working cooperative-target / interceptor \RF{} subsystem with known packet formats and timing (DATA, ACK, and PAUSE all sharing the 32-byte radio frame layout); Module~2 produced a simulated-and-verified \FPGA{} ingestion pipeline that parses those packets and extracts feature vectors including the bit-field-extracted \texttt{pkt\_type} column. Neither module tested whether these subsystems work correctly when connected to each other through a physical interface carrying real signals.
 
 	This gap is intentional. The framework's central pedagogical thesis is that cross-domain integration failures are the primary subject of instruction, not incidental obstacles. A firmware direct memory access (\DMA{}) timing error that has no observable effect during Module~1 standalone testing may cause byte-level misalignment in the \FPGA{} parser. A \CRC{} engine that passes every simulation testbench in Module~2 may reject valid frames on hardware due to a byte-ordering mismatch in the STM32 firmware. These failures require students to reason simultaneously across firmware, hardware interface, and digital logic domains---the exact multidisciplinary skill the framework is designed to develop.
 
-	The second half of this module shifts from integration debugging to structured data collection. The validated end-to-end pipeline becomes a scientific instrument: students use it to execute controlled experiments that vary beacon parameters and collect the labeled \RF{} feature dataset that drives all machine learning work in Module~4. The quality, diversity, and labeling integrity of this dataset directly determine what classifiers can be trained and how well they generalize. This dependency makes the data collection campaign a non-trivial engineering exercise, not merely a ``run the system and save files'' activity.
+	The second half of this module shifts from integration debugging to structured data collection. The validated end-to-end pipeline becomes a scientific instrument: students use it to execute controlled experiments that vary cooperative-target parameters and capture interleaved PAUSE bursts to collect the labeled \RF{} feature dataset that drives all machine learning work in Module~4. The quality, diversity, and labeling integrity of this dataset directly determine what classifiers can be trained and how well they generalize. This dependency makes the data collection campaign a non-trivial engineering exercise, not merely a ``run the system and save files'' activity.
 
 	\subsection{Prerequisites}
 
 	Students beginning this module should have:
 	\begin{itemize}[leftmargin=2em]
-		\item Completed Module~1 with a working multi-beacon \RF{} subsystem (at least 2 beacons + 1 receiver, all validated for packet transmission and reception).
-		\item Completed Module~2 with a fully simulated \FPGA{} pipeline (\UART{} RX $\rightarrow$ parser $\rightarrow$ \CRC{} $\rightarrow$ feature extraction $\rightarrow$ block random access memory (\BRAM{})), a generated bitstream, and a verified constraint file (\texttt{.xdc}).
-		\item All hardware assembled and wired: STM32 receiver \UART{} TX connected to Nexys A7 PMOD JA, \FPGA{} USB-\UART{} connected to host PC, beacons powered and antennas attached.
+		\item Completed Module~1 with a working cooperative-target / interceptor \RF{} subsystem (Target~A and Target~B running ping-pong + Threat capturing and operating the button-gated PAUSE protocol, all validated for packet transmission and reception).
+		\item Completed Module~2 with a fully simulated \FPGA{} pipeline (\UART{} RX $\rightarrow$ parser $\rightarrow$ \CRC{} $\rightarrow$ feature extraction with \texttt{pkt\_type} bit-field column $\rightarrow$ block random access memory (\BRAM{})), a generated bitstream, and a verified constraint file (\texttt{.xdc}).
+		\item All hardware assembled and wired: STM32 interceptor \UART{} TX connected to Nexys A7 PMOD JA, \FPGA{} USB-\UART{} connected to host PC, both cooperative targets powered and antennas attached.
 		\item Python~3.10+ with \texttt{pyserial} installed on the host machine.
 		\item Familiarity with Vivado \ILA{} (Integrated Logic Analyzer) for on-chip signal probing.
-		\item Access to a logic analyzer (optional but recommended for Week~1 debugging).
+		\item Access to a logic analyzer (optional but recommended for Session~9 debugging).
 	\end{itemize}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Weekly Schedule}
+	\section{Session Schedule}
 	% ══════════════════════════════════════════════════════════════
 
-	The module spans two weeks (four working sessions). The first week focuses on hardware deployment, integration debugging, and performance characterization. The second week focuses on structured data collection and dataset preparation.
+	The module spans four sessions. The first two sessions focus on hardware deployment, integration debugging, and performance characterization. The next two focus on structured data collection and dataset preparation.
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Module 3 weekly breakdown.}
+		\caption{Module 3 session breakdown.}
 		\label{tab:schedule}
 		\renewcommand{\arraystretch}{1.4}
 		\begin{tabularx}{\textwidth}{c l X}
 			\toprule
-			\textbf{Week} & \textbf{Focus Area} & \textbf{Key Activities} \\
+			\textbf{Session} & \textbf{Focus Area} & \textbf{Key Activities} \\
 			\midrule
-			1 & Hardware Deployment \& Integration Debugging &
-			Program \FPGA{} with Module~2 bitstream; connect STM32 receiver; diagnose and resolve integration failures (baud mismatch, byte alignment, \CRC{} rejects); verify first live frame through the complete pipeline. \\
-			2 & Performance Characterization &
-			Measure end-to-end latency, throughput, and packet error rate; stress-test with multiple beacons; identify bottlenecks; tune \FIFO{} depths and export timing; document system performance envelope. \\
-			3 & Data Collection Campaign Design \& Execution &
-			Design experimental matrix (TX power, SF, modulation, distance, beacon count); implement host-side Python collection script; execute single-variable sweep campaigns; validate dataset integrity and label correctness. \\
-			4 & Multi-Variable Collection \& Dataset Finalization &
-			Execute multi-variable and edge-case collection runs; merge and clean dataset; perform exploratory data analysis; document dataset structure, provenance, and known limitations for Module~4 handoff. \\
+			9 & Hardware Deployment \& Integration Debugging &
+			Program \FPGA{} with Module~2 bitstream; connect STM32 interceptor; diagnose and resolve integration failures (baud mismatch, byte alignment, \CRC{} rejects); verify first live DATA + ACK frames through the complete pipeline. \\
+			10 & Performance Characterization &
+			Measure end-to-end latency, throughput, and packet error rate; stress-test with cooperative-target ping-pong and PAUSE bursts; identify bottlenecks; tune \FIFO{} depths and export timing; document system performance envelope. \\
+			11 & Data Collection Campaign Design \& Execution &
+			Design experimental matrix (TX power, SF, modulation, distance, station count); implement host-side Python collection script; execute single-variable sweep campaigns; validate dataset integrity, \texttt{pkt\_type} decoding, and label correctness. \\
+			12 & Multi-Variable Collection \& Dataset Finalization &
+			Execute multi-variable and edge-case collection runs (including PAUSE-burst scenarios); merge and clean dataset; perform exploratory data analysis; document dataset structure, provenance, and known limitations for Module~4 handoff. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 1: Hardware Deployment and Integration Debugging}
+	\section{Session 9: Hardware Deployment and Integration Debugging}
 	\label{sec:integration}
 	% ══════════════════════════════════════════════════════════════
 
@@ -215,9 +216,9 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item Program the Nexys A7-100T with the Module~2 bitstream and verify basic I/O (LEDs, pushbuttons, seven-segment display).
-		\item Connect the STM32 receiver's \UART{} TX to the \FPGA{}'s PMOD input and observe the first live data on the \FPGA{}.
+		\item Connect the STM32 interceptor's \UART{} TX to the \FPGA{}'s PMOD input and observe the first live data on the \FPGA{}.
 		\item Diagnose and resolve integration failures using a systematic debugging methodology.
-		\item Achieve the first successfully parsed and \CRC{}-verified frame on live hardware.
+		\item Achieve the first successfully parsed and \CRC{}-verified DATA + ACK pair on live hardware.
 	\end{itemize}
 
 	\subsection{Deployment Checklist}
@@ -236,11 +237,11 @@
 			1 & Nexys A7 powers on via USB; Vivado Hardware Manager detects the \FPGA{}. & $\square$ \\
 			2 & Module~2 bitstream programs successfully; LED test pattern confirms I/O. & $\square$ \\
 			3 & \FPGA{} USB-\UART{} loopback: characters typed in terminal echo back correctly at 115200 baud. & $\square$ \\
-			4 & STM32 receiver firmware loaded; beacon packets print to STM32 debug \UART{}. & $\square$ \\
-			5 & Beacon~A transmitting (LED blink or debug \UART{} confirms TX cycle). & $\square$ \\
-			6 & Beacon~B transmitting (same verification). & $\square$ \\
-			7 & Receiver reports both beacon IDs in debug log with valid \RSSI{}/\SNR{}. & $\square$ \\
-			8 & Physical wiring: receiver \UART{} TX $\rightarrow$ PMOD JA pin~1; GND connected between boards. & $\square$ \\
+			4 & STM32 interceptor firmware loaded; intercepted DATA, ACK, and (with B1 held) PAUSE packets print to USART2 debug. & $\square$ \\
+			5 & Target~A transmitting DATA on schedule (LED blink or debug \UART{} confirms TX cycle). & $\square$ \\
+			6 & Target~B responding with ACK (same verification, on each received DATA). & $\square$ \\
+			7 & Interceptor reports both Beacon~IDs (\texttt{0x01}, \texttt{0x02}) in debug log with valid \RSSI{}/\SNR{} and correct \texttt{pkt\_type} decode (DATA on \texttt{0x01}, ACK on \texttt{0x02}). & $\square$ \\
+			8 & Physical wiring: interceptor \UART{} TX $\rightarrow$ PMOD JA pin~1; GND connected between boards. & $\square$ \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -281,8 +282,8 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item \textbf{Symptom:} Bytes arrive correctly (no framing errors) but the parser never asserts \texttt{frame\_valid}; it remains stuck in HUNT state.
-		\item \textbf{Diagnosis:} Use the Vivado \ILA{} to capture the byte stream entering the parser. Look for the \texttt{0x7E} start delimiter. If it never appears, the receiver firmware may not be emitting the framing format expected by the parser (e.g., sending raw beacon packets without the receiver forwarding frame wrapper defined in Module~1 Table~6).
-		\item \textbf{Common causes:} Receiver firmware updated since Module~1 with a different frame format; start delimiter value changed; STM32 byte ordering (endianness) differs from \FPGA{} expectation.
+		\item \textbf{Diagnosis:} Use the Vivado \ILA{} to capture the byte stream entering the parser. Look for the \texttt{0x7E} start delimiter. If it never appears, the interceptor firmware may not be emitting the framing format expected by the parser (e.g., sending raw radio packets without the interceptor forwarding frame wrapper defined in Module~1 Table~6).
+		\item \textbf{Common causes:} Interceptor firmware updated since Module~1 with a different frame format; start delimiter value changed; STM32 byte ordering (endianness) differs from \FPGA{} expectation.
 	\end{itemize}
 
 	\subsubsection{Layer 4: Data Integrity}
@@ -320,7 +321,8 @@
 			\texttt{byte\_counter[5:0]} & 6 & Position within current frame \\
 			\texttt{frame\_valid} & 1 & Trigger: successful frame reception \\
 			\texttt{frame\_reject} & 1 & Trigger: \CRC{} failure \\
-			\texttt{beacon\_id[7:0]} & 8 & Parsed beacon ID (verify correct extraction) \\
+			\texttt{beacon\_id[7:0]} & 8 & Parsed Beacon~ID (verify correct extraction; \texttt{0x01} for Target~A DATA, \texttt{0x02} for Target~B ACK, \texttt{0xFF} for Threat PAUSE) \\
+			\texttt{pkt\_type[1:0]} & 2 & Parsed packet type (\texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE) \\
 			\texttt{rssi[7:0]} & 8 & Parsed \RSSI{} (compare to STM32 debug log) \\
 			\texttt{fifo\_count[5:0]} & 6 & \FIFO{} occupancy (detect overflow risk) \\
 			\bottomrule
@@ -334,24 +336,26 @@
 	\subsection{First Live Frame Verification}
 
 	\begin{tcolorbox}[infobox={Exercise: First Frame on Hardware}]
-		With one beacon transmitting at 2-second intervals and the receiver connected to the \FPGA{}:
+		With Target~A and Target~B running ping-pong (DATA + ACK at 1-second cadence) and the interceptor (Threat) connected to the \FPGA{}:
 		\begin{enumerate}
 			\item Program the \FPGA{} and open the \ILA{} dashboard in Vivado.
 			\item Set the \ILA{} trigger to \texttt{frame\_valid} rising edge.
 			\item Arm the trigger and wait for a capture.
-			\item When a frame is captured, verify the following against the STM32 receiver debug log:
+			\item When a frame is captured, verify the following against the STM32 interceptor debug log:
 			\begin{itemize}
-				\item The parsed Beacon ID matches the transmitting beacon's configured ID.
-				\item The parsed \RSSI{} is within $\pm 2$~dB of the value reported by the STM32.
-				\item The sequence number matches the beacon's current count.
-				\item Both \CRC{} checks pass (\texttt{frame\_valid} = `1', \texttt{beacon\_crc\_ok} = `1').
+				\item The parsed Beacon~ID matches the originating station's configured ID (\texttt{0x01} for Target~A DATA, \texttt{0x02} for Target~B ACK).
+				\item The parsed \texttt{pkt\_type} matches the expected packet type for that Beacon~ID.
+				\item The parsed \RSSI{} is within $\pm 2$~dB of the value reported by the STM32 interceptor.
+				\item The sequence number matches the originating station's current count.
+				\item Both \CRC{} checks pass (\texttt{frame\_valid} = `1', \texttt{packet\_crc\_ok} = `1').
 			\end{itemize}
+			\item Hold the Threat user button (B1) for 2~s and re-arm the trigger. A PAUSE frame should appear with Beacon~ID = \texttt{0xFF} and \texttt{pkt\_type} = \texttt{10}. Verify Target~A's USART2 debug log prints \texttt{"I'm Jammed"} during the same window.
 			\item If the trigger never fires (no \texttt{frame\_valid}), set the trigger to \texttt{rx\_valid} rising edge instead and verify that bytes are arriving. Work through the debugging layers above.
 		\end{enumerate}
-		\textbf{Milestone:} The first successfully parsed live frame represents a validated end-to-end data path spanning all four hardware components (beacon \MCU{} $\rightarrow$ \RF{} link $\rightarrow$ receiver \MCU{} $\rightarrow$ \FPGA{} fabric).
+		\textbf{Milestone:} The first successfully parsed live frame represents a validated end-to-end data path spanning all four hardware components (cooperative target \MCU{} $\rightarrow$ \RF{} link $\rightarrow$ interceptor \MCU{} $\rightarrow$ \FPGA{} fabric), and the PAUSE behavioral observation closes the intercept-and-act loop end-to-end.
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 1 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 9 Deliverable}]
 		\textbf{Integration Debug Report} --- A document containing:
 		\begin{enumerate}
 			\item Pre-integration checklist results (Table~\ref{tab:checklist}), with photos of the physical setup.
@@ -363,7 +367,7 @@
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 2: Performance Characterization}
+	\section{Session 10: Performance Characterization}
 	\label{sec:performance}
 	% ══════════════════════════════════════════════════════════════
 
@@ -371,29 +375,29 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item Define and measure the four primary performance metrics: packet error rate (\PER{}), end-to-end latency, sustained throughput, and \FIFO{} peak utilization.
-		\item Stress-test the pipeline with increasing beacon counts to identify the scaling limit.
+		\item Stress-test the pipeline with cooperative-target ping-pong plus interleaved PAUSE bursts to identify the scaling limit.
 		\item Identify performance bottlenecks and, where possible, mitigate them.
-		\item Establish the system's performance envelope for the data collection campaigns in Weeks~3--4.
+		\item Establish the system's performance envelope for the data collection campaigns in Sessions~11--12.
 	\end{itemize}
 
 	\subsection{Performance Metrics}
 
 	\subsubsection{Packet Error Rate (\PER{})}
 
-	The packet error rate captures the fraction of transmitted beacon packets that fail to produce a valid feature vector at the \FPGA{} output. It incorporates losses at every stage: \RF{} link (missed receptions), \UART{} transport (framing errors), and \CRC{} verification (corrupted frames).
+	The packet error rate captures the fraction of transmitted radio packets (DATA, ACK, or PAUSE) that fail to produce a valid feature vector at the \FPGA{} output. It incorporates losses at every stage: \RF{} link (missed receptions, including half-duplex shadowing of the Threat's own PAUSE TX), \UART{} transport (framing errors), and \CRC{} verification (corrupted frames).
 
 	\begin{equation}
 		\text{\PER{}} = 1 - \frac{N_{\text{valid features}}}{N_{\text{transmitted packets}}}
 		\label{eq:per}
 	\end{equation}
 
-	\PER{} is measured by comparing the \FPGA{}'s observation count for each beacon (stored in the per-beacon state RAM) against the beacon's own sequence number. If Beacon~A has transmitted 500 packets (sequence number = 500) and the \FPGA{} reports an observation count of 487, then $\text{\PER{}}_A = 1 - 487/500 = 2.6\%$.
+	\PER{} is measured by comparing the \FPGA{}'s observation count for each station (stored in the per-station state RAM, indexed by Beacon~ID) against the originating station's own sequence number. If Target~A has transmitted 500 DATA packets (sequence number = 500) and the \FPGA{} reports an observation count of 487 for Beacon~ID \texttt{0x01}, then $\text{\PER{}}_{\text{Target A}} = 1 - 487/500 = 2.6\%$.
 
 	\begin{tcolorbox}[infobox={Decomposing \PER{}}]
 		A single \PER{} number is useful for system-level characterization but insufficient for debugging. Students should decompose \PER{} into its contributing factors:
 		\begin{itemize}
-			\item \textbf{\RF{} loss:} Packets the receiver never detected (compare receiver log count to beacon sequence number).
-			\item \textbf{\UART{} loss:} Packets the receiver detected but the \FPGA{} \UART{} receiver missed (framing errors counted on the \FPGA{}).
+			\item \textbf{\RF{} loss:} Packets the interceptor never detected (compare interceptor log count to originating station's sequence number).
+			\item \textbf{\UART{} loss:} Packets the interceptor detected but the \FPGA{} \UART{} receiver missed (framing errors counted on the \FPGA{}).
 			\item \textbf{\CRC{} loss:} Packets the \FPGA{} received but rejected due to \CRC{} failure (\texttt{frame\_reject} counter).
 			\item \textbf{\FIFO{} overflow loss:} Packets lost because the receive \FIFO{} was full when a new byte arrived (overflow counter).
 		\end{itemize}
@@ -402,7 +406,7 @@
 
 	\subsubsection{End-to-End Latency}
 
-	End-to-end latency is the time from beacon packet transmission to feature vector availability in the \FPGA{} \BRAM{}. It comprises:
+	End-to-end latency is the time from radio packet transmission (by a cooperative target or by the Threat) to feature vector availability in the \FPGA{} \BRAM{}. It comprises:
 
 	\begin{equation}
 		L_{\text{e2e}} = L_{\text{\RF{}}} + L_{\text{RX\_FW}} + L_{\text{\UART{}}} + L_{\text{\FPGA{}}}
@@ -419,7 +423,7 @@
 			\textbf{Component} & \textbf{Estimated} & \textbf{Description} \\
 			\midrule
 			$L_{\text{\RF{}}}$ & 50--500~ms & LoRa on-air time (depends on SF: SF7 $\approx$ 50~ms, SF12 $\approx$ 1.5~s for 32-byte payload) \\
-			$L_{\text{RX\_FW}}$ & $<$1~ms & Receiver ISR + \FIFO{} read + metadata extraction + frame construction \\
+			$L_{\text{RX\_FW}}$ & $<$1~ms & Interceptor ISR + \FIFO{} read + metadata extraction + frame construction \\
 			$L_{\text{\UART{}}}$ & 3.73~ms & 43 bytes $\times$ 10 bits/byte $\div$ 115200 baud \\
 			$L_{\text{\FPGA{}}}$ & $<$0.01~ms & Pipeline processing at 100~MHz ($\sim$6 clock cycles after last byte) \\
 			\midrule
@@ -432,8 +436,8 @@
 	\begin{tcolorbox}[infobox={Measuring Latency on Hardware}]
 		Direct measurement of $L_{\text{e2e}}$ requires correlating timestamps across two asynchronous clock domains (STM32 system tick and \FPGA{} clock). Two practical approaches:
 		\begin{enumerate}
-			\item \textbf{\GPIO{} toggle method:} The beacon asserts a \GPIO{} pin when it begins a TX. The \FPGA{} asserts an output pin when \texttt{frame\_valid} fires. Both signals are captured on an oscilloscope or logic analyzer, and the time difference is $L_{\text{e2e}}$.
-			\item \textbf{Timestamp difference method:} Compare the beacon-side timestamp (embedded in the packet, reflecting the STM32 tick at TX time) against the receiver-side RX timestamp (also an STM32 tick). This measures $L_{\text{\RF{}}} + L_{\text{RX\_FW}}$ but not the \UART{} and \FPGA{} components. Adding the fixed \UART{} transfer time gives a good approximation.
+			\item \textbf{\GPIO{} toggle method:} The originating station asserts a \GPIO{} pin (the LH1-F TX-trigger pulse) when it begins a TX. The \FPGA{} asserts an output pin when \texttt{frame\_valid} fires. Both signals are captured on an oscilloscope or logic analyzer, and the time difference is $L_{\text{e2e}}$.
+			\item \textbf{Timestamp difference method:} Compare the sender-side timestamp (embedded in the radio packet, reflecting the originating station's STM32 tick at TX time) against the interceptor-side RX timestamp (also an STM32 tick, but on a different board). This measures $L_{\text{\RF{}}} + L_{\text{RX\_FW}}$ but not the \UART{} and \FPGA{} components. Adding the fixed \UART{} transfer time gives a good approximation.
 		\end{enumerate}
 		For the purposes of this module, the \GPIO{} toggle method is preferred because it provides a true end-to-end measurement without relying on timestamp synchronization between boards.
 	\end{tcolorbox}
@@ -451,23 +455,23 @@
 
 	\subsubsection{\FIFO{} Peak Utilization}
 
-	The receive \FIFO{} (64 entries, Module~2 Week~1) provides back-pressure buffering. Under normal two-beacon operation the \FIFO{} should rarely exceed 50\% occupancy. However, as beacon count increases or transmissions cluster (ALOHA mode collisions followed by burst receptions), the \FIFO{} may approach capacity. Students should monitor \texttt{fifo\_count} via the \ILA{} or map it to the LEDs to observe real-time utilization.
+	The receive \FIFO{} (64 entries, Session~5) provides back-pressure buffering. Under normal cooperative-target ping-pong operation the \FIFO{} should rarely exceed 50\% occupancy. However, as station count increases or transmissions cluster (ALOHA mode collisions followed by burst receptions, or PAUSE bursts at 10\,Hz from the Threat), the \FIFO{} may approach capacity. Students should monitor \texttt{fifo\_count} via the \ILA{} or map it to the LEDs to observe real-time utilization.
 
 	\subsection{Scaling Stress Test}
 
 	\begin{tcolorbox}[infobox={Exercise: Beacon Count Scaling}]
-		Progressively increase the number of active beacons and record performance at each step:
+		Progressively increase the number of active stations and record performance at each step:
 
 		\medskip
 		\begin{tabular}{c c c c c}
 			\toprule
-			\textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{Expected fps} & \textbf{Measured \PER{}} \\
+			\textbf{Stations} & \textbf{Mode} & \textbf{Interval} & \textbf{Expected fps} & \textbf{Measured \PER{}} \\
 			\midrule
-			1 & Fixed, 2~s & 2~s & 0.5 & \\
-			2 & Fixed, 2~s / 3~s & staggered & $\sim$0.83 & \\
-			2 & ALOHA, [1,3]~s & random & $\sim$1.0 & \\
-			3 & Fixed, 1~s each & staggered & 3.0 & \\
-			3 & ALOHA, [0.5,2]~s & random & $\sim$3.0--4.0 & \\
+			1 (Target~A only) & Fixed, 2~s & 2~s & 0.5 & \\
+			2 (Target~A + B ping-pong) & Fixed, 2~s / event & staggered & $\sim$1.0 & \\
+			2 (Target~A + B ALOHA) & ALOHA, [1,3]~s & random & $\sim$1.0--1.4 & \\
+			3 (Target~A + B + Threat) & ping-pong + held-button PAUSE bursts & DATA + ACK every 1~s, PAUSE every 100~ms & 3.0--12.0 & \\
+			3 (Target~A + B + Threat) & ALOHA + PAUSE bursts & random + PAUSE every 100~ms & 3.0--14.0 & \\
 			\bottomrule
 		\end{tabular}
 
@@ -475,13 +479,13 @@
 		For each configuration:
 		\begin{enumerate}
 			\item Run for 5 minutes.
-			\item Record: total packets transmitted (from beacon sequence numbers), total valid features (from \FPGA{} observation counts), \CRC{} reject count, \FIFO{} peak utilization, framing error count.
-			\item Compute \PER{} and decompose it.
-			\item If \FIFO{} peak exceeds 75\%, flag this as a throughput risk and propose a mitigation (increase \FIFO{} depth, upgrade to \SPI{}, reduce inter-frame overhead in receiver firmware).
+			\item Record: total packets transmitted (from each station's sequence numbers), total valid features (from \FPGA{} observation counts), \CRC{} reject count, \FIFO{} peak utilization, framing error count.
+			\item Compute \PER{} and decompose it. The Threat-PAUSE bursts will not always be captured by the \FPGA{} because the Threat half-duplex-shadows its own TX --- this is expected and is the architectural reason the dataset's PAUSE row count is lower than the Threat's USART2-logged PAUSE TX count.
+			\item If \FIFO{} peak exceeds 75\%, flag this as a throughput risk and propose a mitigation (increase \FIFO{} depth, upgrade to \SPI{}, reduce inter-frame overhead in interceptor firmware).
 		\end{enumerate}
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 2 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 10 Deliverable}]
 		\textbf{System Performance Characterization Report} --- A document containing:
 		\begin{enumerate}
 			\item \PER{} measurements for each beacon configuration tested, with per-stage loss decomposition.
@@ -495,17 +499,17 @@
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 3: Data Collection Campaign Design and Execution}
+	\section{Session 11: Data Collection Campaign Design and Execution}
 	\label{sec:collection}
 	% ══════════════════════════════════════════════════════════════
 
 	\subsection{Objectives}
 
 	\begin{itemize}[leftmargin=2em]
-		\item Design a structured experimental matrix that systematically varies beacon parameters to produce a diverse, labeled dataset.
-		\item Implement a host-side Python script that receives feature vectors from the \FPGA{} via \UART{} and stores them with ground-truth labels.
+		\item Design a structured experimental matrix that systematically varies cooperative-target parameters and includes interleaved PAUSE bursts to produce a diverse, labeled dataset spanning all three packet types.
+		\item Implement a host-side Python script that receives feature vectors from the \FPGA{} via \UART{}, decodes the bit-field-packed \texttt{pkt\_type} column, and stores rows with ground-truth labels.
 		\item Execute single-variable sweep campaigns and validate dataset integrity.
-		\item Understand the concept of distribution shift and how hardware-collected data differs from simulation.
+		\item Understand the concept of operating-condition shift and how feature distributions change across clean single-station, contended multi-station, and PAUSE-burst regimes on the same hardware.
 	\end{itemize}
 
 	\subsection{Experimental Design}
@@ -526,7 +530,7 @@
 			TX Power & +2 to +20~dBm & 4 (2, 8, 14, 20) & Affects \RSSI{} distribution; tests classifier robustness to signal strength variation \\
 			Spreading Factor & SF7 -- SF12 & 6 (each SF) & Primary classification target; each SF produces different on-air waveform and timing \\
 			Modulation Type & LoRa, \FSK{} & 2 & Second classification target; fundamentally different signal structure \\
-			Beacon Count & 1, 2, 3 & 3 & Tests multi-emitter discrimination; increases collision probability \\
+			Active Stations & 1 (Target~A only), 2 (A+B ping-pong), 3 (A+B + PAUSE bursts) & 3 & Tests multi-station discrimination; increases collision probability; populates DATA, ACK, and PAUSE rows of the dataset \\
 			Physical Distance & 1~m, 3~m, 5~m, 8~m & 4 & Affects \RSSI{}, \SNR{}, and frequency error; introduces path loss variation \\
 			\bottomrule
 		\end{tabularx}
@@ -543,17 +547,17 @@
 			\toprule
 			\textbf{ID} & \textbf{Sweep Variable} & \textbf{Fixed Parameters} & \textbf{Packets} & \textbf{Duration} & \textbf{Notes} \\
 			\midrule
-			C1 & TX Power (4 levels) & SF7, LoRa, 1 beacon, 3~m & 200/level & $\sim$27~min & Baseline power sweep \\
-			C2 & Spreading Factor (6) & +14~dBm, LoRa, 1 beacon, 3~m & 200/SF & $\sim$80~min & SF classification dataset \\
-			C3 & Modulation (LoRa/\FSK{}) & +14~dBm, 1 beacon, 3~m & 300/type & $\sim$20~min & Binary modulation classification \\
-			C4 & Distance (4 levels) & +14~dBm, SF7, LoRa, 1 beacon & 200/dist & $\sim$27~min & Path loss characterization \\
-			C5 & Beacon Count (1/2/3) & +14~dBm, SF7, LoRa, 3~m & 300/config & $\sim$50~min & Multi-emitter discrimination \\
+			C1 & TX Power (4 levels) & SF7, LoRa, Target~A only, 3~m & 200/level & $\sim$27~min & Baseline power sweep, DATA only \\
+			C2 & Spreading Factor (6) & +14~dBm, LoRa, Target~A only, 3~m & 200/SF & $\sim$80~min & SF classification dataset, DATA only \\
+			C3 & Modulation (LoRa/\FSK{}) & +14~dBm, Target~A only, 3~m & 300/type & $\sim$20~min & Binary modulation classification, DATA only \\
+			C4 & Distance (4 levels) & +14~dBm, SF7, LoRa, Target~A only & 200/dist & $\sim$27~min & Path loss characterization, DATA only \\
+			C5 & Active stations (1/2/3) + PAUSE & +14~dBm, SF7, LoRa, 3~m & 300/config & $\sim$50~min & Multi-station discrimination + PAUSE-row population (DATA, ACK, PAUSE) \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Design Principle: Packets Per Configuration}]
-		The 200--300 packets per configuration is a deliberate trade-off between dataset size and collection time. For simple classifiers (random forest, SVM), 200 samples per class is typically sufficient for a benchtop dataset with low intra-class variance. For deep learning models (CNN, MLP), more data is always beneficial, but the primary goal of Module~4 is to demonstrate the \ML{} pipeline, not to achieve state-of-the-art accuracy. Students who find time can increase the sample count during Week~4 multi-variable runs.
+		The 200--300 packets per configuration is a deliberate trade-off between dataset size and collection time. For simple classifiers (random forest, SVM), 200 samples per class is typically sufficient for a benchtop dataset with low intra-class variance. For deep learning models (CNN, MLP), more data is always beneficial, but the primary goal of Module~4 is to demonstrate the \ML{} pipeline, not to achieve state-of-the-art accuracy. Students who find time can increase the sample count during Session~12 multi-variable runs.
 
 		Each configuration should produce enough samples to split into training (70\%), validation (15\%), and test (15\%) subsets with at least 30 samples in the smallest test split---which 200 samples per class comfortably supports.
 	\end{tcolorbox}
@@ -573,7 +577,7 @@
 
 	\subsubsection{Feature Vector Reception Protocol}
 
-	The \FPGA{}'s \UART{} TX export module (Module~2 Week~3) transmits feature vectors using a simple framed protocol:
+	The \FPGA{}'s \UART{} TX export module (Session~7) transmits feature vectors using a simple framed protocol:
 
 	\begin{table}[ht!]
 		\centering
@@ -584,8 +588,8 @@
 			\toprule
 			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 			\midrule
-			Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from the \texttt{0x7E} receiver frame delimiter) \\
-			Feature Vector & 1 & 32\,B & Complete feature vector (Module~2 Table~5 format) \\
+			Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from the \texttt{0x7E} interceptor forwarding frame delimiter) \\
+			Feature Vector & 1 & 32\,B & Complete feature vector (Module~2 \texttt{tab:feature\_vector} format, including \texttt{pkt\_type} at offset~3 and PAUSE-only fields at offsets~28--29) \\
 			\CRC{}-8 & 33 & 1\,B & \CRC{}-8 over bytes 1--32 (transport integrity) \\
 			End Marker & 34 & 1\,B & \texttt{0xFF} (frame terminator) \\
 			\bottomrule
@@ -607,34 +611,38 @@
 			\midrule
 			\texttt{campaign\_id} & Config JSON & Experiment identifier (C1, C2, etc.) \\
 			\texttt{timestamp\_host} & Host clock & Host-side reception time (ISO 8601) \\
-			\texttt{beacon\_id} & Feature vector & \FPGA{}-parsed beacon ID \\
-			\texttt{mod\_code} & Feature vector & Modulation code \\
+			\texttt{beacon\_id} & Feature vector & \FPGA{}-parsed Beacon~ID (sender) \\
+			\texttt{mod\_kind} & Feature vector & Modulation kind (offset~1; upper 6 bits of radio packet \texttt{Modulation Code} byte) \\
+			\texttt{pkt\_type} & Feature vector & Packet type (offset~3): \texttt{0}=DATA, \texttt{1}=ACK, \texttt{2}=PAUSE \\
 			\texttt{spread\_factor} & Feature vector & Spreading factor \\
 			\texttt{bw\_code} & Feature vector & Bandwidth code \\
 			\texttt{tx\_power} & Feature vector & Transmit power (dBm) \\
 			\texttt{rssi} & Feature vector & Received signal strength (dBm) \\
 			\texttt{snr} & Feature vector & Signal-to-noise ratio (dB) \\
 			\texttt{freq\_error} & Feature vector & Carrier frequency error (Hz) \\
-			\texttt{rx\_timestamp} & Feature vector & Receiver-side timestamp (ms) \\
-			\texttt{beacon\_timestamp} & Feature vector & Beacon-side timestamp (ms) \\
+			\texttt{rx\_timestamp} & Feature vector & Interceptor-side timestamp (ms) \\
+			\texttt{sender\_timestamp} & Feature vector & Sender-side timestamp (ms) \\
 			\texttt{seq\_num} & Feature vector & Sequence number \\
-			\texttt{payload\_crc\_ok} & Feature vector & Beacon \CRC{} status (1/0) \\
+			\texttt{payload\_crc\_ok} & Feature vector & Radio packet \CRC{} status (1/0) \\
 			\texttt{inter\_arrival\_ms} & Feature vector & \FPGA{}-computed inter-arrival time \\
 			\texttt{rssi\_delta} & Feature vector & \FPGA{}-computed \RSSI{} change \\
 			\texttt{obs\_count} & Feature vector & \FPGA{}-computed observation count \\
-			\texttt{distance\_m} & Config JSON & Physical beacon--receiver distance (m) \\
+			\texttt{target\_id\_if\_pause} & Feature vector & Offset~28; PAUSE rows only: which Beacon~ID was targeted by the Threat \\
+			\texttt{pause\_duration\_units} & Feature vector & Offset~29; PAUSE rows only: hold-off in 100\,ms units \\
+			\texttt{distance\_m} & Config JSON & Physical sender--interceptor distance (m) \\
 			\texttt{label\_sf} & Config JSON & Ground-truth spreading factor \\
 			\texttt{label\_mod} & Config JSON & Ground-truth modulation type \\
-			\texttt{label\_beacon} & Config JSON & Ground-truth beacon identity \\
+			\texttt{label\_beacon} & Config JSON & Ground-truth Beacon~ID (sender identity) \\
+			\texttt{label\_pkt} & Config JSON & Ground-truth packet type (DATA / ACK / PAUSE) \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\begin{tcolorbox}[warning={Label Integrity}]
 		\begin{itemize}
-			\item \textbf{Self-reported vs.\ ground-truth labels:} The feature vector contains the beacon's \emph{self-reported} parameters (modulation code, SF, TX power). The campaign config provides the \emph{experimentally controlled} ground-truth labels. In a well-functioning system these match. When they do not---a beacon claiming SF7 while configured for SF10---it indicates a firmware bug or configuration error. The collection script should log mismatches as warnings without discarding the record, as these mismatches are themselves informative for Module~4 analysis.
+			\item \textbf{Self-reported vs.\ ground-truth labels:} The feature vector contains the originating station's \emph{self-reported} parameters (modulation kind, SF, TX power). The campaign config provides the \emph{experimentally controlled} ground-truth labels. In a well-functioning system these match. When they do not---a station claiming SF7 while configured for SF10---it indicates a firmware bug or configuration error. The collection script should log mismatches as warnings without discarding the record, as these mismatches are themselves informative for Module~4 analysis.
 			\item \textbf{Distance labels are manual:} Physical distance is measured by the student and entered in the campaign config. Measurement error is unavoidable; record distance to the nearest 0.5~m and note the measurement method.
-			\item \textbf{No label leakage:} The \texttt{label\_*} columns are derived from the experimental setup, not from the feature vector fields. In Module~4, students must be careful not to use the self-reported fields as prediction targets when the same information is also a model input---this would create trivial classification with no generalization value.
+			\item \textbf{No label leakage:} The \texttt{label\_*} columns are derived from the experimental setup, not from the feature vector fields. In Module~4, students must be careful not to use the self-reported fields as prediction targets when the same information is also a model input---this would create trivial classification with no generalization value. The \texttt{pkt\_type} feature column is the canonical example: it is itself a label (extracted from the packet's \texttt{Modulation Code} byte) and is therefore on Module~4's forbidden-column list for the packet-type classification task.
 		\end{itemize}
 	\end{tcolorbox}
 
@@ -643,13 +651,13 @@
 	\begin{tcolorbox}[infobox={Exercise: TX Power Sweep (Campaign C1)}]
 		Execute the first data collection campaign:
 		\begin{enumerate}
-			\item Configure one beacon at 3~m distance, SF7, LoRa modulation, 2-second fixed interval.
+			\item Configure Target~A only (no Target~B responder, no Threat) at 3~m distance from the interceptor, SF7, LoRa modulation, 2-second fixed interval.
 			\item Set TX power to +2~dBm. Start the collection script with \texttt{campaign\_id = "C1"} and \texttt{tx\_power\_label = 2}.
 			\item Collect 200 packets (approximately 7 minutes). Stop the script.
 			\item Repeat at +8~dBm, +14~dBm, and +20~dBm.
 			\item After all four runs, open the merged CSV and verify:
 			\begin{itemize}
-				\item 800 total rows ($4 \times 200$).
+				\item 800 total rows ($4 \times 200$), all with \texttt{pkt\_type} = \texttt{0} (DATA) since C1 is single-station with no responder.
 				\item \RSSI{} values increase monotonically with TX power (on average).
 				\item \SNR{} values are positive at all power levels (confirming adequate link margin at 3~m).
 				\item Sequence numbers are monotonically increasing within each run.
@@ -658,7 +666,7 @@
 		\end{enumerate}
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 3 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 11 Deliverable}]
 		\textbf{Data Collection Campaign Report (Part 1)} --- A document containing:
 		\begin{enumerate}
 			\item Experimental matrix design with justification for variable ranges and sample counts.
@@ -671,7 +679,7 @@
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 4: Multi-Variable Collection and Dataset Finalization}
+	\section{Session 12: Multi-Variable Collection and Dataset Finalization}
 	\label{sec:dataset}
 	% ══════════════════════════════════════════════════════════════
 
@@ -682,16 +690,16 @@
 		\item Merge all campaign CSV files into a unified dataset with consistent schema and verified label integrity.
 		\item Perform exploratory data analysis (EDA) to understand feature distributions and correlations.
 		\item Document the dataset structure, provenance, and known limitations.
-		\item Identify and articulate the distribution shift between simulation-derived data and hardware-collected data.
+		\item Identify and articulate the operating-condition shift between clean single-station regimes (C1--C4) and contended multi-station regimes with PAUSE bursts (C5), entirely on hardware data.
 	\end{itemize}
 
 	\subsection{Remaining Campaigns}
 
 	Complete campaigns C3 (modulation sweep), C4 (distance sweep), and C5 (beacon count scaling). For each campaign, follow the same collection protocol as C1/C2: configure parameters, start the script, collect the target packet count, stop, and validate.
 
-	\subsubsection{Campaign C5: Multi-Beacon Discrimination}
+	\subsubsection{Campaign C5: Multi-Station Discrimination + PAUSE-Row Population}
 
-	Campaign C5 is the most complex, as it requires coordinating multiple beacons and interpreting interleaved data:
+	Campaign C5 is the most complex, as it requires coordinating multiple stations and interleaved PAUSE bursts:
 
 	\begin{table}[ht!]
 		\centering
@@ -700,13 +708,13 @@
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{c c c c X}
 			\toprule
-			\textbf{Config} & \textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{Purpose} \\
+			\textbf{Config} & \textbf{Active stations} & \textbf{Mode} & \textbf{Interval} & \textbf{Purpose} \\
 			\midrule
-			C5a & 1 & Fixed & 2~s & Baseline (no interference) \\
-			C5b & 2 & Fixed & 2~s / 3~s & Staggered (minimal collision) \\
-			C5c & 2 & ALOHA & [1,3]~s & Random access (some collisions) \\
-			C5d & 3 & Fixed & 1~s each & High-rate staggered \\
-			C5e & 3 & ALOHA & [0.5,2]~s & Maximum contention \\
+			C5a & 1 (Target~A only)               & Fixed                 & 2~s              & Baseline (no responder, no PAUSE) \\
+			C5b & 2 (Target~A + Target~B ping-pong) & Fixed                 & 1~s DATA / event-driven ACK & Staggered ping-pong (minimal collision) \\
+			C5c & 2 (Target~A + Target~B)         & ALOHA on initiator    & [1,3]~s          & Random-access initiator (some collisions) \\
+			C5d & 3 (A + B + Threat PAUSE bursts) & Fixed + held-button   & 1~s DATA, 100~ms PAUSE & Ping-pong + Threat PAUSE bursts addressed at higher-RSSI station \\
+			C5e & 3 (A + B + Threat PAUSE bursts) & ALOHA + held-button   & [0.5,2]~s + 100~ms PAUSE & Maximum contention with PAUSE-induced TX hold-offs \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -714,8 +722,9 @@
 	\begin{tcolorbox}[infobox={What to Watch For in C5}]
 		\begin{itemize}
 			\item \textbf{\PER{} increase:} Under ALOHA mode, packet collisions cause \RF{}-level losses. Compare \PER{} between fixed-interval (near-zero collision) and ALOHA (collision-prone) configurations.
-			\item \textbf{\RSSI{} variation:} With multiple beacons, the receiver may capture packets from different beacons in rapid succession, producing interleaved \RSSI{} values. The \RSSI{} Delta feature becomes more volatile.
-			\item \textbf{Inter-arrival time distribution:} Under fixed-interval scheduling, inter-arrival time for each beacon should be tightly clustered around the configured interval. Under ALOHA, it should follow the configured uniform distribution. These distributional differences are features that an \ML{} classifier could exploit for scheduling-mode classification.
+			\item \textbf{\RSSI{} variation:} With multiple stations, the interceptor captures packets from different senders in rapid succession, producing interleaved \RSSI{} values. The \RSSI{} Delta feature becomes more volatile.
+			\item \textbf{Inter-arrival time distribution:} Under fixed-interval scheduling, inter-arrival time for each station should be tightly clustered around the configured interval. Under ALOHA, it should follow the configured uniform distribution. ACK rows have a tight distribution around the round-trip time of the matching DATA. PAUSE bursts cluster at $\sim$100\,ms inter-arrival within a button-hold window. These distributional differences are features that an \ML{} classifier could exploit for scheduling-mode classification \emph{and} for distinguishing DATA vs.\ ACK vs.\ PAUSE rows from RSSI dynamics + inter-arrival pattern alone (the LH4-B label-leakage trap).
+			\item \textbf{Targeted-Target identity in PAUSE rows:} For C5d and C5e, the captured PAUSE rows (Beacon~ID = \texttt{0xFF}) carry \texttt{target\_id\_if\_pause} matching whichever Target had the higher RSSI when each PAUSE was emitted. The dataset thus records a closed-loop intercept-and-act observation that Module~5 will measure in detail.
 		\end{itemize}
 	\end{tcolorbox}
 
@@ -725,8 +734,8 @@
 
 	\begin{enumerate}[leftmargin=2em]
 		\item Concatenate all campaign CSVs, preserving the \texttt{campaign\_id} column for provenance tracking.
-		\item Verify schema consistency (all files have the same columns in the same order).
-		\item Remove duplicate rows (same beacon ID, same sequence number, same campaign---indicates a script restart that re-collected data).
+		\item Verify schema consistency (all files have the same columns in the same order, including the \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, and \texttt{pause\_duration\_units} columns).
+		\item Remove duplicate rows (same Beacon~ID, same sequence number, same campaign, same \texttt{pkt\_type}---indicates a script restart that re-collected data).
 		\item Flag rows where self-reported parameters disagree with ground-truth labels (do not remove---flag and count).
 		\item Add a \texttt{split} column assigning each row to \texttt{train} (70\%), \texttt{val} (15\%), or \texttt{test} (15\%) using stratified random sampling by \texttt{campaign\_id} and \texttt{label\_sf}.
 	\end{enumerate}
@@ -754,36 +763,37 @@
 
 		\item \textbf{Feature correlation matrix:} Compute and visualize the Pearson correlation between all numeric features. Identify highly correlated feature pairs (e.g., TX power and \RSSI{} should be strongly correlated; \RSSI{} and \SNR{} may also correlate).
 		\item \textbf{Inter-arrival time distribution by scheduling mode:} Compare the inter-arrival time histograms for Campaign C5b (fixed) vs.\ C5c (ALOHA). The fixed-interval distribution should be tightly peaked; the ALOHA distribution should be broader and approximately uniform.
-		\item \textbf{Class balance:} Bar chart showing the number of samples per class for each classification target (SF, modulation, beacon ID). Verify that no class is severely underrepresented.
+		\item \textbf{Class balance:} Bar chart showing the number of samples per class for each classification target (SF, modulation, Beacon~ID, \texttt{pkt\_type}). Verify that no class is severely underrepresented; in particular confirm that PAUSE rows from C5d/C5e provide enough samples for the Module~4 packet-type classification task.
 	\end{enumerate}
 
-	\subsection{Distribution Shift: Simulation vs.\ Hardware}
+	\subsection{Operating-Condition Shift: Clean vs.\ Contended Regimes}
 
-	\begin{tcolorbox}[infobox={Design Principle: Distribution Shift as a Teaching Moment}]
-		The engagement simulator developed early in the project generates synthetic labeled data in a controlled physics model. The hardware-collected dataset from this module captures real \RF{} signals through physical hardware. These two data sources will not have identical feature distributions, even for equivalent parameter settings. This discrepancy---distribution shift---is one of the most important practical lessons in applied machine learning.
+	\begin{tcolorbox}[infobox={Design Principle: Operating-Condition Shift as a Teaching Moment}]
+		Even on identical hardware with identical parameter settings, feature distributions differ across operating regimes. The Module~3 dataset deliberately spans two such regimes: a \emph{clean} regime drawn from C1--C4 (single-station Target~A only, no responder, no PAUSE traffic) and a \emph{contended} regime drawn from C5 (cooperative-target ping-pong with collisions, plus interleaved Threat PAUSE bursts addressed at the higher-RSSI Target). This discrepancy---operating-condition shift---is one of the most important practical lessons in applied machine learning, and is a more honest test of generalization than any synthetic-vs-real comparison because every data point comes from real hardware.
 
 		Students should compare:
 		\begin{itemize}
-			\item \textbf{Simulator \RSSI{}} vs.\ \textbf{hardware \RSSI{}} at equivalent distance and TX power. The simulator uses a clean FSPL model; hardware \RSSI{} includes multipath fading, antenna pattern irregularity, and receiver front-end non-linearities.
-			\item \textbf{Simulator inter-arrival time} vs.\ \textbf{hardware inter-arrival time}. The simulator's tick-based engine produces exact timing; hardware timing includes STM32 interrupt jitter, \RF{} channel contention, and \UART{} buffering delays.
-			\item \textbf{Simulator \SNR{}} (if modeled) vs.\ \textbf{hardware \SNR{}}. The simulator's noise model is typically additive white Gaussian; real indoor environments produce colored noise, interference, and bursty error patterns.
+			\item \textbf{Clean-regime \RSSI{}} vs.\ \textbf{contended-regime \RSSI{}} at equivalent distance and TX power. Half-duplex shadowing during ACK exchanges and Threat PAUSE bursts produce correlated dropouts that change the \RSSI{} variance even though the channel is physically the same.
+			\item \textbf{Clean-regime inter-arrival time} vs.\ \textbf{contended-regime inter-arrival time}. C1--C4 produce tightly-clustered $\sim$2~s inter-arrivals from Target~A's fixed schedule; C5 produces a multi-modal distribution with peaks at the DATA cadence ($\sim$1~s), the round-trip time of ACK rows, and the $\sim$100~ms PAUSE-burst spacing.
+			\item \textbf{Clean-regime \SNR{}} vs.\ \textbf{contended-regime \SNR{}}. ALOHA-mode collisions produce a long lower tail in C5 that the C1--C4 fixed-schedule rows never see.
+			\item \textbf{Per-class observation count:} the clean regime has only DATA rows (\texttt{pkt\_type} = \texttt{0}); the contended regime adds ACK (\texttt{pkt\_type} = \texttt{1}) and PAUSE (\texttt{pkt\_type} = \texttt{2}) rows, with PAUSE rows having entirely different RSSI dynamics (sourced by the Threat at its fixed reference position).
 		\end{itemize}
 
-		The key takeaway for Module~4 is: a classifier trained on simulation data may not generalize to hardware data (and vice versa). Documenting this shift here gives the \ML{} work a clear empirical foundation.
+		The key takeaway for Module~4 is: a classifier trained on the clean regime may not generalize to the contended regime, and the LH4-F operating-condition shift experiment quantifies that gap. Documenting this shift here gives the \ML{} work a clear empirical foundation rooted entirely in hardware data.
 	\end{tcolorbox}
 
 	\subsection{Dataset Summary Document}
 
 	The dataset summary document is the data contract between Module~3 (data producers) and Module~4 (data consumers). It must contain everything an \ML{} practitioner needs to understand, load, and correctly use the dataset without referring to Module~3 implementation details.
 
-	\begin{tcolorbox}[deliverable={Week 4 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 12 Deliverable}]
 		\textbf{Dataset and Data Collection Report (Part 2)} --- A document containing:
 		\begin{enumerate}
 			\item Completed campaign results for C3, C4, and C5, with summary statistics and any anomalies.
 			\item Merged dataset file (\texttt{.csv}) with consistent schema, provenance columns, and stratified train/val/test split.
 			\item Dataset summary statistics: total rows, rows per campaign, rows per class (SF, modulation, beacon ID), label mismatch count, \CRC{} failure count.
 			\item EDA visualizations (all 5 required plots described above) with interpretive captions.
-			\item Distribution shift analysis: at least two quantitative comparisons between simulation data and hardware-collected data (e.g., \RSSI{} mean/std, inter-arrival time histogram divergence).
+			\item Operating-condition shift analysis: at least two quantitative comparisons between clean-regime (C1--C4) and contended-regime (C5) hardware data (e.g., \RSSI{} mean/std, inter-arrival time histogram divergence, per-\texttt{pkt\_type} class balance).
 			\item Known limitations: environmental factors (indoor multipath, ambient interference), measurement uncertainties (distance accuracy, manual reconfiguration between campaigns), and any collection anomalies (power interruptions, firmware crashes, beacon desynchronization).
 			\item Data dictionary: complete column descriptions, units, data types, and valid ranges for every field in the CSV schema.
 		\end{enumerate}
@@ -813,13 +823,13 @@
 				elabel/.style={font=\scriptsize\itshape, color=accentblue}
 				]
 
-				% Beacons
-				\node[hw] (b1) {Beacon 1\\STM32 + RFM95W};
-				\node[hw, below=0.6cm of b1] (b2) {Beacon 2\\STM32 + RFM95W};
-				\node[hw, below=0.6cm of b2] (b3) {Beacon 3\\STM32 + RFM95W};
+				% Cooperative targets + Threat
+				\node[hw] (b1) {Target~A\\STM32 + RFM95W};
+				\node[hw, below=0.6cm of b1] (b2) {Target~B\\STM32 + RFM95W};
+				\node[hw, below=0.6cm of b2] (b3) {Threat\\STM32 + RFM95W\\(also TX PAUSE)};
 
-				% Receiver
-				\node[hw, right=2.5cm of b2] (rx) {Receiver\\STM32 + RFM95W};
+				% Interceptor (== Threat board, but plays a separate role here as the FPGA feeder)
+				\node[hw, right=2.5cm of b2] (rx) {Interceptor\\(Threat board\\with USART3\\to FPGA)};
 
 				% \FPGA{} internals
 				\node[fpga, right=2cm of rx] (uart_rx) {\UART{} RX\\+ Sync};
@@ -851,13 +861,13 @@
 				\draw[arrow, dashed, color=darkgray!50] (csv) -- (ml);
 
 				% \RF{} label
-				\node[font=\scriptsize\itshape, color=accentblue] at ($(b1.east)!0.5!(rx.north west)+(0,0.5)$) {915~MHz \RF{}};
+				\node[font=\scriptsize\itshape, color=accentblue] at ($(b1.east)!0.5!(rx.north west)+(0,0.5)$) {906.5~MHz \RF{}};
 
 				% Grouping boxes
 				\node[draw=stevens, dashed, thick, rounded corners,
 				fit=(b1)(b2)(b3),
 				inner sep=8pt,
-				label={[font=\small\bfseries\color{stevens}]above:Beacon Array (Module 1)}] {};
+				label={[font=\small\bfseries\color{stevens}]above:Cooperative Targets + Threat (Module 1)}] {};
 
 				\node[draw=accentblue, dashed, thick, rounded corners,
 				fit=(uart_rx)(parser)(feat)(bram)(uart_tx),
@@ -889,9 +899,9 @@
 			\toprule
 			\textbf{Item} & \textbf{Qty / Version} & \textbf{Purpose} \\
 			\midrule
-			STM32 Nucleo-L476RG & $\geq 3$ & 2 beacon MCUs + 1 receiver \MCU{} \\
-			\RF{} Transceiver Module (RFM95W) & $\geq 3$ & Beacon and receiver \RF{} communication \\
-			915~MHz Whip Antenna & $\geq 3$ & \RF{} transmission/reception \\
+			STM32 Nucleo-L476RG & $\geq 3$ & 2 cooperative-target MCUs (Target~A, Target~B) + 1 interceptor (Threat) \MCU{} \\
+			\RF{} Transceiver Module (RFM95W) & $\geq 3$ & Cooperative-target and interceptor \RF{} communication \\
+			915~MHz Spring Antenna & $\geq 3$ & \RF{} transmission/reception (operating carrier 906.5~MHz in the U.S.\ 915~MHz ISM band) \\
 			Digilent Nexys A7-100T & 1 & \FPGA{} processing platform \\
 			USB Micro-B Cables & 4--5 & Power, programming, and \UART{} communication \\
 			Breadboard + Jumper Wires & --- & Inter-board connections (\UART{}, GND) \\
@@ -899,7 +909,7 @@
 			Tape Measure & 1 & Physical distance measurement for Campaign C4 \\
 			\midrule
 			AMD Vivado Design Suite & 2024.1+ & Bitstream generation and \ILA{} debugging \\
-			VS Code + STM32 extension stack & Latest & Beacon/receiver firmware modification (Module~1 reference environment; standalone STM32CubeIDE also supported) \\
+			VS Code + STM32 extension stack & Latest & Cooperative-target / interceptor firmware modification (Module~1 reference environment; standalone STM32CubeIDE also supported) \\
 			Python 3.10+ & --- & Host-side collection script and EDA \\
 			\texttt{pyserial} & $\geq$3.5 & \UART{} communication from Python \\
 			\texttt{pandas} & $\geq$2.0 & Dataset manipulation and merging \\
@@ -922,10 +932,10 @@
 			\toprule
 			\textbf{Assessment Item} & \textbf{Weight} & \textbf{Due} \\
 			\midrule
-			Integration Debug Report (checklist, issue log, \ILA{} captures, field comparison) & 20\% & Week 1 \\
-			System Performance Characterization Report (\PER{}, latency, throughput, scaling) & 25\% & Week 2 \\
-			Data Collection Campaign Report Part 1 (experimental design, script, C1/C2 results) & 25\% & Week 3 \\
-			Dataset and Data Collection Report Part 2 (C3--C5, merged dataset, EDA, distribution shift, data dictionary) & 30\% & Week 4 \\
+			Integration Debug Report (checklist, issue log, \ILA{} captures, field comparison) & 20\% & Session 9 \\
+			System Performance Characterization Report (\PER{}, latency, throughput, scaling) & 25\% & Session 10 \\
+			Data Collection Campaign Report Part 1 (experimental design, script, C1/C2 results) & 25\% & Session 11 \\
+			Dataset and Data Collection Report Part 2 (C3--C5, merged dataset, EDA, distribution shift, data dictionary) & 30\% & Session 12 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -973,18 +983,18 @@
 
 	Upon successful completion of Module~3, students will have:
 	\begin{itemize}[leftmargin=2em]
-		\item A fully integrated and validated end-to-end pipeline: beacon \RF{} transmission $\rightarrow$ STM32 reception $\rightarrow$ \FPGA{} ingestion and feature extraction $\rightarrow$ host-side data collection.
-		\item Characterized system performance with quantified \PER{}, latency, throughput, and scaling behavior across multiple beacon configurations.
+		\item A fully integrated and validated end-to-end pipeline: cooperative-target \RF{} transmission (DATA + ACK) $\rightarrow$ Threat interception (and PAUSE TX while button held) $\rightarrow$ \FPGA{} ingestion and feature extraction (with bit-field-extracted \texttt{pkt\_type} column) $\rightarrow$ host-side data collection.
+		\item Characterized system performance with quantified \PER{}, latency, throughput, and scaling behavior across cooperative-target ping-pong + PAUSE-burst configurations.
 		\item Diagnosed and resolved real cross-domain integration failures, gaining direct experience with the interface problems that span firmware, hardware, and digital logic boundaries.
-		\item A labeled \RF{} dataset of approximately 2{,}500--3{,}500 feature vectors spanning 5 experimental campaigns with controlled variation of TX power, spreading factor, modulation type, distance, and beacon count.
+		\item A labeled \RF{} dataset of approximately 2{,}500--3{,}500 feature vectors spanning 5 experimental campaigns with controlled variation of TX power, spreading factor, modulation type, distance, and active-station count, plus PAUSE rows from button-hold windows in C5d/C5e.
 		\item A host-side Python collection script and dataset pipeline that can be re-run to collect additional data if needed.
-		\item Exploratory data analysis documenting feature distributions, correlations, and class balance.
-		\item A quantitative understanding of the distribution shift between simulation data and hardware-collected data.
+		\item Exploratory data analysis documenting feature distributions, correlations, and class balance across SF, modulation, Beacon~ID, and \texttt{pkt\_type}.
+		\item A quantitative understanding of the operating-condition shift between clean single-station regimes (C1--C4) and contended multi-station + PAUSE regimes (C5), entirely on hardware data.
 	\end{itemize}
 
-	Module~4 will consume this dataset directly. Students will preprocess the \FPGA{}-extracted features, train and evaluate classifiers for spreading factor detection, modulation classification, and emitter identification, and analyze how classification accuracy varies as a function of \SNR{}, beacon count, and physical distance. The dataset's controlled experimental structure (single-variable sweeps with known ground truth) enables students to isolate which features drive model performance and which real-world factors degrade accuracy compared to simulation---questions that can only be answered with the kind of carefully collected, labeled hardware data this module produces.
+	Module~4 will consume this dataset directly. Students will preprocess the \FPGA{}-extracted features, train and evaluate classifiers for spreading factor detection, modulation classification, emitter identification, and packet-type classification (DATA / ACK / PAUSE), and analyze how classification accuracy varies as a function of \SNR{}, station count, and physical distance. The dataset's controlled experimental structure (single-variable sweeps with known ground truth) enables students to isolate which features drive model performance and which real-world factors degrade accuracy under contended operating conditions---questions that can only be answered with the kind of carefully collected, labeled hardware data this module produces.
 
-	The distribution shift analysis from this module's EDA provides the empirical foundation for a key Module~4 experiment: training a classifier on simulation data (from the engagement simulator) and evaluating it on hardware data (from this module), then observing the accuracy drop as a direct measurement of the sim-to-real gap. This experiment is only possible because the framework stages data collection \emph{before} \ML{} development, giving students both data sources to compare.
+	The operating-condition shift analysis from this module's EDA provides the empirical foundation for the key Module~4 LH4-F experiment: training a classifier on the clean regime (C1--C4 single-station rows) and evaluating it on the contended regime (C5 multi-station rows with PAUSE bursts), then observing the accuracy drop as a direct measurement of the operating-condition gap on real hardware data. This experiment is only possible because the framework stages a deliberately bimodal data collection campaign \emph{before} \ML{} development, giving students both regimes to compare without ever leaving hardware.
 
 	\vfill
 	\clearpage

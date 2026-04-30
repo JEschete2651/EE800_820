@@ -48,20 +48,85 @@ Verify that Vivado's \textbf{Report CDC} shows only the expected crossing: \text
 \subsection{Step 5 --- Hardware sanity check}
 \begin{enumerate}[leftmargin=2em]
 	\item Program the Nexys A7 from Hardware Manager.
-	\item Connect the STM32 receiver \UART{} \texttt{TX} to the Pmod JA pin declared in \texttt{ingest\_top.xdc}.
-	\item Power on the beacon/receiver pair. The \texttt{led(0)} \FIFO{}-empty \mbox{LED} should blink as bytes arrive; \texttt{led(1)} (\FIFO{}-full) should stay dark.
-	\item Add an \ILA{} probe on \texttt{frame\_valid} and \texttt{frame\_reject}. Confirm that \texttt{frame\_valid} pulses at roughly the Module~1 beacon rate and \texttt{frame\_reject} is rare.
+	\item Connect the STM32 interceptor \UART{} \texttt{TX} to the Pmod JA pin declared in \texttt{ingest\_top.xdc}.
+	\item Power on the cooperative-target pair (Target~A and Target~B) plus the interceptor (Threat). The \texttt{led(0)} \FIFO{}-empty \mbox{LED} should blink as bytes arrive; \texttt{led(1)} (\FIFO{}-full) should stay dark.
+	\item Add an \ILA{} probe on \texttt{frame\_valid} and \texttt{frame\_reject}. Confirm that \texttt{frame\_valid} pulses at roughly the Module~1 ping-pong cadence (DATA $\to$ ACK pairs) and \texttt{frame\_reject} is rare.
 \end{enumerate}
 
-\labfigure{LH2H_ila_capture.png}{0.85\textwidth}{\ILA{} capture on hardware: \texttt{frame\_valid} pulses at the beacon transmission rate while \texttt{frame\_reject} stays quiet.}{fig:lh2h-ila}
+\labfigure{LH2H_ila_capture.png}{0.85\textwidth}{\ILA{} capture on hardware: \texttt{frame\_valid} pulses at the cooperative-target ping-pong cadence while \texttt{frame\_reject} stays quiet.}{fig:lh2h-ila}
 
-\subsection{Step 6 --- Archive the sign-off artifacts}
+\subsection{Step 6 --- Export reports to machine-readable format}
+The Module~5 system specification table (and the Module~2 resource row in the final report) requires exact \mbox{LUT}/\mbox{FF}/\BRAM{}/WNS numbers. Export them from Vivado's Tcl console now so they are available without re-opening the GUI later.
+
+\begin{lstlisting}[language=Tcl, caption={Run in the Vivado Tcl Console after implementation completes.}]
+# Open the implemented design if not already open
+open_run impl_1
+
+# Export utilization to CSV
+report_utilization -hierarchical -file impl/util.rpt
+
+# Export timing summary
+report_timing_summary -file impl/timing.rpt -warn_on_violation
+
+# Export power
+report_power -file impl/power.rpt
+\end{lstlisting}
+
+Then run the following Python snippet once to extract the numbers into a structured \texttt{impl\_summary.json} that the Module~5 spec-table script can read directly:
+
+\begin{lstlisting}[language=Python, caption={\texttt{parse\_vivado\_reports.py} --- run from the \texttt{impl/} directory.}]
+import json, re
+from pathlib import Path
+
+def parse_util(rpt: str) -> dict:
+    patterns = {
+        "lut":  r"Slice LUTs\s*\|\s*(\d+)",
+        "ff":   r"Slice Registers\s*\|\s*(\d+)",
+        "bram": r"Block RAM Tile\s*\|\s*(\d+)",
+        "dsp":  r"DSPs\s*\|\s*(\d+)",
+    }
+    result = {}
+    for key, pat in patterns.items():
+        m = re.search(pat, rpt)
+        result[key] = int(m.group(1)) if m else None
+    return result
+
+def parse_timing(rpt: str) -> dict:
+    m = re.search(r"WNS\(ns\)\s+TNS\(ns\).*?\n\s*([-\d.]+)\s+([-\d.]+)", rpt, re.S)
+    return {"wns_ns": float(m.group(1)) if m else None,
+            "tns_ns": float(m.group(2)) if m else None}
+
+util = parse_util(Path("util.rpt").read_text(errors="replace"))
+timing = parse_timing(Path("timing.rpt").read_text(errors="replace"))
+
+summary = {"module": "Module2_ingest_top", **util, **timing}
+Path("impl_summary.json").write_text(json.dumps(summary, indent=2))
+print(json.dumps(summary, indent=2))
+\end{lstlisting}
+
+Example output:
+\begin{lstlisting}
+{
+  "module": "Module2_ingest_top",
+  "lut": 312,
+  "ff": 198,
+  "bram": 2,
+  "dsp": 0,
+  "wns_ns": 2.14,
+  "tns_ns": 0.0
+}
+\end{lstlisting}
+
+Commit \texttt{impl\_summary.json} alongside the bitstream. This file is the authoritative source for Table~2 in the final report.
+
+\subsection{Step 7 --- Archive the sign-off artifacts}
 Collect into a single directory:
 \begin{itemize}[leftmargin=2em]
 	\item \texttt{ingest\_top.bit}.
-	\item The post-implementation utilization, timing, and power reports.
+	\item \texttt{impl\_summary.json} (from Step~6).
+	\item The raw \texttt{util.rpt}, \texttt{timing.rpt}, and \texttt{power.rpt} files.
 	\item The Module~2-G regression results (diff files from all three scenarios).
-	\item A one-page summary listing the \mbox{LUT}/\mbox{FF}/\BRAM{} numbers, WNS, and any deviations from the expected envelope.
+	\item A one-page sign-off summary confirming \mbox{LUT}/\mbox{FF}/\BRAM{} within the expected envelope, WNS $\geq$ 0, and dynamic power $<$ 200\,mW.
 \end{itemize}
 
 \section{Verification Checklist}
@@ -70,7 +135,7 @@ Collect into a single directory:
 	\item[$\square$] WNS and WHS both $\geq 0$.
 	\item[$\square$] Report CDC shows only the \texttt{uart\_rxd} $\to$ \texttt{sysclk} crossing.
 	\item[$\square$] Dynamic power $<$ 200\,mW.
-	\item[$\square$] Hardware \ILA{} capture confirms \texttt{frame\_valid} activity on a live beacon stream.
+	\item[$\square$] Hardware \ILA{} capture confirms \texttt{frame\_valid} activity on a live cooperative-target ping-pong stream (with PAUSE bursts visible when the Threat user button is held).
 \end{itemize}
 
 \begin{tcolorbox}[warning={Common Pitfalls}]
@@ -83,8 +148,9 @@ Collect into a single directory:
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-H Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{ingest\_top.bit} and all post-implementation reports.
-		\item One-page sign-off summary with the required numbers.
+		\item \texttt{ingest\_top.bit} and raw post-implementation reports (\texttt{util.rpt}, \texttt{timing.rpt}, \texttt{power.rpt}).
+		\item \texttt{impl\_summary.json} with \mbox{LUT}/\mbox{FF}/\BRAM{}/WNS fields populated (this feeds Table~2 of the final report directly).
+		\item One-page sign-off summary confirming all fields within spec.
 		\item \ILA{} screenshot from live hardware.
 	\end{enumerate}
 \end{tcolorbox}

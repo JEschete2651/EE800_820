@@ -7,13 +7,13 @@
 \labheader{5-H}{Final Presentation, Live Demonstration, and Capstone Submission}
 
 \section{Objective}
-Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A) that communicates the system architecture, experimental results, and lessons learned; include a live demonstration of real-time classification; and submit the complete curriculum package. This is the final handout of the capstone --- all prior deliverables feed this one.
+Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A) that communicates the system architecture, experimental results, and lessons learned; include a live demonstration of real-time four-task classification and the button-gated PAUSE behavioural response; and submit the complete curriculum package. This is the final handout of the capstone --- all prior deliverables feed this one.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~5-G complete (final report written and reviewed).
 	\item Lab Handout~5-F complete (curriculum package assembled and verified).
-	\item All hardware operational; inference pipeline runs end-to-end without manual intervention.
+	\item All hardware operational; the bidirectional Target~A / Target~B ping-pong runs end-to-end without manual intervention, the Threat interceptor forwards 43-byte frames to the FPGA reliably, and the PAUSE button on the Threat triggers ``I'm Jammed'' on the targeted Target's USART2 within the LH5-C S5 thresholds.
 \end{itemize}
 
 \section{Presentation Requirements}
@@ -28,7 +28,7 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 		Duration   & 20 minutes presentation $+$ 10 minutes \mbox{Q\&A} \\
 		Audience   & Project advisor, program committee, peers \\
 		Format     & Slide deck (PowerPoint, Beamer, Google Slides) \\
-		Live demo  & 2--3 minute live real-time classification, with a backup video \\
+		Live demo  & 3--4 minute live real-time classification + PAUSE button-hold demo, with a backup video \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
@@ -46,11 +46,11 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 		\midrule
 		1 & Title                 & 1 & Project title, student, advisor, institution, date \\
 		2 & Motivation \& goals   & 2 & Why this framework? What cross-domain skills does it teach? \\
-		3 & System architecture   & 2 & Full system diagram; hardware photo; data-flow overview \\
+		3 & System architecture   & 2 & Full system diagram (Target~A, Target~B, Threat); hardware photo; data-flow overview \\
 		4 & Module highlights     & 5 & 1 slide per module: key decision, key result, link to next module \\
-		5 & Live demo             & 1 + live & Real-time classification; change a parameter mid-demo \\
-		6 & Key results           & 3 & System spec table; classification accuracy; stress-test findings \\
-		7 & Lessons learned       & 2 & Cross-domain dependencies; sim-vs-hw gap; redesign choices \\
+		5 & Live demo             & 1 + live & Real-time four-task classification; PAUSE button-hold behavioural response \\
+		6 & Key results           & 3 & System spec table; per-task classification accuracy; stress-test findings; PAUSE response/recovery latency \\
+		7 & Lessons learned       & 2 & Cross-domain dependencies; operating-condition shift; redesign choices \\
 		8 & Conclusion \& future  & 1 & Summary, next steps \\
 		9 & \mbox{Q\&A}           & 1 & Contact info, acknowledgments \\
 		\bottomrule
@@ -62,9 +62,9 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 The five module-highlight slides are the hardest to get right. For each one:
 \begin{itemize}[leftmargin=2em]
 	\item Pick the \emph{single} most compelling figure or table from that module.
-	\item State in one phrase (on the slide) the key design decision: e.g., ``32-B packet format / fixed fields'', ``8-feature vector at 100\,MHz'', ``5 sweep campaigns, stratified split''.
+	\item State in one phrase (on the slide) the key design decision: e.g., ``32-B packet, packed Modulation Code byte'', ``feature vector with packet-type at offset 3'', ``5 sweep campaigns, regime-stratified split'', ``four-task classifier suite at 100\,MHz'', ``button-gated PAUSE for behavioural response''.
 	\item State the key result in a sentence or a number.
-	\item \emph{In your script}: end with a sentence that transitions to the next module (``this packet format is what Module~2 will parse'').
+	\item \emph{In your script}: end with a sentence that transitions to the next module (``this packed Modulation Code is what Module~2's parser splits into \texttt{mod\_kind} and \texttt{pkt\_type}'').
 \end{itemize}
 
 The transition sentences are the spine of the presentation --- they are what makes five modules feel like one project instead of five.
@@ -74,10 +74,10 @@ The live demonstration is the most impactful part of the presentation and also t
 
 \begin{tcolorbox}[warning={Live Demo Redundancy Checklist}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \textbf{Pre-recorded backup video.} Record a 2--3 minute screen capture of the inference script running successfully, including the parameter-change moment. If anything fails live (\mbox{USB} port not recognised, beacon battery dead, bitstream corrupted), switch to the video without apology and without pausing the presentation.
-		\item \textbf{Pre-test in the presentation room.} \mbox{RF} propagation in the presentation space differs from the lab. Run the system for 5 minutes in the actual room before your slot.
-		\item \textbf{Minimise configuration changes.} Changing one beacon's SF live is impressive; changing multiple parameters simultaneously risks confusion. Pick one change, rehearse it, and stick to it.
-		\item \textbf{Start the system during the architecture slides.} The system should be up and running by the time you reach the demo slide. The ``live'' portion of the demo is you switching to the already-running terminal, not you starting something cold.
+		\item \textbf{Pre-recorded backup video.} Record a 3--4 minute screen capture of the inference script running successfully, including the SF reconfiguration moment \emph{and} a clean PAUSE button-hold cycle (press, both Target USART2 streams reacting, release, recovery). If anything fails live (\mbox{USB} port not recognised, Target battery dead, bitstream corrupted), switch to the video without apology and without pausing the presentation.
+		\item \textbf{Pre-test in the presentation room.} \mbox{RF} propagation in the presentation space differs from the lab. Run the bidirectional system for 5 minutes in the actual room before your slot, and exercise PAUSE at least twice to confirm the Threat's RSSI table is populated and stable.
+		\item \textbf{Minimise configuration changes.} Changing one Target's SF live is impressive; changing multiple parameters simultaneously risks confusion. Pick one SF change plus one PAUSE press, rehearse them, and stick to that script.
+		\item \textbf{Start the system during the architecture slides.} The bidirectional ping-pong should be up and running by the time you reach the demo slide. The ``live'' portion of the demo is you switching to the already-running terminals (host inference + both Target USART2 consoles), not you starting something cold.
 	\end{enumerate}
 \end{tcolorbox}
 
@@ -85,7 +85,8 @@ The live demonstration is the most impactful part of the presentation and also t
 	\begin{itemize}[leftmargin=1.2em]
 		\item \textbf{No classification output for $>$20\,s} after reaching the demo slide (system has stalled).
 		\item \textbf{Two consecutive \mbox{CRC} rejects or parser rejects} visible in the terminal (link corruption that will not self-heal during the demo).
-		\item \textbf{Reconfigured beacon fails to update within 15\,s} of the parameter change (beacon firmware crashed or USB reset dropped).
+		\item \textbf{Reconfigured Target fails to update within 15\,s} of the parameter change (Target firmware crashed or USB reset dropped).
+		\item \textbf{PAUSE press produces no \texttt{I'm Jammed} on either Target's USART2 within 1\,s} (Threat RSSI table empty, PAUSE scheduler not running, or the PAUSE button wiring failed).
 		\item \textbf{Any \texttt{Traceback} in the inference terminal} (Python-side failure; do not try to recover on stage).
 		\item \textbf{Projector or terminal text not visible from the back row} (presentation readability is a hard rollback trigger even if the system is healthy).
 	\end{itemize}
@@ -93,18 +94,22 @@ The live demonstration is the most impactful part of the presentation and also t
 \end{tcolorbox}
 
 \subsection{Step 4 --- Demo script}
-Write and rehearse a verbatim script for the live demo:
+Write and rehearse a verbatim script for the live demo. Have three terminals visible: the host four-task inference, Target~A's USART2 console, and Target~B's USART2 console.
 
 \begin{enumerate}[leftmargin=2em]
-	\item \emph{``On screen is the live output of our inference script. Each line represents one packet classified on three independent tasks.''}
-	\item \emph{``You can see Beacon~1 and Beacon~2 are both currently classified as SF7, LoRa, with the correct beacon \mbox{ID}s.''}
-	\item (Reconfigure Beacon~1 to SF10; wait for the next packet.)
-	\item \emph{``I've just reconfigured Beacon~1 to SF10. Watch Beacon~1's classification switch on the next packet --- there --- while Beacon~2 remains at SF7.''}
-	\item \emph{``The total latency from \mbox{TX} start to this line appearing is the number on the right: about 55 milliseconds.''}
-	\item (Return Beacon~1 to SF7 to end on a clean configuration.)
+	\item \emph{``On screen is the live output of our inference script. Each line represents one packet classified on four independent tasks: spreading factor, modulation kind, emitter ID, and packet type.''}
+	\item \emph{``You can see Target~A and Target~B in a steady DATA/ACK ping-pong, both at SF7, both LoRa, with the correct emitter IDs (0x01 and 0x02), and the packet-type column alternating DATA/ACK as expected.''}
+	\item (Reconfigure Target~A to SF10; wait for the next DATA frame.)
+	\item \emph{``I've just reconfigured Target~A to SF10. Watch Target~A's row switch on its next DATA frame --- there --- while Target~B's ACKs remain at SF7.''}
+	\item (Return Target~A to SF7. Wait for the link to settle for at least 5\,s.)
+	\item \emph{``Now I will hold the PAUSE button on the Threat interceptor. The Threat reads its RSSI table, picks the strongest target, and emits a 32-byte PAUSE row addressed to that ID at a 100\,ms cadence.''}
+	\item (Press and hold the user button on the Threat for $\sim$3 seconds.)
+	\item \emph{``Watch the targeted Target's USART2 console: there --- it just printed `I'm Jammed' as soon as it decoded the first PAUSE row addressed to its ID. The classifier on the host also tagged that frame as packet-type PAUSE.''}
+	\item (Release the button.)
+	\item \emph{``The Target waits out its 500\,ms hold-off and the ping-pong resumes --- there. The end-to-end button-to-acknowledgement latency you just saw is roughly the LH5-C S5 number on the slide.''}
 \end{enumerate}
 
-Total demo runtime, including narration, should be 2--3 minutes. Any longer and the audience's attention budget for the remaining slides suffers.
+Total demo runtime, including narration, should be 3--4 minutes. Any longer and the audience's attention budget for the remaining slides suffers.
 
 \subsection{Step 5 --- Rehearsal}
 Two full rehearsals, ideally on different days:
@@ -118,13 +123,15 @@ Two full rehearsals, ideally on different days:
 The 10-minute \mbox{Q\&A} is often where the final impression is made. Prepare one-sentence answers to at least the following likely questions:
 
 \begin{itemize}[leftmargin=2em]
-	\item Why did you choose a random forest (or whichever model won)? Cite the LH4-H rubric.
-	\item What is the sim-to-real gap and why?
+	\item Why did you choose a random forest (or whichever model won) on the packet-type task? Cite the LH4-H rubric.
+	\item What is the operating-condition shift $\Delta_{\text{op-shift}}$ and what causes it? Cite LH4-F + LH5-D B5.
+	\item Is the PAUSE protocol FCC-compliant? (Yes: it is a directed protocol message at the same +14\,dBm and 906.5\,MHz as the cooperative DATA/ACK traffic, only emitted when the operator presses the button, with a 100\,ms cadence and 500\,ms hold-off --- not a wide-band jammer.)
 	\item If you had to pick one thing to redo, what would it be? Use the LH5-G Discussion answer.
-	\item What is the largest cross-domain dependency you found? Cite the LH5-E catalog.
-	\item How would this scale to 10 beacons? 100?
+	\item What is the largest cross-domain dependency you found? Cite the LH5-E catalog (F5 or F7 are good answers).
+	\item How would this scale to 10 active stations? 100? Discuss FIFO depth, SX1276 half-duplex, and RSSI-table aging.
 	\item What is the \FPGA{} resource utilization? Cite Module~2 final utilization report.
 	\item Why did you use VS Code with the STMicro extension stack rather than standalone STM32CubeIDE for firmware? Cite the Module~1 reference environment choice.
+	\item Why are all three radios on 906.5\,MHz inside the 915\,MHz ISM band? (Operating-point pin-down for the LH5-D regression check; a single carrier eliminates one axis of variability.)
 \end{itemize}
 
 \subsection{Step 7 --- Submit the complete package}
@@ -141,29 +148,29 @@ Package submission is the last act of the project. Check:
 On the day of the presentation:
 \begin{itemize}[leftmargin=2em]
 	\item Arrive 30 minutes early. Test the projector connection. Test audio if the backup video has sound.
-	\item Start the beacons and inference script during your architecture slides (Step~3 redundancy \#4).
+	\item Start the bidirectional Target~A / Target~B ping-pong and the host inference during your architecture slides (Step~3 redundancy \#4). Confirm the Threat is listening and its RSSI table has at least two entries before reaching the demo slide.
 	\item Do not rush transitions. A 2-second silence between slides reads as confidence, not hesitation.
 	\item During \mbox{Q\&A}, if a question stumps you, say ``I don't know --- that would be an interesting follow-up experiment''. Do not invent.
 \end{itemize}
 
 \begin{tcolorbox}[infobox={The Closing Message}]
-	Every presentation about an engineering project is implicitly answering one question: ``What did you learn?'' The instinct is to answer with what was built --- the beacons, the \FPGA{} pipeline, the classifier. The better answer is to describe a \emph{cross-module} insight: a case where a decision in one domain constrained or enabled something unexpected in another. That is the answer the framework is designed to produce. End on that insight.
+	Every presentation about an engineering project is implicitly answering one question: ``What did you learn?'' The instinct is to answer with what was built --- the radios, the \FPGA{} pipeline, the four-task classifier. The better answer is to describe a \emph{cross-module} insight: a case where a decision in one domain constrained or enabled something unexpected in another. That is the answer the framework is designed to produce. End on that insight.
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Slide deck built ($\sim$18--20 slides) following the Step~1 outline.
-	\item[$\square$] Live demo script written and rehearsed.
-	\item[$\square$] Backup demo video recorded.
+	\item[$\square$] Live demo script written and rehearsed, including the PAUSE button-hold sequence.
+	\item[$\square$] Backup demo video recorded (covers SF reconfiguration \emph{and} PAUSE press/release).
 	\item[$\square$] Two rehearsals completed; timing fits 20 minutes.
-	\item[$\square$] \mbox{Q\&A} prep list of at least 7 likely questions with one-sentence answers.
+	\item[$\square$] \mbox{Q\&A} prep list of at least 7 likely questions with one-sentence answers, including the FCC-compliance and PAUSE-protocol questions.
 	\item[$\square$] Final submission package (report, slides, video, curriculum) assembled and delivered.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 5-H Deliverable --- Capstone Final Submission}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item Presentation slides (PDF + source).
-		\item Backup demo video (MP4 or equivalent, 2--3 minutes).
+		\item Backup demo video (MP4 or equivalent, 3--4 minutes; covers four-task classification, SF reconfiguration, and PAUSE button-hold).
 		\item Delivered presentation (recorded if policy permits, for archival).
 		\item Final submission archive bundling: (a) final report, (b) slides, (c) backup video, (d) complete curriculum package, (e) all trained models and datasets.
 		\item Post-presentation reflection note (one page): one thing that worked, one thing that did not, one thing you would change if presenting again.

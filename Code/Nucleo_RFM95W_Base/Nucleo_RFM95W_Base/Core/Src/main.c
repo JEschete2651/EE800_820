@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,6 +58,7 @@ static void MX_USART2_UART_Init(void);
 int __io_putchar(int ch);
 uint8_t rfm_read_reg(uint8_t addr);
 void rfm_write_reg(uint8_t addr, uint8_t val);
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -97,6 +99,22 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Identify board by 96-bit STM32 UID */
+  const uint8_t *uid = (const uint8_t *)0x1FFF7590U;
+  char uid_str[25];
+  snprintf(uid_str, sizeof(uid_str),
+           "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+           uid[0],  uid[1],  uid[2],  uid[3],
+           uid[4],  uid[5],  uid[6],  uid[7],
+           uid[8],  uid[9],  uid[10], uid[11]);
+
+  const char *board_name = "Unknown";
+  if      (strcmp(uid_str, "500022000350453151313620") == 0) board_name = "Board 1";
+  else if (strcmp(uid_str, "400052001750563042313320") == 0) board_name = "Board 2";
+  else if (strcmp(uid_str, "360020000350453151313620") == 0) board_name = "Board 3";
+
+  printf("UID: %s --> %s\r\n", uid_str, board_name);
+
   /* Reset the RFM95W */
   HAL_GPIO_WritePin(RFM_RST_GPIO_Port, RFM_RST_Pin, GPIO_PIN_RESET);
   HAL_Delay(1); // hold reset low for at least 100 us
@@ -107,6 +125,46 @@ int main(void)
   uint8_t version = rfm_read_reg(0x42);
   printf("RegVersion = 0x%02X\r\n", version);
   
+  /* Set the RFM95W to sleep mode */
+  rfm_write_reg(0x01, 0x80); 
+  HAL_Delay(10);
+
+  /*Write the Frequency Registers*/
+  rfm_write_reg(0x06, 0xE2); // FreqMsb
+  rfm_write_reg(0x07, 0xA0); // FreqMid
+  rfm_write_reg(0x08, 0x00); // FreqL
+
+  /* Read Registers to Verify Write */
+  uint8_t frf_msb = rfm_read_reg(0x06);
+  uint8_t frf_mid = rfm_read_reg(0x07);
+  uint8_t frf_lsb = rfm_read_reg(0x08);
+
+  printf("FrfMsb = 0x%02X\r\n", frf_msb);
+  printf("FrfMid = 0x%02X\r\n", frf_mid);
+  printf("FrfLsb = 0x%02X\r\n", frf_lsb);
+  uint32_t carrier_hz = rfm_frf_to_hz(frf_msb, frf_mid, frf_lsb);
+  printf("Carrier = %lu.%03lu MHz\r\n", carrier_hz / 1000000UL, (carrier_hz % 1000000UL) / 1000UL);
+
+  /* Read current mode and print*/
+  printf("OpMode = 0x%02X\r\n", rfm_read_reg(0x01));
+
+  /* Transition to Sleep */
+  rfm_write_reg(0x01, 0x80);
+  HAL_Delay(10);
+  printf("OpMode (SLEEP) = 0x%02X\r\n", rfm_read_reg(0x01));
+
+  /* Transition to Standby */
+  rfm_write_reg(0x01, 0x81);
+  HAL_Delay(10);
+  printf("OpMode (STANDBY) = 0x%02X\r\n", rfm_read_reg(0x01));
+
+  /* Transition to LoRa Transmit */
+  rfm_write_reg(0x01, 0x83);
+  HAL_Delay(10);
+  printf("OpMode (TX) = 0x%02X\r\n", rfm_read_reg(0x01));
+
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -314,6 +372,11 @@ void rfm_write_reg(uint8_t addr, uint8_t val) {
   HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_RESET);
   HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
   HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_SET);
+}
+
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb) {
+  uint32_t frf = ((uint32_t)msb << 16) | ((uint32_t)mid << 8) | lsb;
+  return (uint32_t)(((uint64_t)frf * 32000000ULL) / 524288ULL);
 }
 /* USER CODE END 4 */
 

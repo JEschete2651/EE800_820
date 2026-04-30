@@ -32,8 +32,49 @@ __pycache__/
 # Engagement Sim logs
 engagement.log
 data_stream.log
-logs/
+Code/EngagementSim/logs/
+
+# Serial monitor runtime logs
+Code/SerialMonitorLogger/logs/
 
 # Personal working notes (not part of the deliverable package)
 FinalReportNeeds.txt
 LabHandoutNotes.txt
+
+# Windows noise
+Thumbs.db
+
+# Additional LaTeX generated files
+*.acn
+*.glo
+*.gls
+*.glg
+*.ist
+*.xdy
+*.run.xml
+*.bcf
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# STM32 / CMake generated outputs
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/compile_commands.json
+**/TempHandout/
+**/mx.scratch/
+
+# Vivado generated project state
+Code/LoRa_FPGA_FeaturePipeline/LoRa_FPGA_FeaturePipeline.cache/
+Code/LoRa_FPGA_FeaturePipeline/LoRa_FPGA_FeaturePipeline.hw/
+Code/LoRa_FPGA_FeaturePipeline/LoRa_FPGA_FeaturePipeline.ip_user_files/
+Code/LoRa_FPGA_FeaturePipeline/LoRa_FPGA_FeaturePipeline.sim/
+Code/LoRa_FPGA_FeaturePipeline/.Xil/
+Code/LoRa_FPGA_FeaturePipeline/**/*.jou
+Code/LoRa_FPGA_FeaturePipeline/**/*.str

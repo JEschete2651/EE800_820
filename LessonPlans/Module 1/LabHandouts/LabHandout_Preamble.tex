@@ -17,6 +17,7 @@
 \usepackage{amssymb}
 \usepackage{tcolorbox}
 \usepackage{caption}
+\usepackage{listings}
 \tcbuselibrary{skins,breakable}
 
 % ── Glossary (per-document, built from shared glossary.tex) ──
@@ -46,6 +47,25 @@
 	linkcolor=stevens,
 	urlcolor=accentblue,
 	citecolor=darkgray,
+}
+
+% ── Listings style (C / VHDL / Tcl / CMake / Python code blocks) ────
+\lstset{
+	basicstyle=\small\ttfamily,
+	keywordstyle=\color{accentblue}\bfseries,
+	commentstyle=\color{darkgray}\itshape,
+	stringstyle=\color{stevens},
+	numbers=left,
+	numberstyle=\tiny\color{darkgray},
+	numbersep=8pt,
+	frame=single,
+	framerule=0.4pt,
+	rulecolor=\color{darkgray},
+	backgroundcolor=\color{lightgray},
+	breaklines=true,
+	tabsize=4,
+	showstringspaces=false,
+	captionpos=b
 }
 
 % ── Defaults for header variables (handout overrides these) ──

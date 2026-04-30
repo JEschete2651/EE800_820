@@ -11,8 +11,8 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~1-G (receiver firmware validated, forwarding frames confirmed on STM32 debug \UART{}).
-	\item Lab Handout~1-F (beacon firmware validated, beacon \mbox{ID} and sequence numbers confirmed).
+	\item Lab Handout~1-G (interceptor / Threat firmware validated, forwarding frames confirmed on STM32 debug \UART{}, RSSI table populated, button-gated PAUSE TX confirmed).
+	\item Lab Handout~1-F (cooperative-target firmware validated on both Target~A and Target~B, ping-pong sequence numbers and the \texttt{"I'm Jammed"} response confirmed).
 	\item Lab Handout~2-H (Module~2 bitstream signed off, \texttt{ingest\_top.bit} generated and archived).
 \end{itemize}
 
@@ -23,7 +23,7 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 		\toprule
 		\textbf{Item} & \textbf{Qty} & \textbf{Notes} \\
 		\midrule
-		STM32 Nucleo-L476RG & $\geq 3$ & 2 beacons + 1 receiver \\
+		STM32 Nucleo-L476RG & $\geq 3$ & 2 cooperative targets (Target~A, Target~B) + 1 interceptor (Threat) \\
 		\RF{} Breakout (RFM95W) + antenna & $\geq 3$ & Assembled in LH1-A \\
 		Digilent Nexys A7-100T & 1 & With USB cable \\
 		USB Micro-B cables & 4--5 & Programming and \UART{} \\
@@ -36,41 +36,46 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 \newpage
 \section{Procedure}
 
-\subsection{Step 1 --- Beacon A verification}
+\subsection{Step 1 --- Target~A verification}
 \begin{enumerate}[leftmargin=2em]
-	\item Flash Beacon~A with the firmware from LH1-F. Power on via USB.
-	\item Open a terminal emulator at the virtual COM port (115200\,8N1). Confirm that the debug \UART{} prints a transmission line every $\sim$2 seconds:
+	\item Flash Target~A with the LH1-F firmware compiled with \texttt{\#define ROLE\_INITIATOR} and \texttt{MY\_BEACON\_ID = BEACON\_ID\_A}. Power on via USB.
+	\item Open a terminal emulator at the virtual COM port (115200\,8N1). Confirm that the debug \UART{} prints a CSV ping-pong line every $\sim$1 second:
 	\begin{verbatim}
-[TX] ID=0x01  SEQ=0042  SF=7  PWR=14  TS=84000
+CSV,42,84000,84062,62,-32
 	\end{verbatim}
+	(\texttt{seq, t\_tx\_ms, t\_ack\_ms, rtt\_ms, rssi\_dbm}). Lines with \texttt{t\_ack\_ms} = \texttt{0} indicate Target~B is not yet responding --- that is expected at this point in Step~1 since Target~B has not been powered up yet.
 	\item Verify the sequence number increments by 1 on each line. A skipped number indicates a missed transmit interrupt.
-	\item Record the beacon \mbox{ID} (should be \texttt{0x01} unless reconfigured) and the spreading factor.
-	\item The \RF{} module \mbox{LED} (if present) should blink on each transmission. Confirm.
+	\item Record the Beacon~ID (should be \texttt{0x01}) and the spreading factor.
+	\item The Nucleo user \mbox{LED} (LD2, \texttt{PA5}) should not be required to blink for this validation --- LH1-F's TX-trigger pulse is on \texttt{PB10}, not LD2. If you have a scope, confirm the \texttt{PB10} pulse on each transmit cycle.
 \end{enumerate}
 
-\begin{tcolorbox}[warning={Beacon LED vs.\ Nucleo LED}]
-	The Nucleo board has its own user \mbox{LED} (LD2, green, \texttt{PA5}). The beacon firmware from LH1-F toggles this on each transmit cycle. If the \mbox{LED} is not blinking, the firmware has not started or the \RF{} hardware is not responding to the STM32 \mbox{SPI} init sequence. Repeat LH1-C (\mbox{SPI} bring-up) before proceeding.
+\begin{tcolorbox}[warning={SPI Bring-Up Regression}]
+	If no \texttt{CSV} lines appear in the terminal at all, the firmware has not started or the \RF{} hardware is not responding to the STM32 \mbox{SPI} init sequence. Re-flash with the Run and Debug \textbf{Start Debugging} arrow and confirm the \texttt{RegVersion = 0x12} and \texttt{lora\_init done} startup lines appear before the loop begins. Repeat LH1-C (\mbox{SPI} bring-up) if \texttt{RegVersion} returns anything other than \texttt{0x12}.
 \end{tcolorbox}
 
-\subsection{Step 2 --- Beacon B verification}
+\subsection{Step 2 --- Target~B verification and ping-pong validation}
 \begin{enumerate}[leftmargin=2em]
-	\item Repeat Step~1 for Beacon~B. Confirm beacon \mbox{ID} \texttt{0x02} and a different transmission interval (2--3 seconds staggered by firmware, or manually configured).
-	\item Place Beacon~A and Beacon~B within 1~m of each other and confirm both are transmitting simultaneously without locking up. LoRa collisions at this range are expected and harmless for this check.
+	\item Flash Target~B with the LH1-F firmware compiled with \texttt{\#define ROLE\_RESPONDER} and \texttt{MY\_BEACON\_ID = BEACON\_ID\_B}. Power on via USB.
+	\item Open a second terminal at Target~B's virtual COM port. Confirm \texttt{ACK seq=...} lines appear matched one-for-one to Target~A's outgoing DATA sequence numbers.
+	\item Return to Target~A's terminal. The previously-zero \texttt{t\_ack\_ms} field should now be populated, with \texttt{rtt\_ms} typically $\sim$60--80\,ms at SF7 and \texttt{rssi\_dbm} between $-30$ and $-50$ at $\sim$1\,m.
+	\item Place Target~A and Target~B within 1\,m of each other and confirm both run sustained ping-pong without locking up. Verify Target~A's reception rate (\texttt{t\_ack\_ms}~$\ne$~0 fraction) is $\geq$95\%.
 \end{enumerate}
 
-\subsection{Step 3 --- Receiver verification}
+\subsection{Step 3 --- Interceptor (Threat) verification}
 \begin{enumerate}[leftmargin=2em]
-	\item Flash the receiver with the firmware from LH1-G. Power on via USB.
-	\item Open a terminal at the receiver's virtual COM port (115200\,8N1). With both beacons active, confirm that the receiver's debug \UART{} prints a reception line for each packet:
+	\item Flash the third Nucleo with the Threat firmware from LH1-G (\texttt{Nucleo\_RFM95W\_Threat}). Power on via USB.
+	\item Open a terminal at the Threat's virtual COM port (USART2, 115200\,8N1). With both Targets running ping-pong, confirm that the Threat's debug \UART{} prints a reception line for each captured packet:
 	\begin{verbatim}
-[RX] ID=0x01  SEQ=0042  RSSI=-67  SNR=+9.5  CRC=OK
-[RX] ID=0x02  SEQ=0031  RSSI=-71  SNR=+8.0  CRC=OK
+RX sender=01 type=0 rssi=-32 snr=9
+RX sender=02 type=1 rssi=-31 snr=10
 	\end{verbatim}
-	\item Confirm that the receiver is also emitting 43-byte forwarding frames on \texttt{USART3 TX}. The easiest verification is to connect the receiver's \texttt{USART3 TX} pin directly to a second terminal session (or back to a second COM port via a USB-\UART{} adapter) and capture raw hex. The first byte should be \texttt{0x7E}.
-	\item Check that \RSSI{} values are negative (reasonable for indoor distances) and that \mbox{SNR} is positive. Negative \mbox{SNR} at 1~m distance indicates an antenna or front-end problem.
+	(\texttt{type=0} = DATA from Target~A, \texttt{type=1} = ACK from Target~B). Confirm that both Beacon~IDs appear, sequence numbers are contiguous, and the \texttt{type} field correctly distinguishes DATA from ACK.
+	\item Confirm that the Threat is also emitting 43-byte forwarding frames on \texttt{USART3 TX}. The easiest verification is to connect the Threat's \texttt{USART3 TX} pin to a USB-\UART{} adapter and capture raw hex on a third terminal session. The first byte should be \texttt{0x7E}.
+	\item Check that \RSSI{} values are negative (reasonable for indoor distances) and that \mbox{SNR} is positive. Negative \mbox{SNR} at $\sim$1\,m distance indicates an antenna or front-end problem.
+	\item \textbf{Validate the PAUSE TX path:} hold the Threat's user button (B1, blue button on the Nucleo) for 3\,s. The Threat's USART2 should print one \texttt{PAUSE -> ID=...} line every $\sim$100\,ms (about 30 lines total). The targeted Target's USART2 should print \texttt{"I'm Jammed"} once per pause-entry, and its scheduled DATA TX should pause for the duration of the button hold + 500\,ms hold-off.
 \end{enumerate}
 
-\labfigure{LH3A_receiver_uart_capture.png}{0.85\textwidth}{Terminal capture of receiver debug \UART{} output showing two beacons received, with \RSSI{}, \SNR{}, and \CRC{} status. Verify this before connecting to the \FPGA{}.}{fig:lh3a-rx-uart}
+\labfigure{LH3A_threat_uart_capture.png}{0.85\textwidth}{Terminal capture of Threat (interceptor) debug \UART{} output showing both Targets received with \texttt{type=0} (DATA) and \texttt{type=1} (ACK), and a button-hold burst of \texttt{PAUSE -> ID=...} lines. Verify all three packet types appear before connecting to the \FPGA{}.}{fig:lh3a-threat-uart}
 
 \subsection{Step 4 --- FPGA standalone verification}
 \begin{enumerate}[leftmargin=2em]
@@ -82,7 +87,7 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 \end{enumerate}
 
 \begin{tcolorbox}[infobox={FPGA UART Loopback Test (Optional / Diagnostic)}]
-	\textbf{Optional --- only run this check if your current \texttt{ingest\_top} bitstream explicitly wires a USB-\UART{} loopback path.} The canonical Module~2 build does not guarantee this path, so a non-echo result here does \emph{not} indicate a pipeline fault. If the loopback is present, verify by typing any character in the terminal and confirming it echoes back via the onboard FT2232H bridge. If the loopback is absent, skip this step --- it is not required for the receiver forwarding path to work.
+	\textbf{Optional --- only run this check if your current \texttt{ingest\_top} bitstream explicitly wires a USB-\UART{} loopback path.} The canonical Module~2 build does not guarantee this path, so a non-echo result here does \emph{not} indicate a pipeline fault. If the loopback is present, verify by typing any character in the terminal and confirming it echoes back via the onboard FT2232H bridge. If the loopback is absent, skip this step --- it is not required for the interceptor forwarding path to work.
 \end{tcolorbox}
 
 \newpage
@@ -95,8 +100,8 @@ Document the planned inter-board connections \emph{before} making them. Use the 
 		\toprule
 		\textbf{Signal} & \textbf{From Board} & \textbf{From Pin} & \textbf{To Board} & \textbf{To Pin} \\
 		\midrule
-		UART TX (forwarding) & STM32 Receiver & \texttt{PC4} & Nexys A7 & \texttt{JA[0] (C17)} \\
-		GND & STM32 Receiver & \texttt{GND} & Nexys A7 & \texttt{JA GND (pin 5)} \\
+		UART TX (forwarding) & STM32 Threat (interceptor) & \texttt{PC4} & Nexys A7 & \texttt{JA[0] (C17)} \\
+		GND & STM32 Threat (interceptor) & \texttt{GND} & Nexys A7 & \texttt{JA GND (pin 5)} \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
@@ -118,20 +123,22 @@ Work through every row and mark Pass or Fail. Do not proceed to Lab Handout~3-B 
 		1 & Nexys A7 powers on via USB; Vivado Hardware Manager detects \texttt{xc7a100t\_0}. & $\square$ \\
 		2 & Module~2 bitstream programs; \mbox{DONE} \mbox{LED} illuminates; \mbox{LEDs} show init pattern after reset. & $\square$ \\
 		3 & (Optional) \FPGA{} USB-\UART{} loopback echoes at 115200 baud --- skip if not implemented in current bitstream. & $\square$ \\
-		4 & Beacon~A: debug \UART{} prints transmission lines with incrementing sequence numbers. & $\square$ \\
-		5 & Beacon~B: same verification; unique beacon \mbox{ID}. & $\square$ \\
-		6 & Receiver: debug \UART{} shows both beacon \mbox{ID}s with valid \RSSI{}/\mbox{SNR} and \mbox{CRC}=OK. & $\square$ \\
-		7 & Receiver forwarding frame verified: first byte on \texttt{USART3 TX} is \texttt{0x7E}. & $\square$ \\
-		8 & Wiring table above completed and photographed; no physical connections made yet. & $\square$ \\
+		4 & Target~A: USART2 prints CSV ping-pong lines with incrementing sequence numbers. & $\square$ \\
+		5 & Target~B: USART2 prints \texttt{ACK seq=...} lines matching Target~A's sequence numbers one-for-one. & $\square$ \\
+		6 & Threat: USART2 shows \texttt{RX sender=01 type=0} (DATA) and \texttt{RX sender=02 type=1} (ACK) interleaved, with valid \RSSI{}/\mbox{SNR}. & $\square$ \\
+		7 & Threat: forwarding frame verified, first byte on \texttt{USART3 TX} is \texttt{0x7E}. & $\square$ \\
+		8 & Threat: button-hold produces \texttt{PAUSE -> ID=...} lines on its USART2 and \texttt{"I'm Jammed"} on the targeted Target's USART2. & $\square$ \\
+		9 & Wiring table above completed and photographed; no physical connections made yet. & $\square$ \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] All 8 pre-integration checklist items pass.
-	\item[$\square$] Debug \UART{} output verified for both beacons and the receiver simultaneously.
-	\item[$\square$] Forwarding frame \texttt{0x7E} start delimiter confirmed from receiver \texttt{USART3 TX}.
+	\item[$\square$] All 9 pre-integration checklist items pass.
+	\item[$\square$] Debug \UART{} output verified for Target~A, Target~B, and the Threat simultaneously.
+	\item[$\square$] Forwarding frame \texttt{0x7E} start delimiter confirmed from Threat \texttt{USART3 TX}.
+	\item[$\square$] PAUSE protocol round-trip validated: button held on Threat $\to$ \texttt{"I'm Jammed"} on targeted Target within $\sim$100\,ms.
 	\item[$\square$] \FPGA{} bitstream programs cleanly; Vivado \mbox{ILA} dashboard accessible.
 	\item[$\square$] Wiring plan documented before any connections made.
 \end{itemize}
@@ -139,10 +146,10 @@ Work through every row and mark Pass or Fail. Do not proceed to Lab Handout~3-B 
 \begin{tcolorbox}[deliverable={Lab Handout 3-A Deliverable}]
 	Submit the following before beginning Lab Handout~3-B:
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Signed-off pre-integration checklist (all 8 items checked).
+		\item Signed-off pre-integration checklist (all 9 items checked).
 		\item Photos of the physical setup: each Nucleo board powered and running, Nexys A7 programmed.
-		\item Terminal capture screenshots: Beacon~A debug output (at least 5 lines), Beacon~B debug output (at least 5 lines), receiver debug output showing both beacon \mbox{ID}s.
-		\item Hex capture of at least one complete 43-byte forwarding frame from the receiver \texttt{USART3 TX} (annotated to identify the \texttt{0x7E} start byte, length field, and beacon \mbox{ID}).
+		\item Terminal capture screenshots: Target~A CSV output (at least 5 lines), Target~B ACK output (at least 5 matched lines), Threat debug output showing interleaved DATA/ACK rows plus a button-hold burst of PAUSE lines.
+		\item Hex capture of at least one complete 43-byte forwarding frame from the Threat \texttt{USART3 TX} (annotated to identify the \texttt{0x7E} start byte, length field, Beacon~ID at frame offset~12, and the packed \texttt{Modulation Code} byte at frame offset~16 with bit-field decoding).
 		\item Completed wiring table (photographed or typed).
 	\end{enumerate}
 \end{tcolorbox}

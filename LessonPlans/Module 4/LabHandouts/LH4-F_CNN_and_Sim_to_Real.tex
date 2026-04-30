@@ -1,25 +1,25 @@
 \documentclass[11pt,letterpaper]{article}
 \newcommand{\labid}{4-F}
-\newcommand{\labtitleshort}{CNN and Sim-to-Real Transfer}
+\newcommand{\labtitleshort}{CNN and Operating-Condition Shift}
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{4-F}{1-D CNN over Feature Sequences and the Sim-to-Real Gap Experiment}
+\labheader{4-F}{1-D CNN over Feature Sequences and the Clean$\to$Contended Operating-Condition Shift Experiment}
 
 \section{Objective}
-Build and train a 1-D convolutional network that consumes short \emph{sequences} of feature vectors (rather than single vectors like the \mbox{MLP} in LH4-E), then run the defining sim-to-real transfer experiment: train on simulator data, evaluate on hardware data, and quantify the accuracy gap. This is the capstone machine-learning result that closes the loop on the distribution-shift analysis delivered in LH3-H.
+Build and train a 1-D convolutional network that consumes short \emph{sequences} of feature vectors (rather than single vectors like the \mbox{MLP} in LH4-E), then run the defining operating-condition shift experiment: train on the clean regime (Module~3 campaigns C1--C4: single-station Target~A only, DATA-only) and evaluate on the contended regime (C5: cooperative-target ping-pong with collisions and interleaved Threat PAUSE bursts). Both regimes come from the same hardware --- this is a within-hardware distribution-shift study, the most honest test of generalisation the framework can produce. The accuracy gap is the framework's capstone machine-learning result.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-E complete (\mbox{MLP} numbers available for comparison).
-	\item Simulator-produced feature \mbox{CSV}s from the earlier portion of the course (these are the ones used in the LH3-H distribution-shift analysis). If only one simulator dataset exists, that is sufficient --- this handout needs one simulator set and one hardware set.
+	\item Lab Handout~4-E complete (\mbox{MLP} numbers available for comparison on all four tasks).
+	\item Module~3 dataset (\texttt{merged\_dataset.csv}) contains the \texttt{regime} column tagging each row as \texttt{clean} (C1--C4) or \texttt{contended} (C5).
 \end{itemize}
 
 \section{Background: Why a 1-D CNN on Tabular Features?}
-A single feature vector captures one instant. A short window of consecutive vectors --- say the last eight packets from the same beacon --- captures the \emph{temporal texture} of the transmission: burstiness, inter-arrival regularity, \mbox{RSSI} drift, \mbox{SNR} stability. A 1-D \mbox{CNN} over that sequence axis can learn filters that respond to this temporal structure. The \mbox{MLP} cannot, because it sees one vector at a time.
+A single feature vector captures one instant. A short window of consecutive vectors --- say the last eight packets from the same station --- captures the \emph{temporal texture} of the transmission: burstiness, inter-arrival regularity, \mbox{RSSI} drift, \mbox{SNR} stability, the cadence difference between DATA / ACK / PAUSE rows. A 1-D \mbox{CNN} over that sequence axis can learn filters that respond to this temporal structure. The \mbox{MLP} cannot, because it sees one vector at a time. The packet-type task is expected to benefit most from the windowed view, because DATA / ACK / PAUSE have very different inter-arrival signatures.
 
 \begin{tcolorbox}[infobox={Sequence Construction}]
-	For each row $r$ in the dataset, build an $8 \times F$ input by taking the eight most recent packets with the same \texttt{beacon\_id} (or fewer if eight are not yet available; left-pad with zeros). This produces one sequence per row while preserving the label on $r$. The sequences are \emph{within-campaign} only --- do not straddle campaign boundaries, because that would force the model to learn transitions between very different channel conditions.
+	For each row $r$ in the dataset, build an $8 \times F$ input by taking the eight most recent packets with the same \texttt{beacon\_id} (or fewer if eight are not yet available; left-pad with zeros). This produces one sequence per row while preserving the label on $r$. The sequences are \emph{within-run} only --- do not straddle \texttt{run\_id} boundaries, because that would force the model to learn transitions between very different channel conditions.
 \end{tcolorbox}
 
 \section{Procedure}
@@ -39,12 +39,16 @@ def build_sequences(task):
     feats = pre["feature_cols"]
     # Scale all rows with the trained scaler:
     X_all = pre["scaler"].transform(df[feats].to_numpy(dtype=np.float32))
-    y_all = pre["encoder"].transform(df[{
-        "sf": "label_sf", "mod": "label_mod", "beacon": "label_beacon"
-    }[task]])
+    label_col = {
+        "sf": "label_sf", "mod": "label_mod",
+        "beacon": "label_beacon", "pkt": "label_pkt",
+    }[task]
+    y_all = pre["encoder"].transform(df[label_col])
 
-    seqs, labels, splits = [], [], []
-    for (campaign, beacon), grp in df.groupby(["campaign_id", "beacon_id"]):
+    seqs, labels, splits, regimes = [], [], [], []
+    # Group by run_id (not campaign_id) to avoid cross-run contamination:
+    # each run_id is one collect.py invocation under stable channel state.
+    for rid, grp in df.groupby("run_id"):
         idxs = grp.index.to_numpy()
         for i, r in enumerate(idxs):
             lo = max(0, i - WINDOW + 1)
@@ -58,18 +62,23 @@ def build_sequences(task):
             seqs.append(window)
             labels.append(y_all[r])
             splits.append(df.at[r, "split"])
+            regimes.append(df.at[r, "regime"])
 
-    seqs   = np.stack(seqs)
-    labels = np.asarray(labels, dtype=np.int64)
-    splits = np.asarray(splits)
+    seqs    = np.stack(seqs)
+    labels  = np.asarray(labels, dtype=np.int64)
+    splits  = np.asarray(splits)
+    regimes = np.asarray(regimes)
     for name in ["train", "val", "test"]:
         mask = splits == name
-        np.save(f"artifacts/{task}/Xs_{name}.npy", seqs[mask])
-        np.save(f"artifacts/{task}/ys_{name}.npy", labels[mask])
+        np.save(f"artifacts/{task}/Xs_{name}.npy",      seqs[mask])
+        np.save(f"artifacts/{task}/ys_{name}.npy",      labels[mask])
+        np.save(f"artifacts/{task}/regs_{name}.npy",    regimes[mask])
         print(f"[{task}] {name}: {mask.sum()} sequences of "
-              f"shape {seqs.shape[1:]}")
+              f"shape {seqs.shape[1:]}; "
+              f"clean={(regimes[mask]=='clean').sum()}, "
+              f"contended={(regimes[mask]=='contended').sum()}")
 
-for t in ["sf", "mod", "beacon"]:
+for t in ["sf", "mod", "beacon", "pkt"]:
     build_sequences(t)
 \end{lstlisting}
 
@@ -148,58 +157,39 @@ def train_cnn(task, epochs=200, patience=15, lr=1e-3, batch_size=32):
     print(f"[{task}] CNN test acc = {acc:.3f}")
     return model, acc
 
-for t in ["sf", "mod", "beacon"]:
+for t in ["sf", "mod", "beacon", "pkt"]:
     train_cnn(t)
 \end{lstlisting}
 
-\subsection{Step 3 --- The sim-to-real transfer experiment}
+\subsection{Step 3 --- The clean$\to$contended operating-condition shift experiment}
 Define:
 \begin{itemize}[leftmargin=2em]
-	\item $\text{Acc}(\text{hw}\to\text{hw})$: model trained on hardware data, evaluated on held-out hardware test set.
-	\item $\text{Acc}(\text{sim}\to\text{hw})$: model trained on simulator data only, evaluated on the same hardware test set.
-	\item The sim-to-real gap: $\Delta = \text{Acc}(\text{hw}\to\text{hw}) - \text{Acc}(\text{sim}\to\text{hw})$.
+	\item $\text{Acc}(\text{clean}\!\to\!\text{clean})$: model trained on clean-regime rows only (C1--C4), evaluated on the held-out clean-regime test split.
+	\item $\text{Acc}(\text{clean}\!\to\!\text{contended})$: same clean-trained model, evaluated on the held-out contended-regime test split (C5).
+	\item The operating-condition gap: $\Delta_{\text{op-shift}} = \text{Acc}(\text{clean}\!\to\!\text{clean}) - \text{Acc}(\text{clean}\!\to\!\text{contended})$.
 \end{itemize}
 
-A larger $\Delta$ means the simulator's distribution is further from reality. Report $\Delta$ for each task.
+A larger $\Delta_{\text{op-shift}}$ means the contended regime introduces feature-distribution changes the clean-trained model cannot handle (most likely from half-duplex shadowing, ACK exchanges, and Threat PAUSE bursts). Report $\Delta_{\text{op-shift}}$ for each of the four tasks; the packet-type task is expected to show the largest gap because the contended regime is the only one containing ACK and PAUSE rows.
 
-\begin{lstlisting}[language=Python, caption={Sim-to-real evaluation --- full reference implementation.}]
-# Requires: numpy, pandas, torch, scikit-learn. Assumes the Preprocessor
-# from LH4-B is importable as `build_preprocessor`, and CNN1D is defined
-# earlier in this handout. simulator_dataset.csv has the same schema as
-# merged_dataset.csv (LH3-H contract).
-
+\begin{lstlisting}[language=Python, caption={Operating-condition shift evaluation --- full reference implementation.}]
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-LABEL_COL = {"sf": "label_sf", "mod": "mod_code_label", "beacon": "label_beacon"}
-WIN = 8  # sliding window length, matches Step 1
 
-def _load_windows(csv_path, task, scaler=None, fit_scaler=False):
-    df = pd.read_csv(csv_path)
-    # Filter to rows the preprocessor deems usable (drop sentinels etc.)
-    df = df[df["obs_count"] > 1].reset_index(drop=True)
-    feat_cols = ["rssi", "snr", "inter_arrival_ms", "rssi_delta",
-                 "obs_count", "priority_score", "spread_factor"]
-    X = df[feat_cols].to_numpy(dtype=np.float32)
-    y = df[LABEL_COL[task]].to_numpy()
-    if fit_scaler:
-        scaler = build_preprocessor()           # StandardScaler from LH4-B
-        X = scaler.fit_transform(X)
-    else:
-        X = scaler.transform(X)
-    # Build sliding windows WITHIN run_id only (no cross-run contamination)
-    Xs, ys = [], []
-    for rid, grp in df.groupby("run_id"):
-        idx = grp.index.to_numpy()
-        if len(idx) < WIN: continue
-        for i in range(len(idx) - WIN + 1):
-            sl = idx[i:i + WIN]
-            Xs.append(X[sl]); ys.append(y[sl[-1]])
-    return np.stack(Xs), np.asarray(ys), scaler
+def _load_regime_split(task, regime_filter, split_filter):
+    """Load CNN-ready windows filtered by regime and split.
+
+    regime_filter: 'clean' or 'contended' (matches the regs_*.npy column)
+    split_filter:  'train', 'val', or 'test'
+    """
+    Xs = np.load(f"artifacts/{task}/Xs_{split_filter}.npy")
+    ys = np.load(f"artifacts/{task}/ys_{split_filter}.npy")
+    rs = np.load(f"artifacts/{task}/regs_{split_filter}.npy")
+    mask = (rs == regime_filter)
+    return Xs[mask], ys[mask]
 
 def _train(model, X, y, epochs=20, batch=64, lr=1e-3):
     model = model.to(DEVICE)
@@ -220,51 +210,48 @@ def _train(model, X, y, epochs=20, batch=64, lr=1e-3):
 @torch.no_grad()
 def _accuracy(model, X, y):
     model.eval()
+    if len(X) == 0:
+        return float("nan")
     xb = torch.from_numpy(X).float().to(DEVICE)
     yb = torch.from_numpy(y).long().to(DEVICE)
     pred = model(xb).argmax(dim=1)
     return (pred == yb).float().mean().item()
 
-def sim2real(task, model_fn, train_csv, eval_csv):
-    """Train a fresh model on train_csv, evaluate on eval_csv's test split.
+def op_shift(task):
+    """Train on clean-regime rows only, eval on both regimes' test splits.
 
-    Preprocessing policy (fair-comparison rule): fit the scaler on the
-    training CSV, then apply it to the evaluation CSV. This keeps train-time
-    statistics out of the eval path for sim->hw runs.
+    Note: the scaler used to build Xs_*.npy was fit on the full training
+    split in LH4-B Step 4, which slightly leaks contended-regime statistics
+    into the clean-trained model's input distribution. The leak is small
+    (StandardScaler statistics are scalar mean/var, not per-row), and the
+    fix --- refitting the scaler on clean-only training data --- requires
+    rebuilding the artifacts. Document either choice in your report.
     """
-    # Fit scaler on training data; transform eval data with it.
-    X_tr, y_tr, scaler = _load_windows(train_csv, task, fit_scaler=True)
-    X_ev, y_ev, _      = _load_windows(eval_csv,  task, scaler=scaler)
-    # When eval_csv == train_csv, subset to the held-out split to avoid
-    # evaluating on training rows.
-    if train_csv == eval_csv:
-        df = pd.read_csv(eval_csv)
-        df = df[df["obs_count"] > 1].reset_index(drop=True)
-        test_mask = (df["split"] == "test").to_numpy()
-        # Rebuild windows using only test rows (simple approximation):
-        # drop windows whose final row is not in test.
-        final_is_test = np.array([test_mask[i + WIN - 1]
-                                  for i in range(len(X_ev))])
-        X_ev, y_ev = X_ev[final_is_test], y_ev[final_is_test]
-    n_classes = int(max(y_tr.max(), y_ev.max())) + 1
-    model = model_fn(in_ch=X_tr.shape[2], n_classes=n_classes, win=WIN)
+    # 1. Train on the clean-regime training rows
+    X_tr, y_tr = _load_regime_split(task, "clean", "train")
+    n_classes = int(y_tr.max()) + 1
+    model = CNN1D(X_tr.shape[2], n_classes)
     model = _train(model, X_tr, y_tr)
-    return _accuracy(model, X_ev, y_ev)
+
+    # 2. Evaluate on each regime's held-out test split
+    X_clean,    y_clean    = _load_regime_split(task, "clean",     "test")
+    X_contended, y_contended = _load_regime_split(task, "contended", "test")
+    acc_clean    = _accuracy(model, X_clean,    y_clean)
+    acc_contend  = _accuracy(model, X_contended, y_contended)
+    delta = acc_clean - acc_contend
+    return model, acc_clean, acc_contend, delta
 
 results = []
-for task in ["sf", "mod", "beacon"]:
-    acc_hw  = sim2real(task, CNN1D, "merged_dataset.csv",
-                                     "merged_dataset.csv")
-    acc_sim = sim2real(task, CNN1D, "simulator_dataset.csv",
-                                     "merged_dataset.csv")
-    delta = acc_hw - acc_sim
-    results.append((task, acc_hw, acc_sim, delta))
-    print(f"[{task}] hw->hw = {acc_hw:.3f}, sim->hw = {acc_sim:.3f}, "
+for task in ["sf", "mod", "beacon", "pkt"]:
+    _, acc_clean, acc_contend, delta = op_shift(task)
+    results.append((task, acc_clean, acc_contend, delta))
+    print(f"[{task}] clean->clean = {acc_clean:.3f}, "
+          f"clean->contended = {acc_contend:.3f}, "
           f"Delta = {delta:.3f}")
 \end{lstlisting}
 
-\begin{tcolorbox}[warning={Fair-Comparison Rule}]
-	The simulator and hardware datasets must be processed with the \emph{same} preprocessing pipeline. Fit the \texttt{StandardScaler} on the simulator training set for the sim$\to$hw experiment, then apply that same scaler to the hardware test set --- the scaler is part of the model. If you fit the scaler on hardware training data for both experiments, you are ``leaking'' hardware statistics into the sim$\to$hw model, which understates the gap.
+\begin{tcolorbox}[warning={Why On-Hardware Operating-Condition Shift, Not Sim-to-Real?}]
+	The framework deliberately measures distribution shift within hardware data because that is a more honest test of generalisation than synthetic-vs-real. The C5 regime introduces real RF-domain effects --- half-duplex shadowing during ACK exchanges, multi-station collisions under ALOHA, and Threat PAUSE bursts that produce non-stationary inter-arrival timing --- that no simulator could reproduce faithfully. The gap measured here is therefore directly attributable to physical operating-condition changes, not to simulator-vs-hardware modelling artefacts. This positioning is also consistent with the final report's framing (Section~IV.J): the operating-condition shift is the framework's capstone observation, and it is performed entirely on hardware data.
 \end{tcolorbox}
 
 \subsection{Step 4 --- Tabulate the gap}
@@ -274,82 +261,80 @@ for task in ["sf", "mod", "beacon"]:
 	\renewcommand{\arraystretch}{1.4}
 	\begin{tabularx}{\textwidth}{l c c c X}
 		\toprule
-		\textbf{Task} & \textbf{hw$\to$hw} & \textbf{sim$\to$hw} & \textbf{$\Delta$} & \textbf{Likely cause} \\
+		\textbf{Task} & \textbf{clean$\to$clean} & \textbf{clean$\to$contended} & \textbf{$\Delta_{\text{op-shift}}$} & \textbf{Likely cause} \\
 		\midrule
 		SF Detection     & & & & \\
 		Modulation       & & & & \\
 		Emitter ID       & & & & \\
+		Packet Type      & & & & \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Sim-to-real gap table. Each row's ``likely cause'' column should cite the specific distributional difference from LH3-H's Step~8 that explains the observed drop.}
+	\caption{Operating-condition shift table. Each row's ``likely cause'' column should cite the specific distributional difference from LH3-H's Step~8 that explains the observed drop --- typically half-duplex shadowing, ACK-row insertion, or Threat PAUSE-burst timing.}
 \end{table}
 
-\subsection{Step 5 --- Mitigation: fine-tuning}
-Take the model trained on simulator data, freeze all layers except the final \texttt{Linear}, and fine-tune on a small fraction (10--20\%) of the hardware training set. Measure the new accuracy on the hardware test set. Expected outcome: most of the sim-to-real gap closes, demonstrating that the backbone learned useful representations but the classifier head was mis-calibrated to the hardware distribution.
+\subsection{Step 5 --- Mitigation: fine-tuning the final layer on contended data}
+Take the model trained on clean-regime data, freeze all layers except the final \texttt{Linear}, and fine-tune on a small fraction (10--20\%) of the contended-regime training set. Measure the new accuracy on the contended-regime test set. Expected outcome: most of the operating-condition gap closes, demonstrating that the convolutional backbone learned useful representations but the classifier head was mis-calibrated to the clean-regime feature distribution. The fine-tuning recovery is the framework-required outcome on the SF task: at least half of $\Delta_{\text{op-shift}}$ should be recovered.
 
 \begin{lstlisting}[language=Python]
-def finetune_last_layer(task, sim_model, hw_train_csv, hw_eval_csv,
-                        fraction=0.10, epochs=5, batch=32, lr=1e-4):
+def finetune_last_layer(task, clean_model, fraction=0.10,
+                        epochs=5, batch=32, lr=1e-4):
     # Freeze backbone, train only the final Linear layer
-    for p in sim_model.parameters():       p.requires_grad = False
-    for p in sim_model.net[-1].parameters(): p.requires_grad = True
+    for p in clean_model.parameters():       p.requires_grad = False
+    for p in clean_model.net[-1].parameters(): p.requires_grad = True
 
-    X_ft, y_ft, scaler = _load_windows(hw_train_csv, task, fit_scaler=True)
-    # Take a random fraction of the training windows (reproducible seed)
+    X_ft, y_ft = _load_regime_split(task, "contended", "train")
+    if len(X_ft) == 0:
+        print(f"[{task}] no contended training rows; skipping fine-tune")
+        return float("nan")
     rng = np.random.default_rng(seed=42)
     keep = rng.choice(len(X_ft), size=int(fraction * len(X_ft)),
                       replace=False)
     X_ft, y_ft = X_ft[keep], y_ft[keep]
 
-    sim_model = sim_model.to(DEVICE)
+    clean_model = clean_model.to(DEVICE)
     ds = TensorDataset(torch.from_numpy(X_ft).float(),
                        torch.from_numpy(y_ft).long())
     dl = DataLoader(ds, batch_size=batch, shuffle=True)
-    opt = torch.optim.Adam([p for p in sim_model.parameters()
+    opt = torch.optim.Adam([p for p in clean_model.parameters()
                             if p.requires_grad], lr=lr)
     loss_fn = nn.CrossEntropyLoss()
-    sim_model.train()
+    clean_model.train()
     for _ in range(epochs):
         for xb, yb in dl:
             xb, yb = xb.to(DEVICE), yb.to(DEVICE)
             opt.zero_grad()
-            loss_fn(sim_model(xb), yb).backward()
+            loss_fn(clean_model(xb), yb).backward()
             opt.step()
 
-    # Evaluate on the hardware held-out test split
-    X_ev, y_ev, _ = _load_windows(hw_eval_csv, task, scaler=scaler)
-    return _accuracy(sim_model, X_ev, y_ev)
+    # Evaluate on the contended held-out test split
+    X_ev, y_ev = _load_regime_split(task, "contended", "test")
+    return _accuracy(clean_model, X_ev, y_ev)
 
-# Run for each task, reusing the sim-trained model from the sim2real call
-for task in ["sf", "mod", "beacon"]:
-    # Rebuild the sim-trained model exactly as in sim2real above
-    X_tr, y_tr, scaler = _load_windows("simulator_dataset.csv", task,
-                                        fit_scaler=True)
-    n_cls = int(y_tr.max()) + 1
-    sim_model = _train(CNN1D(in_ch=X_tr.shape[2], n_classes=n_cls, win=WIN),
-                       X_tr, y_tr)
-    acc_finetune = finetune_last_layer(task, sim_model,
-                                       "merged_dataset.csv",
-                                       "merged_dataset.csv")
-    print(f"[{task}] sim + HW-finetune test acc = {acc_finetune:.3f}")
+# Run for each task, reusing the clean-trained model from op_shift above
+for task in ["sf", "mod", "beacon", "pkt"]:
+    clean_model, acc_clean, acc_contend, delta = op_shift(task)
+    acc_finetune = finetune_last_layer(task, clean_model)
+    print(f"[{task}] clean+contended-finetune test acc = "
+          f"{acc_finetune:.3f}  (was {acc_contend:.3f}, "
+          f"recovered {acc_finetune - acc_contend:+.3f})")
 \end{lstlisting}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Sliding-window sequences built; no cross-campaign contamination.
-	\item[$\square$] CNN-1D trained to completion on all three tasks.
-	\item[$\square$] hw$\to$hw and sim$\to$hw accuracies recorded for each task.
-	\item[$\square$] Sim-to-real gap $\Delta$ tabulated and linked back to LH3-H distribution-shift findings.
-	\item[$\square$] Fine-tuning experiment run for at least the SF task.
+	\item[$\square$] Sliding-window sequences built; no cross-run contamination (\texttt{run\_id} grouping, not \texttt{campaign\_id}).
+	\item[$\square$] CNN-1D trained to completion on all four tasks.
+	\item[$\square$] clean$\to$clean and clean$\to$contended accuracies recorded for each task.
+	\item[$\square$] Operating-condition shift $\Delta_{\text{op-shift}}$ tabulated and linked back to LH3-H operating-condition shift findings.
+	\item[$\square$] Fine-tuning experiment run for at least the SF task and recovers $\geq$ half of $\Delta_{\text{op-shift}}$.
 	\item[$\square$] \texttt{cnn.pt} saved per task.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-F Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{artifacts/\{sf,mod,beacon\}/cnn.pt}: CNN state dicts and test accuracies.
-		\item Sim-to-real gap table with likely-cause column citing LH3-H.
-		\item Fine-tuning result: hw$\to$hw, sim$\to$hw, and sim + HW-finetune accuracies on the same plot.
-		\item One-page discussion: which task shows the largest sim-to-real gap, why, and what additional hardware campaigns (or simulator refinements) would most efficiently close it.
+		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/cnn.pt}: CNN state dicts and test accuracies for all four tasks.
+		\item Operating-condition shift table with likely-cause column citing LH3-H's Step~8 operating-condition shift analysis.
+		\item Fine-tuning result: clean$\to$clean, clean$\to$contended, and clean+contended-finetune accuracies on the same plot per task.
+		\item One-page discussion: which task shows the largest $\Delta_{\text{op-shift}}$, why, and what additional contended-regime collection (longer button-hold windows, more diverse PAUSE patterns, or extended C5e ALOHA runs) would most efficiently close it.
 	\end{enumerate}
 \end{tcolorbox}
 

@@ -1,0 +1,23 @@
+timestamp,port,line
+2026-04-29T20:13:38.987,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:38.991,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:39.985,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:39.989,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:40.983,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:40.987,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:41.981,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:41.985,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:42.979,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:42.983,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:43.977,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:43.981,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:44.399,COM4,no PAUSE target available
+2026-04-29T20:13:44.975,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:44.979,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:45.397,COM4,no PAUSE target available
+2026-04-29T20:13:45.973,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:45.977,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:46.972,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:46.975,COM4,# target: none (no fresh observations)
+2026-04-29T20:13:47.970,COM4,# stats: rx=0 dropped=0
+2026-04-29T20:13:47.973,COM4,# target: none (no fresh observations)

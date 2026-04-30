@@ -17,7 +17,7 @@ Implement the host-side Python data collection script that receives feature vect
 \end{itemize}
 
 \section{Feature Export Frame Format}
-The \FPGA{} exports each validated feature vector over the Nexys A7's \mbox{USB-UART} (115200\,8N1) using the 35-byte frame defined in Module~2 Week~3:
+The \FPGA{} exports each validated feature vector over the Nexys A7's \mbox{USB-UART} (115200\,8N1) using the 35-byte frame defined in Session~7:
 
 \begin{table}[h!]
 	\centering
@@ -26,8 +26,8 @@ The \FPGA{} exports each validated feature vector over the Nexys A7's \mbox{USB-
 		\toprule
 		\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 		\midrule
-		Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from \texttt{0x7E} receiver delimiter) \\
-		Feature Vector & 1 & 32\,B & Complete 32-byte feature vector (Module~2 Table~5 format) \\
+		Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from \texttt{0x7E} interceptor forwarding-frame delimiter) \\
+		Feature Vector & 1 & 32\,B & Complete 32-byte feature vector (Module~2 \texttt{tab:feature\_vector} format, including \texttt{pkt\_type} at offset~3 and PAUSE-only fields at offsets~28--29) \\
 		\mbox{CRC}-8 & 33 & 1\,B & \mbox{CRC}-8 over bytes 1--32 (transport integrity) \\
 		End Marker & 34 & 1\,B & \texttt{0xFF} \\
 		\bottomrule
@@ -47,11 +47,12 @@ Each campaign run is described by a JSON configuration file that the collection 
     "sweep_value":    2,
     "fixed_sf":       7,
     "fixed_mod":      "lora",
-    "fixed_mod_code": 1,
+    "fixed_mod_kind": 1,
     "fixed_distance_m": 3.0,
-    "num_beacons":    1,
+    "num_active_stations": 1,
+    "expected_pkt_types": [0],
     "target_packets": 200,
-    "notes":          "TX power sweep, first level (+2 dBm)"
+    "notes":          "TX power sweep, Target~A only (DATA only)"
 }
 \end{lstlisting}
 
@@ -59,8 +60,10 @@ Each campaign run is described by a JSON configuration file that the collection 
 \texttt{campaign\_id} identifies the campaign \emph{family} (C1, C2, \dots, C5). \texttt{run\_id} identifies one specific collection execution (a single invocation of \texttt{collect.py} at one sweep step, with an ISO-8601 timestamp to ensure uniqueness across reruns). Every row written to \mbox{CSV} must carry both. Downstream scripts (LH3-H merge, LH4-A/G splits) key uniqueness and split-leakage checks on \texttt{run\_id}, not on \texttt{campaign\_id}. Subcampaign labels (e.g.\ C5a/C5b/C5c in LH3-G) live in \texttt{campaign\_id}; a subcampaign can contain multiple \texttt{run\_id}s.
 \end{tcolorbox}
 
-\begin{tcolorbox}[infobox={Modulation-Code Canonical Mapping}]
-\texttt{fixed\_mod\_code} uses the Module~1/Module~2 canonical integer codes: \textbf{1=LoRa, 2=FSK, 3=OOK}. Store this integer directly in the \mbox{CSV} as \texttt{mod\_code\_label} so that Module~4 ingest does not need a string-to-int conversion table. The self-reported \texttt{mod\_code} feature vector byte uses the same mapping. Do \emph{not} introduce a 0/1 alias.
+\begin{tcolorbox}[infobox={Modulation-Kind and Packet-Type Canonical Mappings}]
+\texttt{fixed\_mod\_kind} uses the Module~1/Module~2 canonical integer codes: \textbf{1=LoRa, 2=FSK, 3=OOK}. Store this integer directly in the \mbox{CSV} as \texttt{mod\_kind\_label} so that Module~4 ingest does not need a string-to-int conversion table. The feature vector's \texttt{mod\_kind} field at offset~1 uses the same mapping with the low 2 bits cleared (the LH2-F extractor already does this). Do \emph{not} introduce a 0/1 alias.
+
+The packet-type field uses \textbf{0=DATA, 1=ACK, 2=PAUSE}. The \texttt{expected\_pkt\_types} list in the JSON tells the script which \texttt{pkt\_type} values are valid for this run; rows with a \texttt{pkt\_type} outside the list are flagged as cross-domain anomalies (e.g.\ a stray PAUSE captured during a clean Target~A-only sweep) but still recorded.
 \end{tcolorbox}
 
 Create one JSON file per sweep step. For Campaign~C1 (four TX power levels) you will have four files: \texttt{campaign\_c1\_txpwr\_2.json}, \texttt{campaign\_c1\_txpwr\_8.json}, \texttt{campaign\_c1\_txpwr\_14.json}, and \texttt{campaign\_c1\_txpwr\_20.json}.
@@ -92,20 +95,22 @@ def crc8(data, poly=0x07, init=0x00):
     return crc
 
 def parse_feature_vector(raw32):
-    """Unpack the 32-byte feature vector into a dict (Module 2 Table 5)."""
+    """Unpack the 32-byte feature vector into a dict (Module 2 tab:feature_vector)."""
     return {
-        "beacon_id":        raw32[0],
-        "mod_code":         raw32[1],
-        "spread_factor":    raw32[2],
-        # byte 3 reserved
-        "rssi":             int.from_bytes(raw32[4:6], "big", signed=True),
-        "snr":              int.from_bytes(raw32[6:8], "big", signed=True),
-        "obs_count":        int.from_bytes(raw32[8:12], "big"),
-        "rx_timestamp":     int.from_bytes(raw32[12:16], "big"),
-        "inter_arrival_ms": int.from_bytes(raw32[16:20], "big"),
-        "rssi_delta":       int.from_bytes(raw32[20:24], "big", signed=True),
-        "priority_score":   int.from_bytes(raw32[24:28], "big"),
-        # bytes 28-31 reserved
+        "beacon_id":             raw32[0],
+        "mod_kind":              raw32[1],   # upper 6 bits of Mod Code, low 2 cleared
+        "spread_factor":         raw32[2],
+        "pkt_type":              raw32[3],   # 0=DATA, 1=ACK, 2=PAUSE
+        "rssi":                  int.from_bytes(raw32[4:6], "big", signed=True),
+        "snr":                   int.from_bytes(raw32[6:8], "big", signed=True),
+        "obs_count":             int.from_bytes(raw32[8:12], "big"),
+        "rx_timestamp":          int.from_bytes(raw32[12:16], "big"),
+        "inter_arrival_ms":      int.from_bytes(raw32[16:20], "big"),
+        "rssi_delta":            int.from_bytes(raw32[20:24], "big", signed=True),
+        "priority_score":        int.from_bytes(raw32[24:28], "big"),
+        "target_id_if_pause":    raw32[28],  # valid only when pkt_type == 2
+        "pause_duration_units":  raw32[29],  # valid only when pkt_type == 2
+        # bytes 30-31 reserved
     }
 
 def collect(port, config_path, out_csv):
@@ -140,6 +145,10 @@ def collect(port, config_path, out_csv):
             if fv["spread_factor"] != cfg["fixed_sf"]:
                 print(f"  [WARN] SF mismatch: reported {fv['spread_factor']}, "
                       f"config {cfg['fixed_sf']}")
+            # Packet-type sanity: did we get a pkt_type the campaign expected?
+            if fv["pkt_type"] not in cfg.get("expected_pkt_types", [0,1,2]):
+                print(f"  [WARN] unexpected pkt_type={fv['pkt_type']} "
+                      f"(campaign expected {cfg.get('expected_pkt_types')})")
             row = {**fv,
                    "campaign_id":       cfg["campaign_id"],
                    "run_id":            cfg["run_id"],
@@ -147,8 +156,9 @@ def collect(port, config_path, out_csv):
                    "distance_m":        cfg["fixed_distance_m"],
                    "label_sf":          cfg["fixed_sf"],
                    "label_mod":         cfg["fixed_mod"],
-                   "mod_code_label":    cfg["fixed_mod_code"],
+                   "mod_kind_label":    cfg["fixed_mod_kind"],
                    "label_beacon":      fv["beacon_id"],
+                   "label_pkt":         fv["pkt_type"],
                    }
             writer.writerow(row)
             received += 1
@@ -158,11 +168,12 @@ def collect(port, config_path, out_csv):
 
 CSV_COLUMNS = [
     "campaign_id", "run_id", "timestamp_host",
-    "beacon_id", "mod_code", "spread_factor",
+    "beacon_id", "mod_kind", "spread_factor", "pkt_type",
     "rssi", "snr", "obs_count", "rx_timestamp",
     "inter_arrival_ms", "rssi_delta", "priority_score",
-    "distance_m", "label_sf", "label_mod", "mod_code_label",
-    "label_beacon",
+    "target_id_if_pause", "pause_duration_units",
+    "distance_m", "label_sf", "label_mod", "mod_kind_label",
+    "label_beacon", "label_pkt",
 ]
 
 if __name__ == "__main__":
@@ -173,25 +184,25 @@ if __name__ == "__main__":
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={Label Integrity}]
-	The \texttt{label\_*} columns are derived from the campaign configuration (what you set the beacon to), \emph{not} from the feature vector fields (what the beacon self-reports). The self-reported fields (\texttt{spread\_factor}, \texttt{mod\_code}) are also recorded for cross-checking. When they disagree, the script logs a warning but keeps the record --- a disagreement indicates a firmware configuration error that is itself informative. Never discard mismatched records silently.
+	The \texttt{label\_*} columns are derived from the campaign configuration (what you set the originating station to), \emph{not} from the feature vector fields (what the station self-reports). The self-reported fields (\texttt{spread\_factor}, \texttt{mod\_kind}, \texttt{pkt\_type}) are also recorded for cross-checking. When they disagree, the script logs a warning but keeps the record --- a disagreement indicates a firmware configuration error that is itself informative. Never discard mismatched records silently. Note that \texttt{label\_pkt} is set from the feature vector's \texttt{pkt\_type} (the canonical authority for this label) rather than from the campaign config, because a single C5 run can produce DATA, ACK, and PAUSE rows whose ground-truth packet type can only be known after the row is captured.
 \end{tcolorbox}
 
 \subsection{Step 3 --- Dry run (10-packet validation)}
 \begin{enumerate}[leftmargin=2em]
-	\item Configure Beacon~A to SF7, +14~dBm, 2-second interval.
-	\item Create a test config \texttt{dry\_run.json} with \texttt{target\_packets: 10}.
+	\item Configure Target~A to SF7, +14~dBm, 2-second initiator interval. Target~B off (no ACK responder), Threat button not held.
+	\item Create a test config \texttt{dry\_run.json} with \texttt{target\_packets: 10} and \texttt{expected\_pkt\_types: [0]} (DATA only).
 	\item Run: \texttt{python collect.py COM3 dry\_run.json dry\_run.csv} (substitute your actual COM port).
-	\item Open \texttt{dry\_run.csv} and verify: 10 rows, correct column names, \texttt{beacon\_id = 0x01} (or your configured ID), \texttt{spread\_factor = 7}, no \mbox{CRC} warnings in the terminal output.
+	\item Open \texttt{dry\_run.csv} and verify: 10 rows, correct column names, \texttt{beacon\_id = 0x01}, \texttt{spread\_factor = 7}, \texttt{pkt\_type = 0} on every row, \texttt{target\_id\_if\_pause = 0} and \texttt{pause\_duration\_units = 0} on every row, no \mbox{CRC} warnings in the terminal output.
 	\item If the script hangs at startup, the \FPGA{} export path is not running. Program the production bitstream and confirm the Nexys A7 \mbox{USB-UART} port is enumerating on the host PC.
 \end{enumerate}
 
 \newpage
 \subsection{Step 4 --- Campaign C1: TX power sweep}
 \begin{enumerate}[leftmargin=2em]
-	\item Configure Beacon~A: SF7, LoRa, 3~m from the receiver, 2-second fixed interval. Beacon~B powered off.
+	\item Configure Target~A: SF7, LoRa, 3~m from the interceptor (Threat) antenna, 2-second fixed initiator interval. Target~B off, Threat button not held. C1 produces DATA-only rows from Beacon~ID \texttt{0x01}.
 	\item Iterate through the four TX power levels: +2, +8, +14, +20~dBm. For each level:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Update the TX power in the beacon firmware and reflash. Confirm the debug \UART{} shows the new power level.
+		\item Update the TX power in Target~A's firmware and reflash. Confirm the USART2 debug shows the new power level.
 		\item Run \texttt{collect.py} with the appropriate config JSON. Collect 200 packets.
 		\item Wait for the script to report ``Done.'' Do not interrupt mid-run.
 	\end{itemize}
@@ -214,10 +225,10 @@ print(df.groupby("campaign_id")["rssi"].agg(["mean","std","min","max"]))
 
 \subsection{Step 6 --- Campaign C2: Spreading factor sweep}
 \begin{enumerate}[leftmargin=2em]
-	\item Keep Beacon~A at +14~dBm, LoRa, 3~m. Fix the transmission interval at 2 seconds (independent of SF --- the beacon will miss some interval ticks at high SF due to long on-air time, which is expected).
+	\item Keep Target~A at +14~dBm, LoRa, 3~m. Fix the initiator interval at 2 seconds (independent of SF --- Target~A will miss some interval ticks at high SF due to long on-air time, which is expected). Target~B and Threat button remain inactive.
 	\item Iterate through SF7, SF8, SF9, SF10, SF11, SF12. For each SF:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Reflash the beacon firmware with the new spreading factor.
+		\item Reflash Target~A's firmware with the new spreading factor.
 		\item Run \texttt{collect.py} with the corresponding config JSON. Collect 200 packets.
 	\end{itemize}
 	\item At SF12, each packet takes $\approx$1.5 seconds on-air. The 2-second interval will produce packets at roughly 0.5--0.67~fps. Collecting 200 packets at SF12 takes approximately 5--7 minutes.

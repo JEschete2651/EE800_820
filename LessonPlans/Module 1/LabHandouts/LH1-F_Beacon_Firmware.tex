@@ -1,21 +1,32 @@
 \documentclass[11pt,letterpaper]{article}
 \newcommand{\labid}{1-F}
-\newcommand{\labtitleshort}{Beacon Firmware}
+\newcommand{\labtitleshort}{Cooperative Target Firmware}
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{1-F}{Beacon Firmware: State Machine and Multi-Beacon Operation}
+\labheader{1-F}{Cooperative Target Firmware: Bidirectional FSM with PAUSE Listener}
 
 \section{Objective}
-Implement production-quality beacon firmware on an STM32+RFM95W node following the Module~1 \FSM{} specification (INIT $\to$ CONFIG $\to$ IDLE $\to$ BUILD $\to$ TX $\to$ LOG). Then validate two beacons operating concurrently on the same 915\,MHz channel using non-colliding transmission schedules.
+Promote the Lab Handout~1-D ping-pong skeleton into production-quality cooperative-target firmware. Both Target~A and Target~B run the same \FSM{} skeleton (\texttt{INIT}$\to$\texttt{CONFIG}$\to$\texttt{IDLE} \\ $\to$\texttt{BUILD}$\to$\texttt{TX}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG}$\to$\texttt{IDLE}) with role-specific branches (Target~A initiates DATA on a 1\,s schedule and waits for ACKs; Target~B is normally in \texttt{RX\_LISTEN} and traverses \texttt{BUILD\_ACK}$\to$\texttt{TX\_ACK} on every successful DATA reception). Both firmwares add a shared \texttt{PAUSED} branch entered from any state on receipt of a PAUSE packet from the interceptor (Threat) addressed to the target's own Beacon~ID; while paused, the firmware skips its scheduled DATA transmissions and prints \texttt{"I'm Jammed"} on USART2 once per pause-entry. Validate two-target ping-pong over a 5-minute run and validate the PAUSE behavioral response with the Threat firmware from Lab Handout~1-G.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~1-A, 1-B, 1-C, 1-D complete.
-	\item Two fully working nodes from Lab Handout~1-D (one will be adapted as Beacon~A, the other as Beacon~B; a third node will act as receiver during validation, or you may reuse the LH1-D Node~B firmware as the monitor).
+	\item Target~A and Target~B from LH1-D running ping-pong successfully ($\geq$95\% ACK rate at 1\,m).
+	\item Lab Handout~1-G (interceptor / Threat firmware) is required for the PAUSE behavioral validation in Step~7. If LH1-G is not yet complete, finish LH1-G first; the two handouts are co-validated.
 \end{itemize}
 
-\section{Beacon Packet Format}
+\begin{tcolorbox}[warning={LH1-F, LH1-G, and LH1-H are tightly interconnected --- read this first}]
+The three Module~1 firmware/integration handouts cannot be \emph{fully} completed in isolation. Plan to work through all three in alternation; expect to revisit each as the others come online.
+\begin{itemize}[leftmargin=1.2em]
+	\item \textbf{LH1-F (this handout)} produces the cooperative-target firmware for two boards and the DATA/ACK ping-pong traffic source. The PAUSE listener at the end of LH1-F (Step~7, ``I'm~Jammed'' behavior) cannot be validated until LH1-G is built and transmitting PAUSE packets at the Targets.
+	\item \textbf{LH1-G (interceptor / Threat firmware)} consumes the LH1-F ping-pong traffic as its capture source. It cannot be validated until LH1-F Steps~1--6 (DATA/ACK without the PAUSE listener) are running. LH1-G's host-side parser step requires a USB-to-UART adapter; if one is unavailable, LH1-G is considered ``code-complete'' once it builds and the on-board log shows packets being received --- the binary frame stream is then validated by LH1-H.
+	\item \textbf{LH1-H (FPGA ingestion)} consumes the LH1-G binary forwarding frames and presents an end-to-end validation that does not require any extra host hardware (the Nexys~A7 seven-segment display acts as a frame counter). It cannot be validated until LH1-G is producing frames on \texttt{USART3 TX}.
+\end{itemize}
+Recommended pass order: complete LH1-F Steps~1--6 (DATA/ACK only), then build LH1-G end-to-end against that traffic, then return here to finish LH1-F Step~7 (PAUSE listener), and finally close out with LH1-H. The Module~1 deliverable is the union of all three.
+\end{tcolorbox}
+
+\section{Packet Format Reference}
 Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reproduced here verbatim --- do not reorder or resize fields; downstream parsers in Module~2 and beyond index these offsets directly:
 \begin{table}[h!]
 	\centering
@@ -24,14 +35,14 @@ Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reprod
 		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
 		\midrule
 		0--1 & Preamble sync (\texttt{0xAE5A}, big-endian) & 2 \\
-		2 & Beacon ID (\texttt{0x01}--\texttt{0xFF}) & 1 \\
+		2 & Beacon ID (sender) & 1 \\
 		3--4 & Sequence number (uint16, \mbox{LE}) & 2 \\
 		5 & \texttt{TX} power (dBm, uint8) & 1 \\
-		6 & Modulation code: \texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{} & 1 \\
+		6 & \texttt{Modulation Code}: bits[7:2] = mod kind $\ll$ 2 (\texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{}); bits[1:0] = pkt type (\texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE, \texttt{11}=reserved) & 1 \\
 		7 & Spreading factor (LoRa SF 7--12; \texttt{0x00} if non-LoRa) & 1 \\
 		8 & Bandwidth code (\texttt{0x00}=125\,kHz, \texttt{0x01}=250\,kHz, \dots) & 1 \\
 		9--12 & Timestamp (uint32, \mbox{LE}, ms since boot) & 4 \\
-		13--29 & Payload / user data & 17 \\
+		13--29 & Payload (DATA/ACK) or PAUSE args (PAUSE: byte~0 = target ID, byte~1 = hold-off in 100\,ms units, bytes 2--16 = \texttt{0xAA}) & 17 \\
 		30--31 & \CRC{}-16/CCITT-FALSE over bytes 0--29 (MSB-first) & 2 \\
 		\bottomrule
 	\end{tabular}
@@ -39,18 +50,23 @@ Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reprod
 
 \newpage
 \section{\FSM{} Specification}
+Both Target~A and Target~B run the same shared \FSM{} skeleton. The role-specific differences are confined to the \texttt{IDLE}, \texttt{BUILD}, and \texttt{WAIT\_ACK} state implementations; everything else is identical:
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{INIT}: \HAL{} initialization, clock setup, peripheral configuration.
-	\item \textbf{CONFIG}: reset SX1276, verify \texttt{RegVersion}, program all LoRa registers per Table~\ref{tab:lora-params-f}, put modem in \texttt{STANDBY}.
-	\item \textbf{IDLE}: wait for the next scheduled slot (timer interrupt).
-	\item \textbf{BUILD}: populate the 32-byte packet buffer (increment sequence, stamp timestamp, compute \CRC{}-16).
-	\item \textbf{TX}: write \texttt{FIFO}, command \texttt{TX} mode, wait for \texttt{TxDone}.
-	\item \textbf{LOG}: increment sequence counter, \texttt{printf} a status line, return to IDLE.
+	\item \textbf{CONFIG}: reset SX1276, verify \texttt{RegVersion}, program all LoRa registers per Table~\ref{tab:lora-params-f}, put modem in \texttt{STANDBY}, install the \texttt{DIO0} \texttt{EXTI} ISR.
+	\item \textbf{IDLE}: Target~A: poll \texttt{ms\_count} against \texttt{next\_tx\_ms}; transition to \texttt{BUILD\_DATA} when due. Target~B: enter \texttt{RXCONTINUOUS}; remain in \texttt{IDLE} until the ISR sets a \texttt{rx\_ready} flag; transition to either \texttt{BUILD\_ACK} (if the received packet is a DATA from a peer Beacon~ID) or back to \texttt{IDLE} (if the packet is anything else --- PAUSE addressed to a different ID, etc.). Both: at every \texttt{IDLE} entry, check \texttt{paused\_until\_ms}; if past expiry, clear the paused flag.
+	\item \textbf{BUILD\_DATA} (Target~A): populate the 32-byte packet with \texttt{pkt\_type=DATA}, \texttt{mod\_kind=LoRa}, current \texttt{seq}, and a structured payload (see Step~2 below). Compute \CRC{}-16. Increment \texttt{seq}.
+	\item \textbf{BUILD\_ACK} (Target~B): populate the 32-byte packet with \texttt{pkt\_type=ACK}, \texttt{mod\_kind=LoRa}, the received DATA's \texttt{seq} echoed into the sequence field, and \texttt{0xAA} payload. Compute \CRC{}-16.
+	\item \textbf{TX}: write \texttt{FIFO}, command \texttt{TX} mode, wait for \texttt{TxDone} with a 500\,ms timeout. On timeout, transition to \texttt{FAULT}.
+	\item \textbf{WAIT\_ACK} (Target~A only): switch radio into \texttt{RXCONTINUOUS}; wait up to 200\,ms for an ACK from Target~B with matching \texttt{seq}. On match, capture the round-trip time. On timeout, log a missed-ACK event and continue.
+	\item \textbf{LOG}: \texttt{printf} a single-line status (CSV format consistent with LH1-D) over USART2 and return to \texttt{IDLE}.
+	\item \textbf{PAUSED} (entered by the \texttt{DIO0} ISR or main-loop poll on receipt of a PAUSE addressed to this target's ID): set \texttt{paused\_until\_ms = HAL\_GetTick() + (pause\_payload[1] $\times$ 100)}. Print \texttt{"I'm Jammed (by ID=0xFF, until t=\%lu)"} on USART2 \emph{only on the first entry per pause window} (throttled, not per-tick). On subsequent ISR PAUSE refreshes within the window, only update \texttt{paused\_until\_ms}; do not reprint. Skip all DATA TX (Target~A) while paused. ACK TX (Target~B) is permitted because it is a response to a real DATA reception. Return to \texttt{IDLE} on next main-loop iteration.
+	\item \textbf{FAULT}: \texttt{printf} an error line over USART2; clear all radio IRQ flags; force \texttt{CONFIG} state.
 \end{enumerate}
 
-\labfigure{LH1F_fsm_diagram.png}{0.8\textwidth}{Beacon \FSM{}: \texttt{INIT} $\to$ \texttt{CONFIG} $\to$ \texttt{IDLE} $\to$ \texttt{BUILD} $\to$ \texttt{TX} $\to$ \texttt{LOG} $\to$ \texttt{IDLE}, with a \texttt{FAULT} branch off the \texttt{TX} timeout path.}{fig:lh1f-fsm}
+\labfigure{LH1F_fsm_diagram.png}{0.85\textwidth}{Cooperative-target \FSM{}: shared skeleton \texttt{INIT}$\to$\texttt{CONFIG}$\to$\texttt{IDLE}, with Target~A's \texttt{BUILD\_DATA}$\to$\texttt{TX}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG} branch and Target~B's RX-driven \texttt{BUILD\_ACK}$\to$\texttt{TX\_ACK}$\to$\texttt{LOG} branch. The \texttt{PAUSED} state is a transient overlay that suppresses scheduled DATA TX without disabling reception. The \texttt{FAULT} branch off the \texttt{TX} timeout path returns to \texttt{CONFIG}.}{fig:lh1f-fsm}
 
-\labfigure{LH1F_packet_layout.png}{0.9\textwidth}{Byte-level 32-byte beacon packet layout. Fields are color-coded to match the format table.}{fig:lh1f-packet}
+\labfigure{LH1F_packet_layout.png}{0.9\textwidth}{Byte-level 32-byte radio packet layout. Fields are color-coded to match the format table; the packed \texttt{Modulation Code} byte is annotated with its bit-field interpretation.}{fig:lh1f-packet}
 
 \begin{table}[h!]
 	\centering
@@ -60,83 +76,498 @@ Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reprod
 		\toprule
 		\textbf{Parameter} & \textbf{Value} \\
 		\midrule
-		Frequency & 915\,MHz \\
-		Spreading factor & SF7 (Beacon~A), SF10 (Beacon~B) \\
+		Carrier frequency & 906.5\,MHz \\
+		Spreading factor & SF7 (Target~A and Target~B share SF) \\
 		Bandwidth & 125\,kHz \\
 		Coding rate & 4/5 \\
 		\CRC{} & On \\
 		Sync word & \texttt{0x34} \\
-		\texttt{TX} power & +14\,dBm (Beacon~A), +10\,dBm (Beacon~B) \\
+		\texttt{TX} power & +14\,dBm \\
 		\bottomrule
 	\end{tabular}
 \end{table}
 
 \newpage
+\section{Shared Definitions (paste into both projects)}
+
+The following constants and helper prototypes are referenced throughout the \FSM{} code in Steps~3--5. Add them once to a new header file \texttt{Core/Inc/lh1f\_defs.h} in \emph{both} the \texttt{TargetA} and \texttt{TargetB} projects, then \texttt{\#include "lh1f\_defs.h"} from \texttt{main.c}.
+
+\begin{lstlisting}[language=C, caption={\texttt{Core/Inc/lh1f\_defs.h} --- shared constants and prototypes (identical in both projects).}]
+#ifndef LH1F_DEFS_H
+#define LH1F_DEFS_H
+
+#include <stdint.h>
+
+/* --- Beacon IDs (same in all three firmware projects) --- */
+#define BEACON_ID_A       0x01u
+#define BEACON_ID_B       0x02u
+#define BEACON_ID_THREAT  0xFFu
+
+/* --- Packet types (low 2 bits of Modulation Code byte) --- */
+#define PKT_TYPE_DATA     0x00u
+#define PKT_TYPE_ACK      0x01u
+#define PKT_TYPE_PAUSE    0x02u
+
+/* --- Modulation kinds (high 6 bits of Modulation Code byte, pre-shift) --- */
+#define MOD_KIND_LORA     0x01u
+#define MOD_KIND_FSK      0x02u
+#define MOD_KIND_OOK      0x03u
+
+/* --- LoRa carrier register triple for 906.5 MHz on 32 MHz TCXO --- */
+#define RFM_FRF_MSB       0xE2u   /* RegFrfMsb  (0x06) */
+#define RFM_FRF_MID       0xA0u   /* RegFrfMid  (0x07) */
+#define RFM_FRF_LSB       0x00u   /* RegFrfLsb  (0x08) */
+
+/* --- Helpers from LH1-D (already in your project; do not redefine) --- */
+uint8_t  rfm_read_reg(uint8_t addr);
+void     rfm_write_reg(uint8_t addr, uint8_t value);
+void     rfm_set_mode_standby(void);
+void     rfm_set_mode_rx(void);
+void     lora_init(void);
+
+/* --- New helpers introduced by LH1-F --- */
+uint16_t crc16_ccitt(const uint8_t *buf, uint32_t len);
+void     build_packet(uint8_t out[32], uint8_t my_id, uint16_t seq,
+                      uint8_t pkt_type, uint8_t mod_kind);
+
+#endif /* LH1F_DEFS_H */
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption={\texttt{Core/Src/lh1f\_packet.c} --- create this new file in both projects. Implements the CRC and the canonical packet builder used by every \texttt{BUILD\_*} state.}]
+#include "lh1f_defs.h"
+#include "main.h"
+
+extern volatile uint32_t ms_count;
+
+/* CRC-16/CCITT-FALSE: poly=0x1021, init=0xFFFF, no reflect, xorout=0x0000.
+ * Verified against the standard test vector: crc16_ccitt("123456789", 9)
+ * must equal 0x29B1.
+ */
+uint16_t crc16_ccitt(const uint8_t *buf, uint32_t len) {
+    uint16_t crc = 0xFFFFu;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= ((uint16_t)buf[i]) << 8;
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+                                  : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+
+/* build_packet: populate the canonical 32-byte radio packet.
+ * Caller is responsible for any payload customization AFTER this call
+ * (e.g. PAUSE adds target-id/hold-off in bytes 13-14 then RECOMPUTES CRC).
+ */
+void build_packet(uint8_t out[32], uint8_t my_id, uint16_t seq,
+                  uint8_t pkt_type, uint8_t mod_kind)
+{
+    /* Preamble */
+    out[0] = 0xAEu;
+    out[1] = 0x5Au;
+    /* Sender + sequence */
+    out[2] = my_id;
+    out[3] = (uint8_t)(seq & 0xFFu);
+    out[4] = (uint8_t)((seq >> 8) & 0xFFu);
+    /* TX power */
+    out[5] = 14u;
+    /* Packed Modulation Code byte: bits[7:2] = mod_kind << 2,
+     *                              bits[1:0] = pkt_type            */
+    out[6] = (uint8_t)((mod_kind << 2) | (pkt_type & 0x03u));
+    /* Spreading factor / bandwidth code */
+    out[7] = (mod_kind == MOD_KIND_LORA) ? 7u : 0u;   /* SF7 default */
+    out[8] = 0u;                                       /* 125 kHz BW  */
+    /* Timestamp */
+    uint32_t t = ms_count;
+    out[9]  = (uint8_t)(t      );
+    out[10] = (uint8_t)(t >>  8);
+    out[11] = (uint8_t)(t >> 16);
+    out[12] = (uint8_t)(t >> 24);
+    /* Default payload: 0xAA filler. Caller may overwrite bytes 13-29
+     * before transmit (e.g. for a PAUSE packet's target-id field).    */
+    for (int i = 13; i < 30; i++) out[i] = 0xAAu;
+    /* CRC-16/CCITT-FALSE over bytes 0-29, MSB first */
+    uint16_t crc = crc16_ccitt(out, 30);
+    out[30] = (uint8_t)(crc >> 8);
+    out[31] = (uint8_t)(crc);
+}
+\end{lstlisting}
+
+\begin{tcolorbox}[infobox={CRC unit-test deliverable}]
+The handout deliverable requires a unit test of \texttt{crc16\_ccitt} against a known vector. Add the following one-shot self-check inside \texttt{/* USER CODE BEGIN 2 */} (run once at boot, before the main loop):
+\begin{lstlisting}[language=C]
+{
+    const uint8_t vec[9] = {'1','2','3','4','5','6','7','8','9'};
+    uint16_t got = crc16_ccitt(vec, 9);
+    if (got != 0x29B1u) {
+        printf("CRC16 SELFTEST FAIL: expected 0x29B1 got 0x%04X\r\n", got);
+        while (1) { /* hang on failure */ }
+    } else {
+        printf("CRC16 SELFTEST PASS (0x29B1)\r\n");
+    }
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\subsection*{\texttt{printf} retarget (one-time setup, both projects)}
+The \FSM{} relies on \texttt{printf} reaching USART2. If you have not already done so during LH1-D, add the following retarget shim to \texttt{main.c} in both projects (outside any \texttt{USER CODE} block, near the top after the includes; the \texttt{HAL\_UART\_Transmit} reference uses \texttt{huart2} declared by CubeMX):
+
+\begin{lstlisting}[language=C, caption={\texttt{printf} retarget to USART2. Required by every \texttt{printf} call in the FSM.}]
+#include <stdio.h>
+extern UART_HandleTypeDef huart2;
+
+int __io_putchar(int ch) {
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
+/* Newlib-nano hook: some toolchains route stdout through _write instead. */
+int _write(int file, char *ptr, int len) {
+    (void)file;
+    HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+    return len;
+}
+\end{lstlisting}
+
+In the linker settings (CMakePresets or CubeMX project-level), confirm \texttt{-u \_printf\_float} is \emph{not} enabled (we do not use \texttt{\%f}) and that \texttt{Use float with printf from newlib-nano} is unchecked. This keeps the binary small and the per-call cost of \texttt{printf} bounded.
+
 \section{Procedure}
 
-\subsection{Step 1 --- Timer-driven scheduling}
+\subsection{Step 1 --- Open the existing TargetA and TargetB projects}
+
+The LH1-D \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects continue to be the source-of-truth for the cooperative-target firmware. \textbf{Do not copy, rename, or move them, and do not run CubeMX again.} The LH1-F additions extend the LH1-D code with a proper \FSM{}, the PAUSE listener path, and the DIO0 \texttt{EXTI} interrupt handler --- all of these are pure C-level edits inside the existing USER~CODE blocks. The CubeMX peripheral configuration was already done in LH1-C Step~1 (SPI1, USART2, USART3 with DMA, TIM2 1\,ms tick, \texttt{RFM\_CS}/\texttt{RFM\_RST}/\texttt{RFM\_DIO0} GPIO labels with EXTI on PA8 and the EXTI[9:5] NVIC line enabled). No re-generation is required.
+
 \begin{enumerate}[leftmargin=2em]
-	\item Configure \texttt{TIM2} in CubeMX as a periodic timer with a 1\,ms tick. Enable the update interrupt.
-	\item Maintain a \texttt{volatile uint32\_t ms\_count} that increments in the \texttt{HAL\_TIM\_PeriodElapsedCallback}.
-	\item Choose a slot interval (Beacon~A: 2000\,ms, Beacon~B: 3000\,ms). Each beacon checks \texttt{ms\_count} against its next scheduled time in IDLE and transitions to BUILD when due.
+	\item Open both \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} in separate VS Code windows (same setup as LH1-D).
+	\item Press \texttt{F7} in each window to confirm both projects still build with the LH1-D code in place.
 \end{enumerate}
 
-\subsection{Step 2 --- Packet builder}
+\subsection{Step 2 --- Wire the TIM2 1\,ms tick into the C code}
+
+CubeMX (LH1-C Step~1.7) already enabled \texttt{TIM2} as a 1\,ms periodic timer and enabled its NVIC interrupt; the C-side \texttt{ms\_count} variable and the \texttt{HAL\_TIM\_PeriodElapsedCallback} override still need to be added.
+
 \begin{enumerate}[leftmargin=2em]
-	\item Implement \texttt{build\_beacon\_packet(uint8\_t *buf, uint16\_t seq, uint8\_t beacon\_id, uint8\_t mod\_code, uint8\_t sf, uint8\_t bw\_code, int8\_t tx\_power\_dbm)} that fills bytes 0--29 according to the packet format (preamble \texttt{0xAE5A} at 0--1, ID at 2, sequence at 3--4, TX power at 5, modulation code at 6, SF at 7, bandwidth code at 8, timestamp at 9--12, payload at 13--29), computes the \CRC{}-16 over bytes 0--29, and writes it MSB-first to bytes 30--31.
-	\item Modulation code is fixed per beacon build: \texttt{0x01}=LoRa, \texttt{0x02}=\FSK{}, \texttt{0x03}=\OOK{}. These codes are the canonical ground-truth labels used by the Module~3 datasets and the Module~4 classifier --- do not invent a 0/1 alias.
-	\item Use \CRC{}-16/CCITT-FALSE: polynomial \texttt{0x1021}, init \texttt{0xFFFF}, no reflection, no \mbox{XOR} out. A 20-line C implementation is sufficient; do not bring in a library for this.
+	\item In both \texttt{TargetA} and \texttt{TargetB} \texttt{main.c} files, add to \texttt{/* USER CODE BEGIN PV */}:
+\begin{verbatim}
+/* USER CODE BEGIN PV */
+volatile uint32_t ms_count = 0;
+/* USER CODE END PV */
+\end{verbatim}
+	\item Add the callback in \texttt{/* USER CODE BEGIN 4 */}:
+\begin{verbatim}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM2) ms_count++;
+}
+\end{verbatim}
+	\item Inside \texttt{/* USER CODE BEGIN 2 */} (after \texttt{lora\_init()}), start the timer in interrupt mode:
+\begin{verbatim}
+HAL_TIM_Base_Start_IT(&htim2);
+\end{verbatim}
+	\item In Target~A only, schedule the DATA cadence: store \texttt{static uint32\_t next\_tx\_ms} in the main loop and advance it by 1000\,ms after each successful \texttt{BUILD\_DATA}$\to$\texttt{TX}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG} cycle. Target~B does not schedule transmissions; it only responds.
 \end{enumerate}
 
-\subsection{Step 3 --- State machine implementation}
+\subsection{Step 3 --- DIO0 EXTI ISR and shared receive path}
+
+Both targets handle the SX1276's \texttt{RxDone} interrupt via the \texttt{DIO0} pin's \texttt{EXTI} line. Implement the ISR in \texttt{/* USER CODE BEGIN 4 */}:
+\begin{verbatim}
+typedef struct {
+    uint8_t  raw[32];
+    uint32_t rx_ts_ms;
+    int8_t   rssi_dbm;
+    int8_t   snr_q025;
+} pkt_rx_t;
+
+volatile pkt_rx_t  rx_slot;
+volatile uint8_t   rx_ready = 0;
+volatile uint32_t  paused_until_ms = 0;
+volatile uint32_t  pause_print_until_ms = 0;  /* throttle "I'm Jammed" */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    if (GPIO_Pin != RFM_DIO0_Pin) return;
+
+    uint8_t irq = rfm_read_reg(0x12);
+    if ((irq & 0x40) == 0) {
+        rfm_write_reg(0x12, 0xFF);
+        return;
+    }
+    if (irq & 0x20) {  /* CRC error */
+        rfm_write_reg(0x12, 0xFF);
+        return;
+    }
+
+    /* Read the packet into rx_slot */
+    uint8_t rx_addr = rfm_read_reg(0x10);
+    rfm_write_reg(0x0D, rx_addr);
+    for (int i = 0; i < 32; i++) {
+        ((uint8_t*)rx_slot.raw)[i] = rfm_read_reg(0x00);
+    }
+    rx_slot.rx_ts_ms = ms_count;
+    rx_slot.rssi_dbm = (int8_t)((int16_t)rfm_read_reg(0x1A) - 157);
+    rx_slot.snr_q025 = (int8_t)rfm_read_reg(0x19);
+    rfm_write_reg(0x12, 0xFF);
+
+    /* Check for PAUSE addressed to us --- handled in ISR for low latency */
+    uint8_t sender   = rx_slot.raw[2];
+    uint8_t pkt_type = rx_slot.raw[6] & 0x03;
+    if (pkt_type == PKT_TYPE_PAUSE
+        && sender == BEACON_ID_THREAT
+        && rx_slot.raw[13] == MY_BEACON_ID) {
+        uint8_t units = rx_slot.raw[14];
+        paused_until_ms = ms_count + ((uint32_t)units * 100);
+        /* Defer printf to main loop to avoid blocking ISR */
+        rx_ready = 1;  /* main loop notices the PAUSE and prints once */
+        return;
+    }
+
+    rx_ready = 1;  /* main loop will dispatch DATA / ACK */
+}
+\end{verbatim}
+The constant \texttt{MY\_BEACON\_ID} is defined per project: Target~A defines \texttt{\#define MY\_BEACON\_ID BEACON\_ID\_A}, Target~B defines \texttt{\#define MY\_BEACON\_ID BEACON\_ID\_B}.
+
+\subsection{Step 4 --- Main-loop \FSM{} skeleton}
+
+In \texttt{/* USER CODE BEGIN WHILE */}, replace the LH1-D inline-loop logic with the explicit \FSM{}:
+\begin{verbatim}
+typedef enum {
+    ST_IDLE, ST_BUILD_DATA, ST_BUILD_ACK, ST_TX,
+    ST_WAIT_ACK, ST_LOG, ST_FAULT
+} state_t;
+
+state_t state = ST_IDLE;
+uint16_t seq = 0;
+uint16_t pending_ack_seq = 0;
+uint32_t t_tx_ms = 0;
+uint8_t  pkt[32];
+uint8_t  log_was_acked = 0;
+int16_t  log_ack_rssi = 0;
+uint32_t log_rtt_ms = 0;
+
+while (1) {
+    /* Honor PAUSE: if paused, suppress DATA scheduling but still
+       process incoming RX (so ACKs can still be sent and PAUSE
+       refreshes can extend the hold-off). */
+    uint8_t paused_now = (ms_count < paused_until_ms);
+
+    /* Throttled "I'm Jammed" print: emit at most once per pause entry */
+    if (paused_now && pause_print_until_ms < paused_until_ms) {
+        printf("I'm Jammed (by ID=0x%02X, until t=%lu)\r\n",
+               BEACON_ID_THREAT, (unsigned long)paused_until_ms);
+        pause_print_until_ms = paused_until_ms;
+    }
+
+    switch (state) {
+    case ST_IDLE:
+        /* Target A initiator path */
+#ifdef ROLE_INITIATOR
+        if (!paused_now && ms_count >= next_tx_ms) {
+            state = ST_BUILD_DATA;
+            break;
+        }
+#endif
+        /* Both: handle any received packet */
+        if (rx_ready) {
+            rx_ready = 0;
+            uint8_t pkt_type = rx_slot.raw[6] & 0x03;
+            uint8_t sender   = rx_slot.raw[2];
+
+#ifdef ROLE_RESPONDER
+            if (pkt_type == PKT_TYPE_DATA && sender == BEACON_ID_A) {
+                pending_ack_seq = (uint16_t)rx_slot.raw[3]
+                                | ((uint16_t)rx_slot.raw[4] << 8);
+                state = ST_BUILD_ACK;
+                break;
+            }
+#endif
+            /* Target A waiting for an ACK while in IDLE means the
+               WAIT_ACK timeout already expired; ignore stray ACKs. */
+            (void)pkt_type; (void)sender;
+        }
+        break;
+
+    case ST_BUILD_DATA:
+        build_packet(pkt, MY_BEACON_ID, seq,
+                     PKT_TYPE_DATA, MOD_KIND_LORA);
+        state = ST_TX;
+        break;
+
+    case ST_BUILD_ACK:
+        build_packet(pkt, MY_BEACON_ID, pending_ack_seq,
+                     PKT_TYPE_ACK, MOD_KIND_LORA);
+        state = ST_TX;
+        break;
+
+    case ST_TX: {
+        rfm_set_mode_standby();
+        rfm_write_reg(0x0D, rfm_read_reg(0x0E));
+        for (int i = 0; i < 32; i++) rfm_write_reg(0x00, pkt[i]);
+        rfm_write_reg(0x22, 32);
+        t_tx_ms = ms_count;
+        rfm_write_reg(0x12, 0xFF);
+        rfm_write_reg(0x01, 0x83);  /* TX */
+
+        uint32_t tx_deadline = ms_count + 500;
+        uint8_t ok = 0;
+        while (ms_count < tx_deadline) {
+            if (rfm_read_reg(0x12) & 0x08) { ok = 1; break; }
+        }
+        rfm_write_reg(0x12, 0xFF);
+        if (!ok) { state = ST_FAULT; break; }
+
+#ifdef ROLE_INITIATOR
+        rfm_set_mode_rx();
+        state = ST_WAIT_ACK;
+#else
+        rfm_set_mode_rx();
+        state = ST_LOG;
+#endif
+        break;
+    }
+
+#ifdef ROLE_INITIATOR
+    case ST_WAIT_ACK: {
+        uint32_t deadline = ms_count + 200;
+        log_was_acked = 0;
+        while (ms_count < deadline) {
+            if (rx_ready) {
+                rx_ready = 0;
+                uint8_t pkt_type = rx_slot.raw[6] & 0x03;
+                uint8_t sender   = rx_slot.raw[2];
+                uint16_t rs = (uint16_t)rx_slot.raw[3]
+                            | ((uint16_t)rx_slot.raw[4] << 8);
+                if (pkt_type == PKT_TYPE_ACK
+                    && sender == BEACON_ID_B
+                    && rs == seq) {
+                    log_was_acked = 1;
+                    log_ack_rssi  = rx_slot.rssi_dbm;
+                    log_rtt_ms    = ms_count - t_tx_ms;
+                    break;
+                }
+            }
+        }
+        next_tx_ms = t_tx_ms + 1000;  /* schedule next on a fixed grid */
+        seq++;
+        state = ST_LOG;
+        break;
+    }
+#endif
+
+    case ST_LOG:
+#ifdef ROLE_INITIATOR
+        if (log_was_acked) {
+            printf("CSV,%u,%lu,%lu,%lu,%d\r\n",
+                   (unsigned)(seq - 1), (unsigned long)t_tx_ms,
+                   (unsigned long)(t_tx_ms + log_rtt_ms),
+                   (unsigned long)log_rtt_ms, (int)log_ack_rssi);
+        } else {
+            printf("CSV,%u,%lu,0,0,0  (no ACK)\r\n",
+                   (unsigned)(seq - 1), (unsigned long)t_tx_ms);
+        }
+#else
+        printf("ACK seq=%u rssi=%d\r\n",
+               (unsigned)pending_ack_seq, (int)rx_slot.rssi_dbm);
+#endif
+        state = ST_IDLE;
+        break;
+
+    case ST_FAULT:
+        printf("FAULT --- TX timeout, reconfiguring radio\r\n");
+        rfm_write_reg(0x12, 0xFF);
+        lora_init();
+        rfm_set_mode_rx();
+        state = ST_IDLE;
+        break;
+    }
+}
+\end{verbatim}
+
+\subsection{Step 5 --- Define the role and Beacon~ID per project}
+
+The same \FSM{} source above compiles into either Target~A or Target~B firmware via two compile-time defines per project. Because LH1-C built both projects with the VS Code STM32 extension's CMake flow, set the defines in \texttt{CMakeLists.txt} (do not re-run CubeMX). Open each project's \texttt{CMakeLists.txt}, find the existing \texttt{target\_compile\_definitions(\$\{CMAKE\_PROJECT\_NAME\} PRIVATE ...)} call (CubeMX generates one with \texttt{USE\_HAL\_DRIVER} and \texttt{STM32L476xx}) and append the two role lines.
+
+\textbf{Target~A project --- in \texttt{Nucleo\_RFM95W\_TargetA/CMakeLists.txt}}:
+\begin{lstlisting}[language=CMake, caption={Append to the existing \texttt{target\_compile\_definitions} call.}]
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    USE_HAL_DRIVER
+    STM32L476xx
+    ROLE_INITIATOR
+    MY_BEACON_ID=BEACON_ID_A
+)
+\end{lstlisting}
+
+\textbf{Target~B project --- in \texttt{Nucleo\_RFM95W\_TargetB/CMakeLists.txt}}:
+\begin{lstlisting}[language=CMake]
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    USE_HAL_DRIVER
+    STM32L476xx
+    ROLE_RESPONDER
+    MY_BEACON_ID=BEACON_ID_B
+)
+\end{lstlisting}
+
+After editing \texttt{CMakeLists.txt}, run \textbf{Clean Reconfigure} from the VS Code STM32 extension's Build menu (or delete the \texttt{build/} directory) so CMake re-discovers the new defines. The \texttt{\#ifdef ROLE\_INITIATOR} / \texttt{\#ifdef ROLE\_RESPONDER} guards in the \FSM{} above then compile each project into its role.
+
+\subsection{Step 6 --- GPIO instrumentation pulse}
+Add a \mbox{GPIO} output pulse on the entry to the \texttt{TX} state. This gives a scope trigger for measuring transmission timing in Module~3.
+
+To avoid re-running CubeMX (which can break the project's CMake state), configure the trigger pin entirely from C using direct \HAL{} GPIO calls. \texttt{PB10} is free on the Nucleo-L476RG morpho header (CN10 pin~25) and is not used by any peripheral configured in LH1-C.
+
 \begin{enumerate}[leftmargin=2em]
-	\item Use an \texttt{enum} and a \texttt{switch} in the main loop. Each state transitions explicitly to the next via a \texttt{state} variable.
-	\item In the \texttt{TX} state, poll \texttt{RegIrqFlags} for \texttt{TxDone}; do \textit{not} block indefinitely --- time out after 500\,ms and transition to a \texttt{FAULT} state that \texttt{printf}s an error.
-	\item In the \texttt{LOG} state, \texttt{printf} a single-line status: \texttt{"[ID=\%02X SEQ=\%lu] TX OK"}.
+	\item In \texttt{/* USER CODE BEGIN 2 */}, before the main loop, configure \texttt{PB10} as a push-pull output:
+\begin{verbatim}
+__HAL_RCC_GPIOB_CLK_ENABLE();
+GPIO_InitTypeDef trig = {0};
+trig.Pin   = GPIO_PIN_10;
+trig.Mode  = GPIO_MODE_OUTPUT_PP;
+trig.Pull  = GPIO_NOPULL;
+trig.Speed = GPIO_SPEED_FREQ_HIGH;
+HAL_GPIO_Init(GPIOB, &trig);
+HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+\end{verbatim}
+	\item In the \texttt{ST\_TX} case, immediately before commanding \texttt{TX} mode, raise the pin:
+\begin{verbatim}
+HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+\end{verbatim}
+	After the \texttt{TxDone} flag clears (i.e., at the bottom of the \texttt{ST\_TX} case before transitioning out), lower it:
+\begin{verbatim}
+HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+\end{verbatim}
+	\item Wire a scope probe to Nucleo CN10 pin~25 (PB10), with ground on any GND pin (e.g., CN10 pin~9). A scope or logic analyzer on this pin should show evenly-spaced pulses (1\,s period for Target~A) when the firmware is not paused, and silence on Target~A while the Threat's user button is held.
 \end{enumerate}
 
-\subsection{Step 4 --- Instrument with a \mbox{GPIO} pulse}
+\labfigure{LH1F_scope_pulse.png}{0.8\textwidth}{Oscilloscope capture of the \texttt{TX}-entry \mbox{GPIO} instrumentation pulse on Target~A. The 1\,s period should be rock-steady ($\pm$5\,ms) when not paused; pulses should disappear within $\sim$100\,ms of the Threat user-button press and resume within $\sim$500\,ms of release.}{fig:lh1f-scope}
+
+\subsection{Step 7 --- Co-validate with the Threat from Lab Handout~1-G}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Add a \mbox{GPIO} output pulse at the moment of entering \texttt{TX} state. This gives you a scope trigger for measuring transmission timing.
-	\item A scope or logic analyzer on this pin should show a clean, evenly spaced pulse train at the configured slot interval.
+	\item Flash Target~A and Target~B from this handout. Flash the Threat firmware from Lab Handout~1-G.
+	\item Confirm the ping-pong baseline: 100\% reception on Target~B over a 5-minute run, no \CRC{} errors, contiguous sequence numbers, no \texttt{FAULT} entries.
+	\item With the ping-pong running, hold the user button (B1, blue button) on the Threat board for 3\,s. Verify on Target~A's USART2:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \texttt{"I'm Jammed (by ID=0xFF, until t=...)"} appears within $\sim$100\,ms of button press.
+		\item \texttt{CSV,...} log lines from Target~A stop appearing.
+		\item Within $\sim$500\,ms of button release, \texttt{CSV,...} log lines resume.
+	\end{itemize}
+	\item Capture the Target~A USART2 log across the full sequence and save as \texttt{LH1F\_pause\_response.log}.
 \end{enumerate}
 
-\labfigure{LH1F_scope_pulse.png}{0.8\textwidth}{Oscilloscope capture of the \texttt{TX}-entry \mbox{GPIO} instrumentation pulse. The period should be rock-steady at the configured slot interval ($\pm$5\,ms).}{fig:lh1f-scope}
-
-\subsection{Step 5 --- Single-beacon verification}
-\begin{enumerate}[leftmargin=2em]
-	\item Flash Beacon~A (ID \texttt{0x01}, SF7, 2000\,ms interval).
-	\item Use a second node programmed as receiver (LH1-D Node~B firmware, or a later iteration of it) to confirm reception.
-	\item Verify: 100\% reception over 5 minutes ($\approx$150 packets), sequence numbers contiguous, \CRC{} valid.
-\end{enumerate}
-
-\subsection{Step 6 --- Dual-beacon concurrent operation}
-\begin{enumerate}[leftmargin=2em]
-	\item Flash Beacon~B (ID \texttt{0x02}, SF10, 3000\,ms interval, +10\,dBm).
-	\item Run both beacons simultaneously.
-	\item The receiver must demodulate both, because the spreading factors differ (LoRa is quasi-orthogonal across \mbox{SF} within the same bandwidth).
-	\item Verify: the receiver sees interleaved packets from both beacons, each with its own contiguous sequence counter, over 5 minutes.
-\end{enumerate}
-
-\labfigure{LH1F_dual_beacon_log.png}{0.85\textwidth}{Annotated receiver log during a dual-beacon run: Beacon~A (ID \texttt{0x01}) and Beacon~B (ID \texttt{0x02}) interleaved, each with its own contiguous sequence counter.}{fig:lh1f-duallog}
+\labfigure{LH1F_pause_response_log.png}{0.85\textwidth}{Annotated Target~A USART2 capture during a 3-s Threat button-hold: per-second \texttt{CSV} lines, then a single \texttt{"I'm Jammed"} line, then silence for 3\,s, then \texttt{CSV} lines resuming.}{fig:lh1f-pauselog}
 
 \newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Single-beacon run: 100\% reception rate over 150 packets, no \CRC{} errors, contiguous sequence numbers.
-	\item[$\square$] Beacon packet parses correctly on the receiver side (all fields match expected values).
-	\item[$\square$] Scope pulse on the instrumentation \mbox{GPIO} shows stable period (Beacon~A: 2000\,$\pm$5\,ms, Beacon~B: 3000\,$\pm$5\,ms).
-	\item[$\square$] Dual-beacon run: receiver shows interleaved packets from both beacons, each with independently contiguous sequence counters.
-	\item[$\square$] No beacon drops into the \texttt{FAULT} state during a 5-minute run.
+	\item[$\square$] Both projects build with zero errors after the \texttt{DIO0 EXTI} reconfiguration.
+	\item[$\square$] 5-minute ping-pong run: 100\% ACK reception on Target~A across 300 transmissions, no \CRC{} errors, contiguous sequence numbers, no \texttt{FAULT} entries.
+	\item[$\square$] Scope pulse on the instrumentation \mbox{GPIO} shows stable 1\,s period (Target~A) within $\pm$5\,ms.
+	\item[$\square$] PAUSE behavioral response: \texttt{"I'm Jammed"} appears within $\sim$100\,ms of Threat button press; DATA TX stops; resumes within $\sim$500\,ms of button release.
+	\item[$\square$] Target~B's USART2 log shows no \texttt{"I'm Jammed"} entries during the Step~7 test (assuming Target~A is the higher-RSSI station from the Threat's perspective).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 1-F Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Full source code for the beacon firmware with the \FSM{} clearly structured.
+		\item Full source code for both \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects, with the shared \FSM{} clearly structured and the \texttt{\#ifdef ROLE\_*} guards visible.
 		\item \CRC{}-16 implementation (standalone function) with a unit test against a known vector.
-		\item Receiver log of 150 single-beacon packets with \RSSI{}/\SNR{} per packet.
-		\item Receiver log of a 5-minute dual-beacon run, showing interleaved packets from both beacons.
-		\item Oscilloscope screenshot of the \mbox{GPIO} instrumentation pulse showing stable period for at least 5 transmissions.
+		\item 5-minute ping-pong CSV log from Target~A: $\geq$300 rows, ACK rate, RTT statistics, sequence-gap count.
+		\item PAUSE behavioral-response log (\texttt{LH1F\_pause\_response.log}) showing the full \texttt{CSV} $\to$ \texttt{"I'm Jammed"} $\to$ silence $\to$ \texttt{CSV} resume sequence.
+		\item Oscilloscope screenshot of the \mbox{GPIO} instrumentation pulse showing stable period for at least 5 transmissions, plus a screenshot of the same line going silent during a Threat button-hold and resuming after release.
 	\end{enumerate}
 \end{tcolorbox}
 

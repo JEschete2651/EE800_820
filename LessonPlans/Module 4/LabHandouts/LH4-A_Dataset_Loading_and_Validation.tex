@@ -34,22 +34,33 @@ import numpy as np
 from pathlib import Path
 
 EXPECTED_COLS = [
-    "campaign_id", "run_id", "timestamp_host",
-    "beacon_id", "mod_code", "spread_factor",
+    "campaign_id", "run_id", "regime", "timestamp_host",
+    "beacon_id", "mod_kind", "spread_factor", "pkt_type",
     "rssi", "snr", "obs_count", "rx_timestamp",
     "inter_arrival_ms", "rssi_delta", "priority_score",
-    "distance_m", "label_sf", "label_mod", "mod_code_label",
-    "label_beacon", "label_mismatch", "split",
+    "target_id_if_pause", "pause_duration_units",
+    "distance_m", "label_sf", "label_mod", "mod_kind_label",
+    "label_beacon", "label_pkt", "label_mismatch", "split",
 ]
 
 SIGNED_COLS = ["rssi", "snr", "rssi_delta"]   # two's-complement 16 or 32 bit
 
-# Canonical modulation code mapping, frozen once across Modules 1-5:
+# Canonical modulation kind mapping, frozen once across Modules 1-5:
 #   1 = LoRa, 2 = FSK, 3 = OOK  (Module 1 Table 4; LH1-F; LH3-F/G/H).
-# Both the self-reported byte (mod_code) and the ground-truth column
-# (mod_code_label) must be drawn from this set. Do not introduce a 0/1
+# Both the self-reported byte (mod_kind, upper 6 bits of Modulation Code
+# right-shifted by 2 with low 2 bits cleared) and the ground-truth column
+# (mod_kind_label) must be drawn from this set. Do not introduce a 0/1
 # alias; the string label_mod ("lora"/"fsk"/"ook") is readability-only.
-VALID_MOD_CODES = {1, 2, 3}
+VALID_MOD_KINDS = {1, 2, 3}
+
+# Canonical packet-type mapping, low 2 bits of the radio packet's
+# Modulation Code byte: 0 = DATA, 1 = ACK, 2 = PAUSE.
+VALID_PKT_TYPES = {0, 1, 2}
+PKT_TYPE_DATA, PKT_TYPE_ACK, PKT_TYPE_PAUSE = 0, 1, 2
+
+# Operating regimes: 'clean' = C1-C4 (single-station DATA-only),
+# 'contended' = C5 (cooperative-target ping-pong + PAUSE bursts).
+VALID_REGIMES = {"clean", "contended"}
 
 # Expected campaign_id family values (Module 3 LH3-F/G). Sub-campaigns
 # (e.g. C5a/C5b/C5c) appear as distinct strings under the same family.
@@ -76,16 +87,16 @@ print(f"Loaded {len(df):,} rows, {len(df.columns)} columns")
 		\toprule
 		\textbf{\#} & \textbf{Check} & \textbf{Failure Indicates} \\
 		\midrule
-		1  & Schema                & Missing or extra column; LH3-H contract violated \\
+		1  & Schema                & Missing or extra column; LH3-H contract violated (must include \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units}, \texttt{label\_pkt}, \texttt{regime}, \texttt{mod\_kind}/\texttt{mod\_kind\_label}) \\
 		2  & Row count             & Merge was truncated or duplicate rows persist \\
 		3  & Null-value budget     & $>$1\% nulls in any feature column; parser or \UART{} issue \\
-		4  & Duplicate rows        & Same (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{obs\_count}) repeated \\
-		5  & Valid ranges          & \mbox{RSSI}, \mbox{SNR}, SF, or \texttt{mod\_code} outside plausible bounds \\
+		4  & Duplicate rows        & Same (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{obs\_count}, \texttt{pkt\_type}) repeated \\
+		5  & Valid ranges          & \mbox{RSSI}, \mbox{SNR}, SF, \texttt{mod\_kind}, \texttt{pkt\_type}, or \texttt{regime} outside canonical sets \\
 		6  & Signed-field decode   & \mbox{RSSI}/\mbox{SNR}/\texttt{rssi\_delta} not yet two's-complement decoded \\
-		7  & Label consistency     & \texttt{label\_sf} $\neq$ \texttt{spread\_factor} (mismatch rate $>$2\%) \\
-		8  & Class balance         & Any class with $<$150 samples (split will under-fill test set) \\
+		7  & Label consistency     & DATA-row \texttt{label\_sf} $\neq$ \texttt{spread\_factor} or \texttt{label\_pkt} $\neq$ \texttt{pkt\_type} (mismatch rate $>$2\%) \\
+		8  & Class balance         & Any class (across all four classification tasks) with $<$150 samples \\
 		9  & Split integrity       & A \texttt{run\_id} leaked across train/val/test partitions \\
-		10 & Sentinel row handling & \texttt{obs\_count == 1} rows present (priority / rssi\_delta undefined) \\
+		10 & PAUSE-only field consistency & \texttt{target\_id\_if\_pause} or \texttt{pause\_duration\_units} non-zero on rows where \texttt{pkt\_type}~$\ne$~PAUSE (or zero on rows where \texttt{pkt\_type}~$=$~PAUSE) \\
 		\bottomrule
 	\end{tabularx}
 	\caption{The ten-check audit. Every check must pass, or the check itself must be explicitly waived with written justification, before continuing to LH4-B.}
@@ -111,20 +122,28 @@ def check_3_nulls(df, budget_frac=0.01):
     assert over.empty, f"Columns over null budget: {over.to_dict()}"
 
 def check_4_duplicates(df):
-    key = ["run_id", "beacon_id", "obs_count"]
+    key = ["run_id", "beacon_id", "obs_count", "pkt_type"]
     dup = df.duplicated(subset=key).sum()
-    assert dup == 0, f"{dup} duplicate (run, beacon, obs) rows"
+    assert dup == 0, f"{dup} duplicate (run, beacon, obs, pkt_type) rows"
 
 def check_5_valid_ranges(df):
     assert df["rssi"].between(-120, 0).all(),  "RSSI out of range"
     assert df["snr"].between(-20, 15).all(),   "SNR out of range"
     assert df["label_sf"].between(7, 12).all(), "label_sf out of range"
-    assert df["beacon_id"].between(1, 255).all(), "beacon_id out of range"
-    # Canonical mod_code set (1/2/3). Catches any 0/1 alias drift.
-    bad = set(df["mod_code"].unique()) - VALID_MOD_CODES
-    assert not bad, f"mod_code contains non-canonical values: {bad}"
-    bad = set(df["mod_code_label"].unique()) - VALID_MOD_CODES
-    assert not bad, f"mod_code_label contains non-canonical values: {bad}"
+    # beacon_id must be Target~A (1), Target~B (2), or Threat (255 = 0xFF)
+    assert set(df["beacon_id"].unique()) <= {1, 2, 255}, \
+        "beacon_id contains non-canonical values (expected {1, 2, 255})"
+    # Canonical mod_kind set (1/2/3). Catches any 0/1 alias drift.
+    bad = set(df["mod_kind"].unique()) - VALID_MOD_KINDS
+    assert not bad, f"mod_kind contains non-canonical values: {bad}"
+    bad = set(df["mod_kind_label"].unique()) - VALID_MOD_KINDS
+    assert not bad, f"mod_kind_label contains non-canonical values: {bad}"
+    # Canonical pkt_type set (0/1/2). Any other value indicates a parser bug.
+    bad = set(df["pkt_type"].unique()) - VALID_PKT_TYPES
+    assert not bad, f"pkt_type contains non-canonical values: {bad}"
+    # Regime must be 'clean' (C1-C4) or 'contended' (C5).
+    bad = set(df["regime"].unique()) - VALID_REGIMES
+    assert not bad, f"regime contains non-canonical values: {bad}"
     # Campaign family check (warn, not fatal --- sub-campaign strings
     # like C5a/C5b/C5c are allowed; anything else prints for review).
     unknown = set(df["campaign_id"].unique()) - EXPECTED_CAMPAIGN_IDS
@@ -137,12 +156,20 @@ def check_6_signed_decode(df):
         "RSSI contains positive values; signed-field decode not applied"
 
 def check_7_label_consistency(df):
-    mismatch_rate = df["label_mismatch"].mean()
-    assert mismatch_rate < 0.02, \
-        f"Label mismatch rate {mismatch_rate:.1%} exceeds 2% threshold"
+    # label_mismatch is computed by LH3-H over DATA rows only (since
+    # ACK and PAUSE rows have different self-report semantics).
+    data_mask = df["pkt_type"] == PKT_TYPE_DATA
+    if data_mask.any():
+        mismatch_rate = df.loc[data_mask, "label_mismatch"].mean()
+        assert mismatch_rate < 0.02, \
+            f"DATA-row label mismatch rate {mismatch_rate:.1%} exceeds 2% threshold"
+    # label_pkt must equal pkt_type (LH3-F derives one from the other).
+    pkt_mismatch = (df["pkt_type"] != df["label_pkt"]).sum()
+    assert pkt_mismatch == 0, \
+        f"{pkt_mismatch} rows have pkt_type != label_pkt (LH3-F bug)"
 
 def check_8_class_balance(df, min_per_class=150):
-    for col in ["label_sf", "label_mod", "label_beacon"]:
+    for col in ["label_sf", "label_mod", "label_beacon", "label_pkt"]:
         counts = df[col].value_counts()
         small = counts[counts < min_per_class]
         assert small.empty, f"{col} classes under {min_per_class}: {small.to_dict()}"
@@ -155,16 +182,30 @@ def check_9_split_integrity(df):
     leaked = leak[leak].index.tolist()
     assert not leaked, f"Run IDs split across partitions: {leaked}"
 
-def check_10_sentinel(df):
+def check_10_pause_field_consistency(df):
+    pause_mask = df["pkt_type"] == PKT_TYPE_PAUSE
+    # PAUSE-only fields must be zero outside PAUSE rows
+    for col in ["target_id_if_pause", "pause_duration_units"]:
+        nonzero_outside = df.loc[~pause_mask, col].ne(0).sum()
+        assert nonzero_outside == 0, \
+            f"{col} is non-zero on {nonzero_outside} non-PAUSE rows"
+    # PAUSE rows must have non-zero target_id_if_pause and duration
+    if pause_mask.any():
+        zero_inside = df.loc[pause_mask, "target_id_if_pause"].eq(0).sum()
+        assert zero_inside == 0, \
+            f"target_id_if_pause is zero on {zero_inside} PAUSE rows"
+        zero_inside = df.loc[pause_mask, "pause_duration_units"].eq(0).sum()
+        assert zero_inside == 0, \
+            f"pause_duration_units is zero on {zero_inside} PAUSE rows"
     n_sentinel = (df["obs_count"] == 1).sum()
-    print(f"[INFO] {n_sentinel} sentinel rows (obs_count==1) present.")
-    print("       These will be dropped in LH4-B preprocessing.")
+    print(f"[INFO] {n_sentinel} sentinel rows (obs_count==1) present;")
+    print("       these will be dropped in LH4-B preprocessing.")
 
 for fn in [check_1_schema, check_2_row_count, check_3_nulls,
            check_4_duplicates, check_5_valid_ranges,
            check_6_signed_decode, check_7_label_consistency,
            check_8_class_balance, check_9_split_integrity,
-           check_10_sentinel]:
+           check_10_pause_field_consistency]:
     fn(df)
     print(f"[PASS] {fn.__name__}")
 \end{lstlisting}
@@ -180,10 +221,13 @@ After the ten checks pass, print a one-screen summary that the rest of Module~4 
 print("\n=== Dataset Summary ===")
 print(f"Total rows:         {len(df):,}")
 print(f"Unique campaigns:   {df['campaign_id'].nunique()}")
+print(f"Regimes:            {df['regime'].value_counts().to_dict()}")
 print(f"Splits:             {df['split'].value_counts().to_dict()}")
 print(f"SF classes:         {df['label_sf'].value_counts().sort_index().to_dict()}")
 print(f"Mod classes:        {df['label_mod'].value_counts().to_dict()}")
 print(f"Beacon classes:     {df['label_beacon'].value_counts().sort_index().to_dict()}")
+print(f"Pkt classes:        {df['label_pkt'].value_counts().sort_index().to_dict()}  "
+      f"(0=DATA, 1=ACK, 2=PAUSE)")
 print(f"Sentinel rows:      {(df['obs_count']==1).sum()}")
 print(f"Label mismatches:   {df['label_mismatch'].sum()}")
 \end{lstlisting}
@@ -202,8 +246,10 @@ manifest = {
         "sf":     df["label_sf"].value_counts().sort_index().to_dict(),
         "mod":    df["label_mod"].value_counts().to_dict(),
         "beacon": df["label_beacon"].value_counts().sort_index().to_dict(),
+        "pkt":    df["label_pkt"].value_counts().sort_index().to_dict(),
     },
-    "split_counts": df["split"].value_counts().to_dict(),
+    "regime_counts": df["regime"].value_counts().to_dict(),
+    "split_counts":  df["split"].value_counts().to_dict(),
     "checks_passed": 10,
 }
 with open("validation_manifest.json", "w") as f:

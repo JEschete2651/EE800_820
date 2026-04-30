@@ -11,7 +11,7 @@ Instrument the Module~2 \texttt{ingest\_top} design with Vivado \ILA{} probes, g
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~3-A complete (all 8 pre-integration checklist items passed).
+	\item Lab Handout~3-A complete (all 9 pre-integration checklist items passed).
 	\item Module~2 Vivado project open and \texttt{ingest\_top.bit} compiling cleanly.
 \end{itemize}
 
@@ -65,8 +65,9 @@ Identify the following signals in \texttt{ingest\_top.vhd} and note their driver
 		\texttt{byte\_counter} & 6 & Byte position within the current frame (0--42) \\
 		\texttt{frame\_valid} & 1 & Successful double-\CRC{} frame; primary integration milestone trigger \\
 		\texttt{frame\_reject} & 1 & \CRC{} failure; indicates firmware/\RTL{} \CRC{} mismatch \\
-		\texttt{beacon\_id} & 8 & Parsed beacon \mbox{ID}; compare to STM32 debug log \\
-		\texttt{rssi\_out} & 8 & Parsed \RSSI{}; compare to receiver debug log within $\pm$2~dB \\
+		\texttt{beacon\_id} & 8 & Parsed Beacon~\mbox{ID} (sender); compare to STM32 debug log (\texttt{0x01}=Target~A DATA, \texttt{0x02}=Target~B ACK, \texttt{0xFF}=Threat PAUSE) \\
+		\texttt{pkt\_type} & 2 & Packet type from low 2 bits of radio packet's \texttt{Modulation Code} byte (\texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE) \\
+		\texttt{rssi\_out} & 8 & Parsed \RSSI{}; compare to interceptor debug log within $\pm$2~dB \\
 		\texttt{fifo\_count} & 6 & \FIFO{} occupancy; detect overflow risk during burst traffic \\
 		\bottomrule
 	\end{tabularx}
@@ -76,13 +77,13 @@ Identify the following signals in \texttt{ingest\_top.vhd} and note their driver
 \subsection{Step 3 --- Insert the ILA core}
 \begin{enumerate}[leftmargin=2em]
 	\item In the Vivado \mbox{IP} Catalog, search for \textbf{ILA (Integrated Logic Analyzer)}. Instantiate one ILA core.
-	\item Configure the core: \textbf{Number of Probes} = 11 (one per row in the table above), \textbf{Sample Depth} = 1024. Set the data width of each probe to match the signal width.
+	\item Configure the core: \textbf{Number of Probes} = 12 (one per row in the table above), \textbf{Sample Depth} = 1024. Set the data width of each probe to match the signal width.
 	\item Connect the ILA clock to \texttt{sysclk} (100\,MHz). Connect each probe port to the corresponding signal from the table above.
 	\item Place the instantiation inside the \texttt{gen\_debug} generate block from Step~1.
 \end{enumerate}
 
 \begin{tcolorbox}[warning={\ILA{} Block RAM Cost}]
-	This configuration (11 probes, 1024-sample depth) uses approximately 4 \BRAM{} tiles. The Module~2 pipeline uses 2 \BRAM{} tiles for the feature \BRAM{}. Total with the \ILA{}: 6 of 135 available \BRAM{} tiles on the Artix-7 100T. This is well within budget. The \ILA{} overhead is the primary reason to generate a separate production bitstream in LH3-E once debugging is complete.
+	This configuration (12 probes, 1024-sample depth) uses approximately 4 \BRAM{} tiles. The Module~2 pipeline uses 2 \BRAM{} tiles for the feature \BRAM{}. Total with the \ILA{}: 6 of 135 available \BRAM{} tiles on the Artix-7 100T. This is well within budget. The \ILA{} overhead is the primary reason to generate a separate production bitstream in LH3-E once debugging is complete.
 \end{tcolorbox}
 
 \subsection{Step 4 --- Re-synthesize and implement with debug}
@@ -100,10 +101,10 @@ Identify the following signals in \texttt{ingest\_top.vhd} and note their driver
 	\item Connect the Nexys A7 via USB. In Vivado Hardware Manager, program \texttt{ingest\_top\_debug.bit}.
 	\item Vivado will prompt to associate the debug probes file (\texttt{.ltx}). Click \textbf{OK}.
 	\item The \mbox{ILA} dashboard should open automatically. If it does not, go to \textbf{Tools $\to$ Open Debug Probes} and navigate to the generated \texttt{.ltx} file.
-	\item Confirm that all 11 probe channels are visible and labeled.
+	\item Confirm that all 12 probe channels are visible and labeled.
 \end{enumerate}
 
-\labfigure{LH3B_ila_dashboard.png}{0.85\textwidth}{Vivado \ILA{} dashboard showing all 11 probe channels listed and idle (no \UART{} input connected yet). Confirm the channel names match the signal table before proceeding.}{fig:lh3b-ila-dashboard}
+\labfigure{LH3B_ila_dashboard.png}{0.85\textwidth}{Vivado \ILA{} dashboard showing all 12 probe channels listed and idle (no \UART{} input connected yet). Confirm the channel names match the signal table before proceeding.}{fig:lh3b-ila-dashboard}
 
 \subsection{Step 6 --- Baseline ILA verification (no STM32 connected)}
 \begin{enumerate}[leftmargin=2em]
@@ -131,7 +132,7 @@ set_property PULLUP true [get_ports uart_rxd]
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] \texttt{g\_DEBUG} generic added to \texttt{ingest\_top.vhd} with generate-conditional \mbox{ILA{}} instantiation.
 	\item[$\square$] Debug bitstream synthesizes and implements with zero errors and positive \mbox{WNS}.
-	\item[$\square$] All 11 \mbox{ILA} probe channels visible and correctly labeled in Vivado dashboard.
+	\item[$\square$] All 12 \mbox{ILA} probe channels visible and correctly labeled in Vivado dashboard.
 	\item[$\square$] Baseline test: \texttt{rx\_valid} does not assert spuriously with no \UART{} input connected.
 	\item[$\square$] \texttt{uart\_rxd\_sync} idles at logic~1 (UART idle state) when \mbox{PMOD} pin is undriven or pulled up.
 \end{itemize}
@@ -141,7 +142,7 @@ set_property PULLUP true [get_ports uart_rxd]
 		\item Modified \texttt{ingest\_top.vhd} with \texttt{g\_DEBUG} generic and \mbox{ILA} generate block.
 		\item \texttt{ingest\_top\_debug.bit} and associated \texttt{.ltx} probes file.
 		\item Post-synthesis utilization screenshot showing \mbox{ILA} \mbox{BRAM} tiles listed.
-		\item \mbox{ILA} dashboard screenshot with all 11 channels labeled and the baseline idle state visible.
+		\item \mbox{ILA} dashboard screenshot with all 12 channels labeled and the baseline idle state visible.
 		\item Notes on any \mbox{PMOD} pull-up changes made to the \texttt{.xdc} file.
 	\end{enumerate}
 \end{tcolorbox}

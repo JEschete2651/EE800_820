@@ -7,19 +7,19 @@
 \labheader{2-B}{\UART{} Receiver with Oversampling and Clock-Domain Synchronizer}
 
 \section{Objective}
-Implement a 115200-baud \UART{} receiver in \VHDL{} that captures asynchronous bytes from the Module~1 STM32 receiver and delivers them into the Nexys A7's 100~MHz clock domain. By the end of this handout you will have a synthesizable \texttt{uart\_rx} component that emits a one-cycle \texttt{rx\_valid} pulse per received byte, verified in simulation against a known stimulus.
+Implement a 115200-baud \UART{} receiver in \VHDL{} that captures asynchronous bytes from the Module~1 STM32 interceptor (Threat) and delivers them into the Nexys A7's 100~MHz clock domain. By the end of this handout you will have a synthesizable \texttt{uart\_rx} component that emits a one-cycle \texttt{rx\_valid} pulse per received byte, verified in simulation against a known stimulus.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~2-A (Vivado project skeleton in place).
-	\item Working Module~1 beacon/receiver pair, or a recorded \texttt{.bin} capture of receiver \UART{} output.
+	\item Working Module~1 cooperative-target / interceptor system, or a recorded \texttt{.bin} capture of the interceptor's \UART{} output.
 \end{itemize}
 
 \section{Background}
-The STM32 drives the \UART{} line asynchronously; its transmit clock has no relationship to the \FPGA's 100~MHz \texttt{sysclk}. The receiver therefore performs two jobs: (1) cross \texttt{uart\_rxd} safely into the \texttt{sysclk} domain, and (2) recover byte boundaries by oversampling.
+The STM32 interceptor drives the \UART{} line asynchronously; its transmit clock has no relationship to the \FPGA's 100~MHz \texttt{sysclk}. The \UART{} receiver IP block therefore performs two jobs: (1) cross \texttt{uart\_rxd} safely into the \texttt{sysclk} domain, and (2) recover byte boundaries by oversampling.
 
 \begin{tcolorbox}[infobox={Why 16$\times$ oversampling?}]
-	Sampling each bit 16 times per bit-period and taking the middle sample tolerates about $\pm$3\% of baud-rate mismatch between the transmitter and receiver. At 115200~baud with a 100~MHz system clock, the oversample tick period is $100\,\mathrm{MHz} / (115200 \times 16) \approx 54$ cycles. A simple counter dividing \texttt{sysclk} by 54 produces the sample-enable strobe used by the receiver \FSM{}.
+	Sampling each bit 16 times per bit-period and taking the middle sample tolerates about $\pm$3\% of baud-rate mismatch between the transmitter and the FPGA UART receiver. At 115200~baud with a 100~MHz system clock, the oversample tick period is $100\,\mathrm{MHz} / (115200 \times 16) \approx 54$ cycles. A simple counter dividing \texttt{sysclk} by 54 produces the sample-enable strobe used by the receiver \FSM{}.
 \end{tcolorbox}
 
 \section{Procedure}
@@ -83,7 +83,7 @@ Add it to the simulation set in Vivado and run a 2\,ms behavioral simulation.
 
 \subsection{Step 5 --- Regression against recorded Module~1 data}
 \begin{enumerate}[leftmargin=2em]
-	\item Copy a recorded receiver \texttt{.bin} from Module~1 Week~4 into \texttt{data/}.
+	\item Copy a recorded interceptor \texttt{.bin} from Session~4 into \texttt{data/}.
 	\item Extend the testbench to read the file via \texttt{std.textio}/\texttt{ieee.std\_logic\_textio}, emit the bytes as a serial bit stream, and log every \texttt{rx\_valid} byte to a text file.
 	\item Diff the simulation log against the original \texttt{.bin}. They must match byte-for-byte.
 \end{enumerate}

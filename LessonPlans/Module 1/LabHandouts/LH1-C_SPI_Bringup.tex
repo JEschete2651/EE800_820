@@ -56,23 +56,64 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 \newpage
 \section{Procedure}
 
-\subsection{Step 1 --- Configure peripherals via STM32CubeMX}
+\begin{tcolorbox}[warning={Create All Projects Now --- Do Not Copy or Move Folders Later}]
+	The STM32CubeMX + VS Code toolchain is sensitive to project folder location. Once a project is generated, \emph{moving or copying its folder breaks the CMake cache, the launch.json paths, and frequently the STM32 extension's project detection.} You will spend more time troubleshooting than writing firmware. The fix is to create every project you will ever need \emph{up front}, in its final location, and never move them. This handout creates all three working projects in Step~1 before any RF code is written. Subsequent handouts (LH1-D, LH1-F, LH1-G) only \emph{open} the appropriate pre-existing project and add code; no project copying or renaming.
+\end{tcolorbox}
+
+\subsection{Step 1 --- Create all three working projects with identical baseline configuration}
+
+You will create three STM32CubeMX projects, one per Nucleo board, each with the same baseline peripheral configuration. Each project lives permanently in its own folder for the rest of Module~1 and beyond.
+
+\begin{table}[h!]
+	\centering
+	\caption{Three projects created in this step, with their permanent roles.}
+	\label{tab:projects}
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabular}{l l l}
+		\toprule
+		\textbf{Project Name} & \textbf{Used in Lab Handouts} & \textbf{Permanent Role} \\
+		\midrule
+		\texttt{Nucleo\_RFM95W\_TargetA} & LH1-C (this), LH1-D, LH1-F & DATA initiator (Beacon~ID \texttt{0x01}) \\
+		\texttt{Nucleo\_RFM95W\_TargetB} & LH1-D, LH1-F                & ACK responder (Beacon~ID \texttt{0x02}) \\
+		\texttt{Nucleo\_RFM95W\_Threat}  & LH1-G, LH1-H                & Interceptor + PAUSE TX (Beacon~ID \texttt{0xFF}) \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\subsubsection*{Step 1.1 --- Choose a permanent project root}
+
+Pick one folder on your local disk that will hold all three project folders permanently. Recommended locations:
+\begin{itemize}[leftmargin=2em]
+	\item Windows: \texttt{C:\textbackslash STM32\_Capstone\textbackslash} (NOT inside OneDrive, NOT in your Documents folder if Documents is OneDrive-synced).
+	\item macOS / Linux: \texttt{$\sim$/STM32\_Capstone/} (NOT in iCloud Drive, NOT in Dropbox).
+\end{itemize}
+
+\begin{tcolorbox}[warning={Do Not Use Cloud-Synced Folders}]
+	OneDrive, iCloud Drive, Dropbox, and Google Drive will silently corrupt CubeMX-generated files mid-write because they sync the directory while the toolchain is still creating it. Symptoms include missing \texttt{.cmake} files, garbled \texttt{main.c} regenerations, and unrecoverable Vivado-style ``project version mismatch'' errors. Use a local-only folder.
+\end{tcolorbox}
+
+\subsubsection*{Step 1.2 --- Create \texttt{Nucleo\_RFM95W\_TargetA}}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Create a new project in STM32CubeMX following the same steps as Lab Handout~1-B (STM icon $\to$ Launch STM32CubeMX $\to$ Board Selector $\to$ NUCLEO-L476RG $\to$ Start Project $\to$ Project Manager). Name the project \textbf{Nucleo\_RFM95W\_Base} and save it to a local folder outside OneDrive. Set the toolchain to \textbf{CMake}. This project will serve as the reusable base configuration for all subsequent RF labs.
+	\item In VS Code, click the \textbf{STM32} icon in the Activity Bar, then click \textbf{Launch STM32CubeMX}.
+	\item In CubeMX, click \textbf{Access to Board Selector}, type \texttt{NUCLEO-L476RG} in the Commercial Part Number search box, select the board, then click \textbf{Start Project}. When prompted ``Initialize all peripherals with their default Mode?'' click \textbf{No} (you will configure peripherals manually).
+	\item Click the \textbf{Project Manager} tab.
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=2pt]
+		\item Project Name: \texttt{Nucleo\_RFM95W\_TargetA}
+		\item Project Location: the permanent root from Step~1.1.
+		\item Toolchain / IDE: \textbf{CMake}.
+	\end{itemize}
+	\item Do \textbf{not} click Generate Code yet. Configure the peripherals as described in Steps~1.3--1.7 below, then generate code at the end.
+\end{enumerate}
 
-	\item \textbf{Enable SPI1:}
-	\begin{enumerate}[leftmargin=1.5em]
-		\item In the pinout view, click pin \texttt{PA5} and select \textbf{SPI1\_SCK} from the popup. Repeat for \texttt{PA6} $\to$ \textbf{SPI1\_MISO} and \texttt{PA7} $\to$ \textbf{SPI1\_MOSI}.
-		\item In the left-hand \textbf{Categories} tree, expand \textbf{Connectivity} and click \textbf{SPI1}.
-		\item Set the \textbf{Mode} dropdown to \textbf{Full-Duplex Master}. The pins assigned above will be confirmed in the pinout view.
-	\end{enumerate}
+\subsubsection*{Step 1.3 --- Enable SPI1}
 
-	\item \textbf{Configure SPI1 parameters:}
-	\begin{enumerate}[leftmargin=1.5em]
-		\item With SPI1 still selected, click the \textbf{Configuration} tab (or \textbf{Parameter Settings} in newer CubeMX versions).
-		\item Set each parameter per Table~\ref{tab:spi-bringup} below. Pay particular attention to \mbox{CPOL}=0 and \mbox{CPHA}=1~Edge --- an incorrect clock phase is the most common cause of a failed \texttt{RegVersion} read.
-		\item Set \textbf{NSS} to \textbf{Software} --- chip select will be driven manually in firmware.
-	\end{enumerate}
+\begin{enumerate}[leftmargin=2em]
+	\item In the pinout view, click pin \texttt{PA5} and select \textbf{SPI1\_SCK} from the popup. Repeat for \texttt{PA6} $\to$ \textbf{SPI1\_MISO} and \texttt{PA7} $\to$ \textbf{SPI1\_MOSI}.
+	\item In the left-hand \textbf{Categories} tree, expand \textbf{Connectivity} and click \textbf{SPI1}.
+	\item Set the \textbf{Mode} dropdown to \textbf{Full-Duplex Master}. The pins assigned above will be confirmed in the pinout view.
+	\item Click the \textbf{Configuration} tab (or \textbf{Parameter Settings} in newer CubeMX versions). Set each parameter per Table~\ref{tab:spi-bringup} below. Pay particular attention to \mbox{CPOL}=0 and \mbox{CPHA}=1~Edge --- an incorrect clock phase is the most common cause of a failed \texttt{RegVersion} read in Step~5. Set \textbf{NSS} to \textbf{Software} --- chip select will be driven manually in firmware.
+\end{enumerate}
 
 \begin{table}[h!]
 	\centering
@@ -93,27 +134,88 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\end{tabular}
 \end{table}
 
-	\item \textbf{Configure GPIO pins for CS, RST, and DIO0:}
-	\begin{enumerate}[leftmargin=1.5em]
-		\item In the pinout view, click pin \texttt{PB6}. Select \textbf{GPIO\_Output} from the popup.
-		\item Repeat for \texttt{PA9} and \texttt{PA8}.
-		\item To assign user labels, click \textbf{System Core} $\to$ \textbf{GPIO} in the categories tree. Select each pin and set its \textbf{User Label}: \texttt{PB6} $\to$ \texttt{RFM\_CS}, \texttt{PA9} $\to$ \texttt{RFM\_RST}, \texttt{PA8} $\to$ \texttt{RFM\_DIO0}. These labels become the \texttt{\_GPIO\_Port} and \texttt{\_Pin} macro names in generated code.
-		\item Leave \texttt{PA8} (\texttt{RFM\_DIO0}) as a plain GPIO output for now; it will be reconfigured as an \texttt{EXTI} interrupt input in a later handout.
-	\end{enumerate}
+\subsubsection*{Step 1.4 --- Configure GPIO pins for CS and RST, and configure DIO0 as EXTI input}
 
-	\item \textbf{Enable USART2} (used to send \texttt{printf} output to the ST-LINK virtual COM port):
-	\begin{enumerate}[leftmargin=1.5em]
-		\item In the categories tree, expand \textbf{Connectivity} and click \textbf{USART2}.
-		\item Set \textbf{Mode} to \textbf{Asynchronous}.
-		\item In \textbf{Parameter Settings}, confirm \textbf{Baud Rate} is \textbf{115200}, \textbf{Word Length} 8~bits, \textbf{Parity} None, \textbf{Stop Bits} 1.
-	\end{enumerate}
-
-	\item Click \textbf{Generate Code}. Return to VS Code and run \texttt{cube bundle init -{}-project} in the terminal if prompted.
+\begin{enumerate}[leftmargin=2em]
+	\item In the pinout view, click pin \texttt{PB6}. Select \textbf{GPIO\_Output} from the popup.
+	\item Click pin \texttt{PA9}. Select \textbf{GPIO\_Output}.
+	\item Click pin \texttt{PA8}. Select \textbf{GPIO\_EXTI8} (NOT GPIO\_Output --- DIO0 is the SX1276's interrupt line, used by LH1-F's RxDone ISR and by LH1-G's Threat ISR; configuring it as EXTI now avoids a mid-project CubeMX edit later).
+	\item To assign user labels, click \textbf{System Core} $\to$ \textbf{GPIO} in the categories tree. Select each pin and set its \textbf{User Label}:
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=2pt]
+		\item \texttt{PB6} $\to$ \texttt{RFM\_CS}
+		\item \texttt{PA9} $\to$ \texttt{RFM\_RST}
+		\item \texttt{PA8} $\to$ \texttt{RFM\_DIO0} --- in the GPIO subpanel for PA8, also set \textbf{GPIO mode} to \textbf{External Interrupt Mode with Rising edge trigger detection}.
+	\end{itemize}
+	These labels become the \texttt{\_GPIO\_Port} and \texttt{\_Pin} macro names in generated code (e.g., \texttt{RFM\_CS\_GPIO\_Port}, \texttt{RFM\_CS\_Pin}).
+	\item In CubeMX \textbf{NVIC Settings} (under System Core $\to$ NVIC), enable the \textbf{EXTI line[9:5] interrupts}. This wires PA8's rising edge to the \texttt{HAL\_GPIO\_EXTI\_Callback} that LH1-F and LH1-G install.
 \end{enumerate}
+
+\subsubsection*{Step 1.5 --- Enable USART2 for \texttt{printf} debug}
+
+\begin{enumerate}[leftmargin=2em]
+	\item In the categories tree, expand \textbf{Connectivity} and click \textbf{USART2}.
+	\item Set \textbf{Mode} to \textbf{Asynchronous}.
+	\item In \textbf{Parameter Settings}, confirm \textbf{Baud Rate} is \textbf{115200}, \textbf{Word Length} 8~bits, \textbf{Parity} None, \textbf{Stop Bits} 1.
+\end{enumerate}
+
+\subsubsection*{Step 1.6 --- Enable USART3 for the FPGA forwarding link (Threat use only, but configure on all three projects to keep them identical)}
+
+\begin{enumerate}[leftmargin=2em]
+	\item In the pinout view, click pin \texttt{PC4} and select \textbf{USART3\_TX}. Click pin \texttt{PC5} and select \textbf{USART3\_RX}.
+	\item In the categories tree, click \textbf{USART3}. Set \textbf{Mode} to \textbf{Asynchronous}. Confirm \textbf{Baud Rate} is \textbf{115200}, \textbf{Word Length} 8~bits, \textbf{Parity} None, \textbf{Stop Bits} 1.
+	\item In the \textbf{DMA Settings} sub-tab, click \textbf{Add}, then select \textbf{USART3\_TX} from the dropdown. Leave the default settings (Memory to Peripheral, Normal mode, Byte width). LH1-G uses USART3 TX in DMA mode to forward 43-byte frames to the FPGA without blocking the main loop.
+\end{enumerate}
+
+\subsubsection*{Step 1.7 --- Enable TIM2 as a 1\,ms tick}
+
+\begin{enumerate}[leftmargin=2em]
+	\item In the categories tree, expand \textbf{Timers} and click \textbf{TIM2}.
+	\item Set \textbf{Clock Source} to \textbf{Internal Clock}.
+	\item In \textbf{Parameter Settings}, set \textbf{Prescaler} = \texttt{79} and \textbf{Counter Period} = \texttt{999}. (At APB1 timer clock = 80\,MHz, this produces a 1\,ms periodic interrupt: $80\,\mathrm{MHz} / (79+1) / (999+1) = 1\,\mathrm{kHz}$.)
+	\item In \textbf{NVIC Settings}, enable the \textbf{TIM2 global interrupt}. LH1-F's FSM uses this 1\,ms tick to maintain \texttt{ms\_count} for transmit scheduling.
+\end{enumerate}
+
+\subsubsection*{Step 1.8 --- Generate code for \texttt{TargetA}, then bring up the project in VS Code}
+
+\begin{enumerate}[leftmargin=2em]
+	\item Click \textbf{Generate Code}. CubeMX will create the project in the location you specified in Step~1.2.
+	\item In VS Code, open the \texttt{Nucleo\_RFM95W\_TargetA} folder (\textbf{File $\to$ Open Folder}). The folder must be the root of the VS Code window or the STM32 extension will not detect the project.
+	\item Open the integrated terminal and run:
+\begin{verbatim}
+cube bundle init --project
+cube bundle show --project
+\end{verbatim}
+	The second command should list the board (NUCLEO-L476RG), the toolchain (CMake), and pack versions without errors.
+	\item Click \textbf{Setup STM32Cube project(s)} in the STM32Cube extension panel, then \textbf{Save and Close}.
+	\item Switch to the \textbf{Run and Debug} panel. Click \textbf{create a launch.json file} and select \textbf{STM32Cube: Launch ST-Link GDB Server}.
+	\item Press \texttt{F7} to build. Confirm zero errors. The project is now ready to receive code in Step~2 below.
+\end{enumerate}
+
+\subsubsection*{Step 1.9 --- Repeat Steps 1.2 through 1.8 for \texttt{Nucleo\_RFM95W\_TargetB} and \texttt{Nucleo\_RFM95W\_Threat}}
+
+Both projects use the \emph{identical} peripheral configuration (SPI1, GPIO labels, EXTI, USART2, USART3 with DMA, TIM2). Only the project name and folder differ.
+
+\begin{tcolorbox}[infobox={Why Configure USART3 + DMA + EXTI on TargetA and TargetB Even Though Only Threat Uses Them?}]
+	Configuring all three projects identically means the projects are interchangeable at the hardware level --- a Target Nucleo can be flashed as a Threat and vice versa without re-running CubeMX. This costs nothing in code size (the unused peripheral init runs once at startup, $\sim$50\,$\mu$s, and the unused peripherals consume no power if not started). The pedagogical benefit is large: students learn that role differentiation lives in firmware, not in hardware configuration. It also means that if a Nucleo physically fails, any other Nucleo can be substituted by reflashing the appropriate role's firmware.
+\end{tcolorbox}
+
+After Step~1.9, you should have three folders on disk:
+\begin{itemize}[leftmargin=2em]
+	\item \texttt{<root>/Nucleo\_RFM95W\_TargetA/}
+	\item \texttt{<root>/Nucleo\_RFM95W\_TargetB/}
+	\item \texttt{<root>/Nucleo\_RFM95W\_Threat/}
+\end{itemize}
+Each builds cleanly under \texttt{F7}. None will be copied, renamed, or moved for the rest of Module~1.
 
 \labfigure{LH1C_spi_config.png}{0.85\textwidth}{STM32CubeMX \SPI{}1 parameter panel configured per Table~\ref{tab:spi-bringup}: 8-bit data, MSB first, \mbox{CPOL}=0, \mbox{CPHA}=1~Edge, prescaler 32.}{fig:lh1c-cubemx}
 
-\subsection{Step 2 --- Redirect \texttt{printf} to USART2}
+\subsection{Step 2 --- Open \texttt{TargetA} for SPI bring-up}
+
+The remaining steps in this handout (Steps~2--6) are performed entirely in \texttt{Nucleo\_RFM95W\_TargetA}. The SPI bring-up code you write here will be removed at the start of LH1-D and replaced with the ping-pong implementation; \texttt{TargetA} carries the production firmware from LH1-D onward.
+
+Open \texttt{Nucleo\_RFM95W\_TargetA} in VS Code (if not already open) and continue.
+
+\subsection{Step 3 --- Redirect \texttt{printf} to USART2}
 \begin{enumerate}[leftmargin=2em]
 	\item In \texttt{main.c}, locate the \texttt{/* USER CODE BEGIN Includes */} section near the top of the file and add:
 \begin{verbatim}
@@ -127,6 +229,7 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 int __io_putchar(int ch);
 uint8_t rfm_read_reg(uint8_t addr);
 void rfm_write_reg(uint8_t addr, uint8_t val);
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb);
 /* USER CODE END PFP */
 \end{verbatim}
 	\item Scroll to the \texttt{/* USER CODE BEGIN 4 */} section near the bottom of the file and add the definition:
@@ -141,7 +244,7 @@ int __io_putchar(int ch) {
 	Keeping the prototype and definition inside the \texttt{USER CODE} comment blocks ensures they are preserved if you regenerate code from CubeMX.
 \end{enumerate}
 
-\subsection{Step 3 --- Write a minimal register-read function}
+\subsection{Step 4 --- Write a minimal register-read function}
 Implement the following helper:
 \begin{verbatim}
 uint8_t rfm_read_reg(uint8_t addr) {
@@ -161,10 +264,15 @@ void rfm_write_reg(uint8_t addr, uint8_t val) {
     HAL_SPI_Transmit(&hspi1, tx, 2, HAL_MAX_DELAY);
     HAL_GPIO_WritePin(RFM_CS_GPIO_Port, RFM_CS_Pin, GPIO_PIN_SET);
 }
+
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb) {
+	uint32_t frf = ((uint32_t)msb << 16) | ((uint32_t)mid << 8) | lsb;
+	return (uint32_t)(((uint64_t)frf * 32000000ULL) / 524288ULL);
+}
 \end{verbatim}
 
 \newpage
-\subsection{Step 4 --- Reset the module and read \texttt{RegVersion}}
+\subsection{Step 5 --- Reset the module and read \texttt{RegVersion}}
 \begin{enumerate}[leftmargin=2em]
 	\item In \texttt{main.c}, locate the \texttt{/* USER CODE BEGIN 2 */} section (after all HAL and peripheral initialization). Add the following reset sequence and register read:
 \begin{verbatim}
@@ -182,7 +290,7 @@ printf("RegVersion = 0x%02X\r\n", version);
 
 /* USER CODE END 2 */
 \end{verbatim}
-	\item Build the project: Command Palette $\to$ \textbf{CMake: Build}. Confirm zero errors.
+	\item Press \texttt{F7} to build (or Command Palette $\to$ \textbf{CMake: Build}). Confirm zero errors. Use \texttt{F7} any time you want to check your code for errors without flashing.
 	\item Flash and run: in the \textbf{Run and Debug} panel, click the green \textbf{Start Debugging} arrow. Once the debugger halts at \texttt{main}, click the green \textbf{Continue} button in the debug toolbar.
 	\item Open the Serial Monitor panel:
 	\begin{enumerate}[leftmargin=1.5em]
@@ -205,9 +313,9 @@ RegVersion = 0x12
 
 \labfigure{LH1C_regversion_printf.png}{0.75\textwidth}{Serial monitor output showing the first successful \texttt{RegVersion = 0x12} read. This is the canonical sanity check for the entire \SPI{} stack.}{fig:lh1c-regversion}
 
-\subsection{Step 5 --- Register write / read-back}
+\subsection{Step 6 --- Register write / read-back}
 
-Add the following code in \texttt{main.c} inside the \texttt{/* USER CODE BEGIN 2 */} block, immediately after the \texttt{RegVersion} read from Step~4:
+Add the following code in \texttt{main.c} inside the \texttt{/* USER CODE BEGIN 2 */} block, immediately after the \texttt{RegVersion} read from Step~5:
 
 \begin{enumerate}[leftmargin=2em]
 	\item First put the module into \texttt{SLEEP} mode --- the SX1276 requires this before frequency registers can be written:
@@ -217,21 +325,57 @@ HAL_Delay(10);
 \end{verbatim}
 	\item Write the three frequency registers to set the carrier to 906.5\,MHz:
 \begin{verbatim}
-rfm_write_reg(0x06, 0xD9);  // RegFrfMsb
-rfm_write_reg(0x07, 0x0C);  // RegFrfMid
-rfm_write_reg(0x08, 0xCC);  // RegFrfLsb
+rfm_write_reg(0x06, 0xE2);  // RegFrfMsb
+rfm_write_reg(0x07, 0xA0);  // RegFrfMid
+rfm_write_reg(0x08, 0x00);  // RegFrfLsb
 \end{verbatim}
 	\item Read the same registers back and print each value:
 \begin{verbatim}
-printf("FrfMsb = 0x%02X\r\n", rfm_read_reg(0x06));
-printf("FrfMid = 0x%02X\r\n", rfm_read_reg(0x07));
-printf("FrfLsb = 0x%02X\r\n", rfm_read_reg(0x08));
+uint8_t frf_msb = rfm_read_reg(0x06);
+uint8_t frf_mid = rfm_read_reg(0x07);
+uint8_t frf_lsb = rfm_read_reg(0x08);
+
+printf("FrfMsb = 0x%02X\r\n", frf_msb);
+printf("FrfMid = 0x%02X\r\n", frf_mid);
+printf("FrfLsb = 0x%02X\r\n", frf_lsb);
+uint32_t carrier_hz = rfm_frf_to_hz(frf_msb, frf_mid, frf_lsb);
+printf("Carrier = %lu.%03lu MHz\r\n", carrier_hz / 
+	1000000UL, (carrier_hz % 1000000UL) / 1000UL);
 \end{verbatim}
-	\item Build (CMake: Build), then flash using the green \textbf{Start Debugging} arrow in the \textbf{Run and Debug} panel. Check the serial monitor. The three printed values should match \texttt{0xD9}, \texttt{0x0C}, \texttt{0xCC}. A mismatch usually indicates a \mbox{CPOL}/\mbox{CPHA} error or a floating \texttt{MISO} line.
+	\item Press \texttt{F7} to build, then flash using the green \textbf{Start Debugging} arrow in the \textbf{Run and Debug} panel. Check the serial monitor. The three printed values should match \texttt{0xE2}, \texttt{0xA0}, \texttt{0x00}, and the carrier print should read \texttt{Carrier = 906.500 MHz}. A mismatch usually indicates a \mbox{CPOL}/\mbox{CPHA} error or a floating \texttt{MISO} line.
 \end{enumerate}
 
-\subsection{Step 6 --- Mode transitions}
-The \texttt{RegOpMode} register (\texttt{0x01}) controls the radio operating state. The low 3~bits select the mode; bit~7 selects LoRa vs.\ FSK. Add the following to \texttt{/* USER CODE BEGIN 2 */} after the Step~5 code, then build and flash to observe each transition in the serial monitor.
+\begin{tcolorbox}[infobox={How to calculate \texttt{RegFrf*}}]
+For the SX1276 in LoRa mode, the carrier frequency is set by a 24-bit value:
+\[
+f_{\mathrm{RF}} = \mathrm{FRF} \cdot \frac{F_{\mathrm{XOSC}}}{2^{19}},
+\qquad
+\mathrm{FRF} = \left\lfloor \frac{f_{\mathrm{RF}}\,2^{19}}{F_{\mathrm{XOSC}}} \right\rceil
+\]
+Using \(F_{\mathrm{XOSC}}=32\,\mathrm{MHz}\) and \(f_{\mathrm{RF}}=906.5\,\mathrm{MHz}\):
+\[
+\mathrm{FRF} = \left\lfloor \frac{906.5\times10^6\cdot2^{19}}{32\times10^6} \right\rceil
+= 14{,}852{,}096 = \texttt{0xE2A000}
+\]
+So write \texttt{RegFrfMsb=0xE2}, \texttt{RegFrfMid=0xA0}, and \texttt{RegFrfLsb=0x00}.
+
+\noindent The helper \texttt{rfm\_frf\_to\_hz} performs this inverse in integer arithmetic using \texttt{uint64\_t} to avoid overflow:
+\begin{verbatim}
+uint32_t rfm_frf_to_hz(uint8_t msb, uint8_t mid, uint8_t lsb) {
+    uint32_t frf = ((uint32_t)msb << 16) | ((uint32_t)mid << 8) | lsb;
+    return (uint32_t)(((uint64_t)frf * 32000000ULL) / 524288ULL);
+}
+\end{verbatim}
+The result is printed using integer formatting to avoid \texttt{\%f} float-support issues in the nano C library:
+\begin{verbatim}
+printf("Carrier = %lu.%03lu MHz\r\n",
+       carrier_hz / 1000000UL,
+       (carrier_hz % 1000000UL) / 1000UL);
+\end{verbatim}
+\end{tcolorbox}
+
+\subsection{Step 7 --- Mode transitions}
+The \texttt{RegOpMode} register (\texttt{0x01}) controls the radio operating state. The low 3~bits select the mode; bit~7 selects LoRa vs.\ FSK. Add the following to \texttt{/* USER CODE BEGIN 2 */} after the Step~6 code, then press \texttt{F7} to build and use the green \textbf{Start Debugging} arrow to flash. Observe each transition in the serial monitor.
 
 \begin{enumerate}[leftmargin=2em]
 	\item Read the current mode and print it:
@@ -242,19 +386,19 @@ printf("OpMode = 0x%02X\r\n", rfm_read_reg(0x01));
 \begin{verbatim}
 rfm_write_reg(0x01, 0x80);
 HAL_Delay(10);
-printf("OpMode (SLEEP)    = 0x%02X\r\n", rfm_read_reg(0x01));
+printf("OpMode (SLEEP) = 0x%02X\r\n", rfm_read_reg(0x01));
 \end{verbatim}
 	\item Transition to LoRa \texttt{STANDBY} (bits [2:0] = \texttt{001}):
 \begin{verbatim}
 rfm_write_reg(0x01, 0x81);
 HAL_Delay(10);
-printf("OpMode (STANDBY)  = 0x%02X\r\n", rfm_read_reg(0x01));
+printf("OpMode (STANDBY) = 0x%02X\r\n", rfm_read_reg(0x01));
 \end{verbatim}
 	\item Transition to LoRa \texttt{TX} (bits [2:0] = \texttt{011}):
 \begin{verbatim}
 rfm_write_reg(0x01, 0x83);
 HAL_Delay(10);
-printf("OpMode (TX)       = 0x%02X\r\n", rfm_read_reg(0x01));
+printf("OpMode (TX) = 0x%02X\r\n", rfm_read_reg(0x01));
 \end{verbatim}
 	The module will return to \texttt{STANDBY} automatically after any transmission attempt; seeing \texttt{0x81} on a subsequent read is expected.
 \end{enumerate}
@@ -273,6 +417,7 @@ printf("OpMode (TX)       = 0x%02X\r\n", rfm_read_reg(0x01));
 		\item \textbf{\texttt{RegVersion} reads \texttt{0xFF}}: \texttt{MISO} floating (pull-up). Check the jumper to \texttt{PA6}.
 		\item \textbf{Reads a seemingly-random but repeatable value}: \mbox{CPOL}/\mbox{CPHA} wrong, or bit 7 (read/write) flipped in your address byte.
 		\item \textbf{First read is wrong, subsequent reads correct}: missing reset delay; increase the post-reset wait to 20\,ms.
+		\item \textbf{\texttt{Carrier =} shows no number or garbage}: the nano C library used by default does not support \texttt{\%f}. Use \texttt{rfm\_frf\_to\_hz} with the \texttt{\%lu.\%03lu} integer split pattern shown in Step~6.
 	\end{itemize}
 \end{tcolorbox}
 

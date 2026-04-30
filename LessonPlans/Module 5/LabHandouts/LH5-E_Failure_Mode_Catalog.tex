@@ -11,14 +11,77 @@ Assemble the structured catalog of every failure or degradation mode observed ac
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handouts~5-A through~5-D complete (all stress/benchmark results in hand).
+	\item Lab Handouts~5-A through~5-D complete (all stress/benchmark results in hand, including the S5 PAUSE behavioural-response intervals from LH5-C).
 	\item Access to all prior handouts' deliverables so every anomaly tagged during Modules~1--4 can be revisited.
 \end{itemize}
 
 \section{Procedure}
 
+\subsection{Step 0 --- The running log (should have started in Module~1)}
+
+\begin{tcolorbox}[warning={Start this file at the beginning of the project, not here.}]
+	The failure mode catalog is most valuable when entries are written \emph{at the time the anomaly is observed}, not reconstructed weeks later from memory. If you have not been keeping a running log, start now and back-fill what you can recall. Future iterations of this curriculum should begin maintaining \texttt{failure\_modes.csv} from LH1-D onward.
+\end{tcolorbox}
+
+Maintain a file \texttt{failure\_modes.csv} at the root of the project repository throughout all five modules. Its schema:
+
+\begin{lstlisting}[caption={\texttt{failure\_modes.csv} --- append one row per observed anomaly.}]
+id,failure_mode,observed_in,root_module,root_cause,depth,status
+F1,FIFO overflow under burst arrivals,LH5-A S1c/e,M2,FIFO depth 64 insufficient for two-Target ALOHA + PAUSE peaks,1,documented
+F2,CRC reject on valid frames,LH3-C,M1/M2,CRC polynomial mismatch between firmware and RTL,1,fixed
+F3,Classification collapse at low SNR,LH5-B S3d/e,M3,Training data did not cover <0 dB SNR regime,2,documented
+\end{lstlisting}
+
+Column definitions:
+\begin{itemize}[leftmargin=2em]
+	\item \textbf{id}: F1, F2, \ldots (assigned sequentially as anomalies are observed; do not renumber).
+	\item \textbf{failure\_mode}: one-line description using the system's vocabulary.
+	\item \textbf{observed\_in}: the handout + step where it was first seen (e.g.\ \texttt{LH3-C step 4}).
+	\item \textbf{root\_module}: the \emph{earliest} module whose design decision is responsible.
+	\item \textbf{root\_cause}: the specific causal chain from root decision to observed symptom. Name the specific parameter (e.g.\ ``FIFO depth 64''), not a broad category.
+	\item \textbf{depth}: 0 = self-contained, 1 = one module boundary crossed, 2+ = two or more.
+	\item \textbf{status}: \texttt{fixed} / \texttt{documented} / \texttt{mitigated} / \texttt{open}.
+\end{itemize}
+
+To validate the CSV at any point during the project:
+
+\begin{lstlisting}[language=Python, caption={\texttt{validate\_failure\_log.py} --- run from project root; prints PASS or lists missing fields.}]
+import csv, sys
+from pathlib import Path
+
+REQUIRED = {"id", "failure_mode", "observed_in", "root_module",
+            "root_cause", "depth", "status"}
+VALID_DEPTH  = {"0", "1", "2+"}
+VALID_STATUS = {"fixed", "documented", "mitigated", "open"}
+
+rows = list(csv.DictReader(Path("failure_modes.csv").open()))
+errors = []
+
+for r in rows:
+    missing = REQUIRED - set(r.keys())
+    if missing:
+        errors.append(f"{r.get('id','?')}: missing fields {missing}")
+    if r.get("depth") not in VALID_DEPTH:
+        errors.append(f"{r['id']}: depth must be 0/1/2+, got '{r['depth']}'")
+    if r.get("status") not in VALID_STATUS:
+        errors.append(f"{r['id']}: status must be fixed/documented/mitigated/open")
+
+depth2 = sum(1 for r in rows if r.get("depth") == "2+")
+if len(rows) < 8:
+    errors.append(f"Only {len(rows)} entries; need >= 8")
+if depth2 < 2:
+    errors.append(f"Only {depth2} depth-2+ entries; need >= 2")
+
+if errors:
+    print("FAIL")
+    for e in errors:
+        print(" ", e)
+    sys.exit(1)
+print(f"PASS  {len(rows)} entries, {depth2} depth-2+")
+\end{lstlisting}
+
 \subsection{Step 1 --- Populate the catalog}
-For every failure, integration issue, or accuracy anomaly observed during the project (yes, including ones that were fixed), create one catalog entry. Aim for $\geq$ 8 entries. The framework's pedagogical depth is directly proportional to the richness of this list.
+For every failure, integration issue, or accuracy anomaly observed during the project (yes, including ones that were fixed), create one catalog entry. Aim for $\geq$ 8 entries. The framework's pedagogical depth is directly proportional to the richness of this list. The starter table below mirrors the F1--F8 catalog from the Module~5 lesson plan; replace each row with your own evidence and refine the root-cause language.
 
 \begin{table}[h!]
 	\centering
@@ -27,17 +90,17 @@ For every failure, integration issue, or accuracy anomaly observed during the pr
 		\toprule
 		\textbf{ID} & \textbf{Failure Mode} & \textbf{Observed In} & \textbf{Root Module} & \textbf{Root Cause} \\
 		\midrule
-		F1 & \FIFO{} overflow under burst arrivals            & LH5-A (S1e)    & M2   & \FIFO{} depth 64 insufficient for 3-beacon \mbox{ALOHA} peaks \\
-		F2 & \mbox{CRC} reject on valid frames                 & LH3-C          & M1/M2 & \mbox{CRC} polynomial mismatch between firmware and \mbox{RTL} \\
-		F3 & Classification collapse at low \mbox{SNR}         & LH5-B (S3d/e)  & M3/M4 & Training data did not cover $<$0\,dB \mbox{SNR} regime \\
-		F4 & Transient misclass at SF transition              & LH5-B (S2)     & M2   & \texttt{inter\_arrival\_ms} computed against previous-SF packet \\
-		F5 & Label mismatch rate $>$ nominal                   & LH3-H          & M1   & Firmware SF define desynchronised with campaign config \mbox{JSON} \\
-		F6 & Sim-to-real accuracy drop                        & LH4-F          & M1/M3 & Simulator did not model multipath / thermal \mbox{RSSI} drift \\
-		F7 & Python logger memory growth                      & LH5-B (S4)     & M4   & Unbounded list append in inference loop; leaks over 30\,min \\
-		F8 & Host stdout buffering inflating \emph{$T_{\text{infer}}$} measurement & LH5-C & M4 & \texttt{print()} buffering measured inside the timed region \\
+		F1 & \FIFO{} overflow under burst arrivals             & LH5-A (S1c, S1e) & M2   & \FIFO{} depth 64 insufficient for two-Target ALOHA + intermittent PAUSE peaks \\
+		F2 & \mbox{CRC} reject on valid frames                  & LH3-C            & M1/M2 & \mbox{CRC} polynomial mismatch between firmware and \mbox{RTL} \\
+		F3 & Classification collapse at low \mbox{SNR}          & LH5-B (S3d/e)    & M3/M4 & Training data did not cover $<$0\,dB \mbox{SNR} regime \\
+		F4 & Transient SF/mod misclass at SF transition         & LH5-B (S2)       & M2   & \texttt{inter\_arrival\_ms} computed against previous-SF DATA frame from same Target~ID \\
+		F5 & Stale RSSI table $\Rightarrow$ wrong PAUSE target  & LH5-C (S5)       & M1   & Threat RSSI table not aged; old strongest emitter selected after the link rebalances \\
+		F6 & Both Targets simultaneously jammed                 & LH5-A (S1d)      & M1   & Held-button PAUSE without RSSI tie-break selects the same Target every cadence; the other never receives a PAUSE row but is collateral-jammed by the on-air burst \\
+		F7 & Operating-condition shift (clean$\to$contended)    & LH4-F + LH5-D B5 & M3   & Training set under-samples PAUSE-active regime; classifier accuracy drops once C5 introduces PAUSE rows and contention \\
+		F8 & Host stdout buffering inflates $T_{\text{infer}}$  & LH5-C            & M4   & \texttt{print()} buffering measured inside the timed region \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Starter template --- replace the starter entries with your own observed failures. Each entry must cite the specific handout in which it was observed.}
+	\caption{Starter catalog --- replace each row with your own observed failure data. Each entry must cite the specific handout in which it was observed.}
 \end{table}
 
 \begin{tcolorbox}[infobox={Catalog Entry Structure}]
@@ -59,7 +122,7 @@ Tag each catalog entry with its \emph{chain depth}: the number of module boundar
 	\item \textbf{Depth 2+:} Cross-module-skipping chain (e.g., M1 firmware decision surfaces as an M4 accuracy problem). These are the pedagogically richest entries.
 \end{itemize}
 
-Count the distribution. A healthy catalog has at least a couple of depth-2+ entries --- if every entry is depth 0, the integration surface was too thin, suggesting the curriculum could be more interconnected.
+Count the distribution. A healthy catalog has at least a couple of depth-2+ entries --- if every entry is depth 0, the integration surface was too thin, suggesting the curriculum could be more interconnected. F5 (M1$\to$M5) and F7 (M3$\to$M5) are good candidate depth-2+ entries from the starter set.
 
 \subsection{Step 3 --- Cross-domain dependency diagram}
 Draw a directed graph using TikZ (or any diagramming tool). Nodes are design decisions; edges point from ``decision'' to ``observed failure''. Group nodes by module.
@@ -77,21 +140,28 @@ Draw a directed graph using TikZ (or any diagramming tool). Nodes are design dec
 ]
   % Module 1 design decisions
   \node[decision] (baud)  {UART 115200 baud\\(M1)};
-  \node[decision, right=of baud] (pkt)   {32-B packet format\\(M1)};
-  \node[decision, right=of pkt]   (crc)  {CRC-8 poly 0x07\\(M1)};
+  \node[decision, right=of baud] (pkt)   {32-B packet,\\packed Mod-Code\\(M1)};
+  \node[decision, right=of pkt]  (rssi)  {Threat RSSI table\\age policy (M1)};
 
   % Module 2 design decisions
   \node[decision, below=of baud] (fifo)  {FIFO depth 64\\(M2)};
-  \node[decision, below=of pkt]  (feat)  {8-feature vector\\(M2)};
+  \node[decision, below=of pkt]  (feat)  {feature vector w/\\pkt\_type @ off.~3\\(M2)};
+
+  % Module 3 design decision
+  \node[decision, below=of rssi] (regime) {C1--C4 only in\\training set (M3)};
 
   % Observed failures
-  \node[failure, below=of fifo] (F1)  {F1: FIFO overflow\\(LH5-A S1e)};
-  \node[failure, below=of feat] (F4)  {F4: Transient miscl.\\at SF transition};
+  \node[failure, below=of fifo]   (F1) {F1: FIFO overflow\\(LH5-A S1c/e)};
+  \node[failure, below=of feat]   (F4) {F4: Transient miscl.\\at SF transition};
+  \node[failure, below=of regime] (F7) {F7: op-shift drop\\(LH4-F, LH5-D B5)};
+  \node[failure, right=of F7]     (F5) {F5: stale RSSI\\$\Rightarrow$ wrong PAUSE\\target (LH5-C S5)};
 
-  \draw[arrow] (baud) -- (fifo);
-  \draw[arrow] (fifo) -- (F1);
-  \draw[arrow] (feat) -- (F4);
-  \draw[arrow] (pkt)  -- (F4);
+  \draw[arrow] (baud)   -- (fifo);
+  \draw[arrow] (fifo)   -- (F1);
+  \draw[arrow] (feat)   -- (F4);
+  \draw[arrow] (pkt)    -- (F4);
+  \draw[arrow] (regime) -- (F7);
+  \draw[arrow] (rssi)   -- (F5);
   % ... extend ...
 \end{tikzpicture}
 \end{lstlisting}
@@ -99,30 +169,30 @@ Draw a directed graph using TikZ (or any diagramming tool). Nodes are design dec
 Goal: the reader should be able to trace any failure node back to its root module by following the arrows backward. This is the visual counterpart to the catalog table.
 
 \subsection{Step 4 --- Depth-2 walkthrough}
-Pick one depth-2 or deeper entry from your catalog and write a one-page walkthrough of the full causal chain. Example structure for F3 (``Classification collapse at low \mbox{SNR}''):
+Pick one depth-2 or deeper entry from your catalog and write a one-page walkthrough of the full causal chain. Example structure for F7 (``Operating-condition shift, clean$\to$contended''):
 
 \begin{enumerate}[leftmargin=2em]
-	\item \textbf{Design decision (M1):} The beacons use +14\,dBm \mbox{TX} power as the Module~3 nominal configuration --- chosen for regulatory compliance (915\,MHz ISM band limit) and power budget at a 3\,m operating distance.
-	\item \textbf{Propagation (M3):} All Module~3 campaigns used this power or close to it. The training dataset's \mbox{SNR} distribution has a peak around 7--12\,dB with almost no samples below 0\,dB.
-	\item \textbf{Propagation (M4):} The classifier learned feature distributions conditioned on this range. Low-\mbox{SNR} features are out-of-distribution input.
-	\item \textbf{Observed failure (M5):} In LH5-B's S3d and S3e, accuracy collapses for the SF task. The classifier predicts confidently but wrongly.
-	\item \textbf{Fix candidates (M3 retrofit):} Collect a dedicated low-power campaign, or add synthetic low-\mbox{SNR} augmentation in training. Either would close the gap.
+	\item \textbf{Design decision (M3):} The Module~3 collection campaigns C1--C4 were all run in the ``clean'' regime --- no PAUSE asserted, no contention beyond the natural Target~A / Target~B ping-pong. Chosen for reproducibility and labelling simplicity at 906.5\,MHz.
+	\item \textbf{Propagation (M3 dataset):} The training set therefore has near-zero PAUSE-row examples and near-zero half-jammed feature vectors. The marginal distributions of \texttt{rssi\_delta}, \texttt{inter\_arrival\_ms}, and the packed Modulation Code byte are all skewed toward the clean-regime mode.
+	\item \textbf{Propagation (M4):} The four-task classifier learned class-conditional distributions on this clean training set. The Module~4 LH4-F operating-condition shift experiment quantified $\Delta_{\text{op-shift}}$ on a held-out C5 slice and found the largest drops on the modulation-kind and packet-type tasks.
+	\item \textbf{Observed failure (M5):} In LH5-D's B5 operating point (Target~A + Target~B + held-button PAUSE), the same drop reappears live. PAUSE rows are sometimes misclassified as DATA, and modulation-kind accuracy on the half-suppressed Target degrades by $>$5\,pp from the B4 baseline.
+	\item \textbf{Fix candidates (M3 retrofit):} Add a dedicated C5-style collection campaign with intermittent PAUSE asserted, or apply targeted oversampling/fine-tuning on the small contended slice (the LH4-F fine-tuning recipe).
 \end{enumerate}
 
 The walkthrough is not a generic post-mortem --- it is specifically an articulation of \emph{how the earliest module's seemingly-reasonable choice constrained the latest module's performance}. That articulation is the point of the whole framework.
 
 \subsection{Step 5 --- Known-limitations summary}
-From the catalog, distil a ``Known Limitations'' section (the future report will cite it verbatim):
+From the catalog, distil a ``Known Limitations'' section (the final report will cite it verbatim):
 
 \begin{itemize}[leftmargin=2em]
-	\item Operating envelope boundaries identified empirically (max beacon count, min \mbox{SNR}, max distance).
+	\item Operating envelope boundaries identified empirically (max active stations, min \mbox{SNR}, max distance, PAUSE response/recovery latency).
 	\item Failure modes not fully mitigated (cite F-IDs).
-	\item Cross-module dependencies that would require a redesign to eliminate.
+	\item Cross-module dependencies that would require a redesign to eliminate (e.g., F7 needs a Module~3 dataset expansion, not a Module~4 fix).
 \end{itemize}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Failure mode catalog has $\geq$ 8 entries, all five fields complete per entry.
+	\item[$\square$] \texttt{validate\_failure\_log.py} prints \texttt{PASS} (8+ entries, 2+ depth-2+, all fields valid).
 	\item[$\square$] Each entry has a depth tag (0, 1, 2+).
 	\item[$\square$] At least two depth-2+ entries present (if fewer, add cross-module re-analysis of existing observations).
 	\item[$\square$] Cross-domain dependency diagram generated and legible.
@@ -132,7 +202,8 @@ From the catalog, distil a ``Known Limitations'' section (the future report will
 
 \begin{tcolorbox}[deliverable={Lab Handout 5-E Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Failure mode catalog table with $\geq$8 entries, depth tags, and root-cause fields populated.
+		\item \texttt{failure\_modes.csv} with $\geq$8 entries, all seven columns populated, \texttt{validate\_failure\_log.py} printing \texttt{PASS}.
+		\item Failure mode catalog table (can be generated from the CSV or filled directly in LaTeX).
 		\item Cross-domain dependency diagram (PDF or PNG).
 		\item One-page depth-2 walkthrough tracing a single failure through the full causal chain.
 		\item Known Limitations summary (bulleted, fits in half a page).

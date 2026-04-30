@@ -127,9 +127,10 @@
 			This document presents the lesson plan for the fourth module of the capstone project.
 			Students build the complete Machine Learning pipeline that consumes the labeled Radio Frequency
 			dataset collected in Module~3, preprocess Field-Programmable Gate Array-extracted feature vectors, train and
-			compare multiple classifiers for spreading factor detection, modulation classification,
-			and emitter identification, quantify the simulation-to-hardware distribution shift through
-			cross-domain transfer experiments, and deploy a real-time inference script that classifies
+			compare multiple classifiers for spreading factor detection, modulation classification, emitter
+			identification, and packet-type classification (DATA / ACK / PAUSE), quantify the operating-condition
+			shift between clean single-station traffic and contended multi-station + PAUSE-burst traffic
+			entirely on hardware data, and deploy a real-time multi-task inference script that classifies
 			live Field-Programmable Gate Array feature exports as they arrive.
 		\end{tcolorbox}
 
@@ -152,66 +153,65 @@
 		\begin{enumerate}[label=\textbf{LO-\arabic*}]
 			\item Load, clean, and preprocess the hardware-collected \RF{} dataset from Module~3, handling sentinel values, signed-field decoding, and feature scaling in a reproducible Python pipeline.
 			\item Select and justify an appropriate feature set for each classification task, using exploratory data analysis and domain knowledge to identify informative features and remove redundant or leaking ones.
-			\item Train, tune, and evaluate at least three classifier families---Random Forest, Multi-Layer Perceptron (MLP), and a one-dimensional Convolutional Neural Network (CNN-1D)---on spreading factor detection, modulation classification, and emitter identification tasks.
-			\item Apply rigorous evaluation methodology: stratified train/validation/test splits, confusion matrices, per-class precision/recall/F1-score, and learning curves, avoiding data leakage and overfitting.
-			\item Quantify the simulation-to-hardware distribution shift by training classifiers on engagement simulator data and evaluating on hardware-collected data, measuring the accuracy degradation and identifying which features contribute most to the domain gap.
-			\item Analyze how classification accuracy varies as a function of signal-to-noise ratio (\SNR{}), beacon count, and physical distance, producing performance-vs.-condition curves that characterize the system's operational envelope.
+			\item Train, tune, and evaluate at least three classifier families---Random Forest, Multi-Layer Perceptron (MLP), and a one-dimensional Convolutional Neural Network (CNN-1D)---on four classification tasks: spreading factor detection, modulation classification, emitter identification, and packet-type classification (DATA / ACK / PAUSE).
+			\item Apply rigorous evaluation methodology: stratified train/validation/test splits, confusion matrices, per-class precision/recall/F1-score, and learning curves with 95\% Wilson confidence intervals, avoiding data leakage and overfitting (with particular attention to the \texttt{pkt\_type} bit-field as the canonical leakage trap for the packet-type task).
+			\item Quantify the operating-condition distribution shift by training classifiers on the clean regime (Module~3 campaigns C1--C4, single-station DATA-only) and evaluating on the contended regime (C5, cooperative-target ping-pong + PAUSE bursts), entirely on hardware data, measuring the accuracy degradation and identifying which features contribute most to the regime gap.
+			\item Analyze how classification accuracy varies as a function of signal-to-noise ratio (\SNR{}), active-station count, and physical distance, producing performance-vs.-condition curves that characterize the system's operational envelope.
 			\item Deploy a real-time inference script that receives live feature vectors from the \FPGA{} via \UART{} and classifies each observation within one inter-packet interval, demonstrating end-to-end pipeline integration from \RF{} transmission to classification output.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\subsection{Context Within the Project}
 
-	Module~4 is where the ``AI-Driven'' portion of the framework's title becomes concrete. Modules~1--3 built and validated the hardware platform, \FPGA{} processing pipeline, and data collection infrastructure. This module consumes their output---a structured, labeled \RF{} feature dataset---and transforms it into trained classification models that can identify what a beacon transmitted based solely on the \FPGA{}-extracted feature vector.
+	Module~4 is where the ``AI-Driven'' portion of the framework's title becomes concrete. Modules~1--3 built and validated the hardware platform, \FPGA{} processing pipeline, and data collection infrastructure. This module consumes their output---a structured, labeled \RF{} feature dataset---and transforms it into trained classification models that can identify which station transmitted, what packet type it sent, and what modulation parameters it used, based solely on the \FPGA{}-extracted feature vector.
 
-	This module is deliberately positioned \emph{after} data collection, not concurrent with it. The framework's pedagogical design requires students to understand their data before modeling it. The EDA performed in Module~3 Week~4 already revealed feature distributions, correlations, and class balance. Module~4 builds on that understanding: preprocessing decisions (which features to scale, which to drop, how to handle sentinels) are informed by the EDA, and model interpretation (which features drive classification) loops back to the hardware design decisions made in Modules~1--2.
+	This module is deliberately positioned \emph{after} data collection, not concurrent with it. The framework's pedagogical design requires students to understand their data before modeling it. The EDA performed in Session~12 already revealed feature distributions, correlations, and class balance. Module~4 builds on that understanding: preprocessing decisions (which features to scale, which to drop, how to handle sentinels) are informed by the EDA, and model interpretation (which features drive classification) loops back to the hardware design decisions made in Modules~1--2.
 
-	The cross-module dependency chain reaches its full expression here: a beacon packet format decision in Module~1 determined which fields the \FPGA{} parser extracts in Module~2, which features appear in the dataset collected in Module~3, and which classification tasks are feasible in Module~4. A student who changes the packet format in Module~1 must propagate that change through three downstream modules. This chain is the framework's central teaching instrument.
+	The cross-module dependency chain reaches its full expression here: a radio packet format decision in Module~1 (including the packed \texttt{Modulation Code} byte that encodes both modulation kind and packet type) determined which fields the \FPGA{} parser extracts in Module~2, which features appear in the dataset collected in Module~3, and which classification tasks are feasible in Module~4. A student who changes the packet format in Module~1 must propagate that change through three downstream modules. This chain is the framework's central teaching instrument.
 
 	\subsection{Prerequisites}
 
 	Students beginning this module should have:
 	\begin{itemize}[leftmargin=2em]
-		\item Completed Module~3 with a merged, labeled \RF{} dataset (\texttt{.csv}) containing $\geq$2{,}500 feature vectors across campaigns C1--C5 with a stratified train/val/test split.
+		\item Completed Module~3 with a merged, labeled \RF{} dataset (\texttt{.csv}) containing $\geq$2{,}500 feature vectors across campaigns C1--C5 with a stratified train/val/test split, including the \texttt{regime} column distinguishing clean (C1--C4) from contended (C5) rows and the \texttt{pkt\_type} / \texttt{label\_pkt} columns.
 		\item The Module~3 dataset summary document (data dictionary, class balance, known limitations).
 		\item Python~3.10+ with the following libraries installed: \texttt{pandas}, \texttt{numpy}, \texttt{scikit-learn}, \texttt{matplotlib}, \texttt{seaborn}, \texttt{torch} (PyTorch), \texttt{pyserial}.
 		\item Familiarity with supervised classification concepts: features, labels, training, overfitting, cross-validation.
 		\item Introductory exposure to neural networks (MLP architecture, backpropagation, loss functions).
-		\item Access to the \FPGA{} system (Nexys A7 running the Module~2 pipeline) for real-time inference exercises in Week~4.
-		\item (Optional) Engagement simulator data from the project's early development phase, for the sim-to-real transfer experiment.
+		\item Access to the \FPGA{} system (Nexys A7 running the Module~2 pipeline) for real-time inference exercises in Session~16.
 	\end{itemize}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Weekly Schedule}
+	\section{Session Schedule}
 	% ══════════════════════════════════════════════════════════════
 
-	The module spans two weeks (four working sessions), progressing from data preparation through model training and evaluation to live deployment.
+	The module spans four sessions, progressing from data preparation through model training and evaluation to live deployment.
 
 	\begin{table}[ht!]
 		\centering
-		\caption{Module 4 weekly breakdown.}
+		\caption{Module 4 session breakdown.}
 		\label{tab:schedule}
 		\renewcommand{\arraystretch}{1.4}
 		\begin{tabularx}{\textwidth}{c l X}
 			\toprule
-			\textbf{Week} & \textbf{Focus Area} & \textbf{Key Activities} \\
+			\textbf{Session} & \textbf{Focus Area} & \textbf{Key Activities} \\
 			\midrule
-			1 & Data Preprocessing \& Feature Engineering &
+			13 & Data Preprocessing \& Feature Engineering &
 			Load dataset; handle sentinel values and signed-field decoding; feature selection per classification task; normalization and scaling; verify train/val/test split integrity; build reusable preprocessing pipeline. \\
-			2 & Baseline Models \& Classical Classifiers &
+			14 & Baseline Models \& Classical Classifiers &
 			Train Random Forest and SVM classifiers for each task; hyperparameter tuning via grid search on validation set; evaluate on held-out test set; compute confusion matrices, per-class metrics, and feature importances. \\
-			3 & Neural Network Models \& Transfer Experiments &
-			Train MLP and CNN-1D classifiers; compare against classical baselines; conduct sim-to-real transfer experiment; analyze accuracy vs.\ \SNR{}, distance, and beacon count; generate performance-vs.-condition curves. \\
-			4 & Real-Time Inference \& Pipeline Integration &
-			Implement live inference script; connect to \FPGA{} \UART{} export; classify feature vectors in real time; measure inference latency; final model comparison and selection; document complete \ML{} pipeline. \\
+			15 & Neural Network Models \& Operating-Condition Shift &
+			Train MLP and CNN-1D classifiers for all four tasks (SF, modulation, emitter ID, packet type); compare against classical baselines; conduct the operating-condition shift experiment (clean$\to$contended) on hardware data; analyze accuracy vs.\ \SNR{}, distance, and active-station count; generate performance-vs.-condition curves. \\
+			16 & Real-Time Multi-Task Inference \& Pipeline Integration &
+			Implement live multi-task inference script; connect to \FPGA{} \UART{} export; classify feature vectors in real time across all four tasks; measure inference latency; final model comparison and selection; document complete \ML{} pipeline. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 1: Data Preprocessing and Feature Engineering}
+	\section{Session 13: Data Preprocessing and Feature Engineering}
 	\label{sec:preprocessing}
 	% ══════════════════════════════════════════════════════════════
 
@@ -241,16 +241,19 @@
 			\toprule
 			\textbf{\#} & \textbf{Check} & \textbf{Action on Failure} \\
 			\midrule
-			1 & All expected columns present (21 columns per Module~3 Table~7). & Halt: schema mismatch. \\
+			1 & All expected columns present (matching Module~3 LH3-H schema, including \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units}, \texttt{label\_pkt}, and \texttt{regime}). & Halt: schema mismatch. \\
 			2 & No null or NaN values in feature columns. & Investigate; likely collection script bug. \\
-			3 & \texttt{beacon\_id} values $\in [1, 255]$. & Remove out-of-range rows; log count. \\
-			4 & \texttt{mod\_code} values $\in \{1, 2, 3\}$ (LoRa, \FSK{}, \OOK{}). & Flag unexpected codes. \\
-			5 & \texttt{spread\_factor} values $\in \{0, 7, 8, 9, 10, 11, 12\}$. & Flag unexpected values. \\
-			6 & \texttt{rssi} values $\in [-140, 0]$ dBm (plausible range). & Clip or flag outliers. \\
-			7 & \texttt{snr} values $\in [-20, 15]$ dB (SX1276 reported range). & Clip or flag outliers. \\
-			8 & \texttt{split} column contains only \texttt{train}, \texttt{val}, \texttt{test}. & Halt: split assignment error. \\
-			9 & Each class has $\geq 30$ samples in the test split. & Warn: insufficient test data for that class. \\
-			10 & No duplicate (\texttt{campaign\_id}, \texttt{beacon\_id}, \texttt{seq\_num}) triples. & Remove duplicates; log count. \\
+			3 & \texttt{beacon\_id} values $\in \{1, 2, 255\}$ (Target~A, Target~B, Threat). & Remove out-of-range rows; log count. \\
+			4 & \texttt{mod\_kind} values $\in \{1, 2, 3\}$ (LoRa, \FSK{}, \OOK{}; low 2 bits cleared by LH2-F bit-field extractor). & Flag unexpected codes. \\
+			5 & \texttt{pkt\_type} values $\in \{0, 1, 2\}$ (DATA, ACK, PAUSE). & Halt: invalid packet type indicates a parser bug. \\
+			6 & \texttt{spread\_factor} values $\in \{0, 7, 8, 9, 10, 11, 12\}$. & Flag unexpected values. \\
+			7 & \texttt{rssi} values $\in [-140, 0]$ dBm (plausible range). & Clip or flag outliers. \\
+			8 & \texttt{snr} values $\in [-20, 15]$ dB (SX1276 reported range). & Clip or flag outliers. \\
+			9 & \texttt{regime} column contains only \texttt{clean}, \texttt{contended}. & Halt: regime assignment error in LH3-H merge script. \\
+			10 & PAUSE-only fields (\texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units}) are zero on rows with \texttt{pkt\_type}~$\ne$~2 and non-zero on rows with \texttt{pkt\_type}~=~2. & Investigate; indicates LH2-F extractor bug. \\
+			11 & \texttt{split} column contains only \texttt{train}, \texttt{val}, \texttt{test}. & Halt: split assignment error. \\
+			12 & Each class has $\geq 30$ samples in the test split, for all four classification tasks. & Warn: insufficient test data for that class. \\
+			13 & No duplicate (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{obs\_count}, \texttt{pkt\_type}) tuples. & Remove duplicates; log count. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -260,15 +263,15 @@
 	The \FPGA{} feature extraction logic (Module~2 Section~5) uses sentinel values for first-observation edge cases:
 
 	\begin{itemize}[leftmargin=2em]
-		\item \textbf{Inter-Arrival Time} = \texttt{0xFFFFFFFF} ($4{,}294{,}967{,}295$~ms) when a beacon is seen for the first time (no previous timestamp exists).
+		\item \textbf{Inter-Arrival Time} = \texttt{0xFFFFFFFF} ($4{,}294{,}967{,}295$~ms) when a station is seen for the first time (no previous timestamp exists).
 		\item \textbf{\RSSI{} Delta} = \texttt{0x0000} (zero) on first observation.
 	\end{itemize}
 
 	These sentinels must be handled before training, as they are not meaningful signal measurements. Two approaches are appropriate:
 
 	\begin{enumerate}[leftmargin=2em]
-		\item \textbf{Drop first-observation rows:} Remove all rows where \texttt{obs\_count} = 1. This is the simplest approach and loses only $\sim$5--15 rows (one per beacon per campaign run). It eliminates both sentinel values simultaneously.
-		\item \textbf{Replace with per-class median:} For inter-arrival time, replace the sentinel with the median inter-arrival time for that beacon's spreading factor and scheduling mode. This preserves rows but introduces imputed values that the model cannot distinguish from real measurements.
+		\item \textbf{Drop first-observation rows:} Remove all rows where \texttt{obs\_count} = 1. This is the simplest approach and loses only $\sim$5--15 rows (one per Beacon~ID per campaign run, plus one per (Beacon~ID, \texttt{pkt\_type}) pair if you maintain per-type observation counters in the \FPGA{}). It eliminates both sentinel values simultaneously.
+		\item \textbf{Replace with per-class median:} For inter-arrival time, replace the sentinel with the median inter-arrival time for that station's spreading factor and scheduling mode. This preserves rows but introduces imputed values that the model cannot distinguish from real measurements.
 	\end{enumerate}
 
 	\begin{tcolorbox}[infobox={Recommendation}]
@@ -313,17 +316,18 @@
 			\toprule
 			\textbf{Task} & \textbf{Label Column} & \textbf{Excluded Features} & \textbf{Rationale for Exclusion} \\
 			\midrule
-			SF Detection & \texttt{label\_sf} & \texttt{spread\_factor}, \texttt{bw\_code}, \texttt{mod\_code} & Self-reported SF is the answer; BW and mod are correlated configuration parameters. \\
-			Modulation Classification & \texttt{label\_mod} & \texttt{mod\_code}, \texttt{spread\_factor}, \texttt{bw\_code} & Self-reported modulation is the answer; SF/BW are LoRa-specific (leak modulation). \\
+			SF Detection & \texttt{label\_sf} & \texttt{spread\_factor}, \texttt{bw\_code}, \texttt{mod\_kind} & Self-reported SF is the answer; BW and modulation kind are correlated configuration parameters. \\
+			Modulation Classification & \texttt{label\_mod} & \texttt{mod\_kind}, \texttt{spread\_factor}, \texttt{bw\_code} & Self-reported modulation kind is the answer; SF/BW are LoRa-specific (leak modulation). \\
 			Emitter ID & \texttt{label\_beacon} & \texttt{beacon\_id} & Self-reported ID is the answer. \\
+			Packet Type (DATA/ACK/PAUSE) & \texttt{label\_pkt} & \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units} & \texttt{pkt\_type} is the answer (extracted from low 2 bits of the radio packet's \texttt{Modulation Code} byte); the PAUSE-only fields are non-zero only on PAUSE rows and trivially leak the packet type. \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Design Principle: Label Leakage in Cross-Domain Systems}]
-		Label leakage is a well-known \ML{} pitfall, but it takes a domain-specific form in this framework. The beacon packet contains self-reported transmission parameters (modulation code, spreading factor, TX power) that the \FPGA{} extracts as feature vector fields. These fields are \emph{also} the ground-truth labels for classification tasks. If a student includes \texttt{mod\_code} as an input feature when training a modulation classifier, the model will learn to read the self-reported field (a trivial lookup) rather than inferring the modulation from signal characteristics (\RSSI{}, \SNR{}, frequency error, inter-arrival time).
+		Label leakage is a well-known \ML{} pitfall, but it takes a domain-specific form in this framework. The radio packet contains self-reported transmission parameters (modulation kind, spreading factor, TX power) and a packed packet-type bit-field that the \FPGA{} extracts as feature vector fields. These fields are \emph{also} the ground-truth labels for classification tasks. If a student includes \texttt{mod\_kind} as an input feature when training a modulation classifier, the model will learn to read the self-reported field (a trivial lookup) rather than inferring the modulation from signal characteristics (\RSSI{}, \SNR{}, frequency error, inter-arrival time). The packet-type task makes this trap especially sharp: \texttt{pkt\_type} at offset~3 of the feature vector is itself the ground-truth label, so any model trained with it retained will achieve perfect accuracy without learning anything generalizable.
 
-		This is more than a data-handling mistake---it reflects a fundamental misunderstanding of what the classifier is supposed to learn. In a real electronic warfare or spectrum monitoring scenario, the emitter does not truthfully report its modulation type. The classifier must infer it from observable signal properties. The feature selection discipline enforced here teaches students to distinguish between ``data available in the feature vector'' and ``data the classifier should be allowed to use as input.''
+		This is more than a data-handling mistake---it reflects a fundamental misunderstanding of what the classifier is supposed to learn. In a real electronic warfare or spectrum monitoring scenario, the emitter does not truthfully report its modulation type, and the inferred packet type is a derived observation, not a transmitted label. The classifier must infer all four labels from observable signal properties. The feature selection discipline enforced here teaches students to distinguish between ``data available in the feature vector'' and ``data the classifier should be allowed to use as input.''
 	\end{tcolorbox}
 
 	\subsubsection{Retained Features by Task}
@@ -418,8 +422,8 @@
 			\item Loads the CSV and runs all 10 validation checks from Table~\ref{tab:validation}, printing a pass/fail summary.
 			\item Drops first-observation rows (sentinel handling).
 			\item Decodes signed fields if the CSV contains raw unsigned values.
-			\item Provides a function \texttt{get\_task\_data(task, scaler\_type)} that returns \texttt{(X\_train, y\_train, X\_val, y\_val, X\_test, y\_test)} with the correct feature exclusions and scaling applied. The \texttt{task} argument is one of \texttt{"sf"}, \texttt{"mod"}, \texttt{"emitter"}.
-			\item Exports the fitted scaler as a \texttt{.pkl} file for use in the real-time inference script (Week~4).
+			\item Provides a function \texttt{get\_task\_data(task, scaler\_type, regime=None)} that returns \texttt{(X\_train, y\_train, X\_val, y\_val, X\_test, y\_test)} with the correct feature exclusions and scaling applied. The \texttt{task} argument is one of \texttt{"sf"}, \texttt{"mod"}, \texttt{"emitter"}, \texttt{"pkt"}. The optional \texttt{regime} argument restricts the dataset to \texttt{"clean"} (C1--C4 rows only) or \texttt{"contended"} (C5 rows only); the default \texttt{None} returns the full dataset. The \texttt{regime} filter is what enables the LH4-F operating-condition shift experiment.
+			\item Exports the fitted scaler as a \texttt{.pkl} file for use in the real-time inference script (Session~16).
 		\end{enumerate}
 		Verify the pipeline by printing:
 		\begin{itemize}
@@ -429,7 +433,7 @@
 		\end{itemize}
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 1 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 13 Deliverable}]
 		\textbf{Data Preprocessing Report} --- A document containing:
 		\begin{enumerate}
 			\item Validation check results (Table~\ref{tab:validation}) with counts of any flagged or removed rows.
@@ -437,13 +441,13 @@
 			\item Signed-field decoding verification (before/after comparison for \RSSI{} and \SNR{}).
 			\item Feature selection rationale for each classification task, including the label leakage analysis.
 			\item Preprocessing pipeline source code (\texttt{preprocess.py}) with inline documentation.
-			\item Split summary: sample counts and class distributions for train/val/test for all three tasks.
+			\item Split summary: sample counts and class distributions for train/val/test for all four tasks.
 		\end{enumerate}
 	\end{tcolorbox}
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 2: Baseline Models and Classical Classifiers}
+	\section{Session 14: Baseline Models and Classical Classifiers}
 	\label{sec:classical}
 	% ══════════════════════════════════════════════════════════════
 
@@ -451,7 +455,7 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item Establish baseline accuracy using a majority-class classifier and a simple decision tree.
-		\item Train Random Forest classifiers for all three tasks and analyze feature importances.
+		\item Train Random Forest classifiers for all four tasks and analyze feature importances.
 		\item Train Support Vector Machine (SVM) classifiers and compare kernel choices.
 		\item Perform hyperparameter tuning using grid search with cross-validation on the training set.
 		\item Evaluate all models on the held-out test set using confusion matrices and per-class metrics.
@@ -477,7 +481,7 @@
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Why Baselines Matter}]
-		For a 6-class SF detection task with balanced classes, the majority-class baseline is $\sim$16.7\% accuracy. For a 2-class modulation task, it is $\sim$50\%. Any classifier that does not substantially exceed these baselines is not learning meaningful patterns. Baselines also reveal class imbalance: if the majority-class baseline for emitter ID is 45\% (one beacon contributed disproportionately many samples), this signals a collection imbalance that may need to be addressed through resampling or class weighting.
+		For a 6-class SF detection task with balanced classes, the majority-class baseline is $\sim$16.7\% accuracy. For a 2-class modulation task, it is $\sim$50\%. For the 3-class packet-type task (DATA / ACK / PAUSE), the majority class is DATA (dominating the dataset because C1--C4 are DATA-only), so the majority-class baseline may exceed 80\% --- a useful classifier must do substantially better while remaining accurate on the rare PAUSE class, not just predict DATA every time. Any classifier that does not substantially exceed these baselines is not learning meaningful patterns. Baselines also reveal class imbalance: if the majority-class baseline for emitter ID is 45\% (one station contributed disproportionately many samples), this signals a collection imbalance that may need to be addressed through resampling or class weighting.
 	\end{tcolorbox}
 
 	\subsection{Random Forest Classifier}
@@ -519,7 +523,8 @@
 		\begin{itemize}
 			\item \textbf{SF Detection:} \texttt{inter\_arrival\_ms} should be the dominant feature, because different spreading factors produce dramatically different on-air times (SF7: $\sim$50~ms, SF12: $\sim$1.5~s), directly affecting the inter-packet interval. \texttt{snr} may also contribute, as higher SFs improve sensitivity (process gain).
 			\item \textbf{Modulation Classification:} \texttt{snr} and \texttt{inter\_arrival\_ms} should dominate. LoRa and \FSK{} have fundamentally different demodulation characteristics and on-air times. \texttt{freq\_error} may differ between modulation types due to different carrier recovery mechanisms in the SX1276.
-			\item \textbf{Emitter ID:} \texttt{freq\_error} and \texttt{rssi} are expected to be most informative. Each physical \RF{} module has a slightly different crystal oscillator frequency offset (hardware fingerprint), producing emitter-specific frequency error distributions. \texttt{rssi} may differentiate beacons at different distances or TX power settings.
+			\item \textbf{Emitter ID:} \texttt{freq\_error} and \texttt{rssi} are expected to be most informative. Each physical \RF{} module has a slightly different crystal oscillator frequency offset (hardware fingerprint), producing emitter-specific frequency error distributions. \texttt{rssi} may differentiate stations at different distances or TX power settings.
+			\item \textbf{Packet Type:} \texttt{inter\_arrival\_ms} and \texttt{rssi\_delta} should dominate. ACK rows arrive tightly clustered around the round-trip time of their matching DATA ($\sim$60--80\,ms at SF7), whereas DATA rows are spaced by the initiator's 1\,s schedule and PAUSE rows cluster at the Threat's 100\,ms cadence. \texttt{rssi\_delta} additionally captures the half-duplex shadowing patterns that differ across the three packet types. Critically, with \texttt{pkt\_type} correctly excluded, the classifier has \emph{only} these dynamic features to work with --- the static identity fields cannot solve this task.
 		\end{itemize}
 		If the observed importances deviate significantly from these expectations, it may indicate a data quality issue, a feature engineering opportunity, or an interesting physical phenomenon worth investigating.
 	\end{tcolorbox}
@@ -591,7 +596,7 @@
 	\end{enumerate}
 
 	\begin{tcolorbox}[infobox={Exercise: Classical Classifier Comparison}]
-		For each of the three classification tasks (SF, modulation, emitter):
+		For each of the four classification tasks (SF, modulation, emitter ID, packet type):
 		\begin{enumerate}
 			\item Train the majority-class baseline and decision tree. Record accuracy.
 			\item Run grid search for Random Forest (Table~\ref{tab:rf_grid}) using 5-fold CV on training data. Record best parameters and CV accuracy.
@@ -615,12 +620,12 @@
 		\end{enumerate}
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 2 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 14 Deliverable}]
 		\textbf{Classical Classifier Training and Evaluation Report} --- A document containing:
 		\begin{enumerate}
-			\item Baseline results (majority class, decision tree) for all three tasks.
-			\item Random Forest: best hyperparameters, CV accuracy, test accuracy, macro F1, confusion matrices, feature importance plots for all three tasks.
-			\item SVM: best hyperparameters, test accuracy, macro F1, confusion matrices for all three tasks.
+			\item Baseline results (majority class, decision tree) for all four tasks.
+			\item Random Forest: best hyperparameters, CV accuracy, test accuracy, macro F1, confusion matrices, feature importance plots for all four tasks.
+			\item SVM: best hyperparameters, test accuracy, macro F1, confusion matrices for all four tasks.
 			\item Model comparison table with 95\% confidence intervals.
 			\item Feature importance analysis: comparison of observed importances against expected patterns, with physical interpretation of any surprises.
 			\item Source code for training scripts.
@@ -629,17 +634,17 @@
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 3: Neural Network Models and Transfer Experiments}
+	\section{Session 15: Neural Network Models and Transfer Experiments}
 	\label{sec:neural}
 	% ══════════════════════════════════════════════════════════════
 
 	\subsection{Objectives}
 
 	\begin{itemize}[leftmargin=2em]
-		\item Train Multi-Layer Perceptron (MLP) classifiers for each task and compare against classical baselines.
+		\item Train Multi-Layer Perceptron (MLP) classifiers for each of the four tasks and compare against classical baselines.
 		\item Train one-dimensional Convolutional Neural Network (CNN-1D) classifiers that treat the feature vector as a 1D signal.
-		\item Conduct the simulation-to-hardware transfer experiment to quantify the domain gap.
-		\item Analyze classification accuracy as a function of \SNR{}, distance, and beacon count.
+		\item Conduct the operating-condition shift experiment (clean C1--C4 $\to$ contended C5) to quantify the within-hardware regime gap.
+		\item Analyze classification accuracy as a function of \SNR{}, distance, and active-station count.
 		\item Generate performance-vs.-condition curves that characterize the system's operational envelope.
 	\end{itemize}
 
@@ -729,35 +734,36 @@
 		Students should report the CNN-1D results alongside the MLP and Random Forest and discuss whether the additional complexity is justified.
 	\end{tcolorbox}
 
-	\subsection{Simulation-to-Hardware Transfer Experiment}
+	\subsection{Operating-Condition Shift Experiment (Clean $\to$ Contended, On-Hardware)}
 	\label{sec:transfer}
 
-	This experiment is the framework's culminating cross-domain exercise. It quantifies the distribution shift between the engagement simulator's synthetic data and the hardware-collected data from Module~3, measuring how well a model trained in one domain generalizes to the other.
+	This experiment is the framework's culminating cross-domain exercise. It quantifies the distribution shift between the clean operating regime (Module~3 campaigns C1--C4: single-station Target~A only, DATA rows only) and the contended operating regime (C5: cooperative-target ping-pong with collisions and interleaved Threat PAUSE bursts), measuring how well a model trained on clean data generalizes to contended traffic. Critically, both regimes come from the same hardware --- this is a within-hardware distribution-shift study, not a synthetic-vs-real comparison, and it is therefore a more honest test of generalization.
 
 	\subsubsection{Experimental Protocol}
 
 	\begin{enumerate}[leftmargin=2em]
-		\item \textbf{Train on simulation data:} Using the engagement simulator's output (matching the feature vector format where possible), train the best-performing classical classifier (likely Random Forest) on the spreading factor detection task.
-		\item \textbf{Evaluate on hardware data:} Apply the sim-trained model to the Module~3 hardware test set. Record accuracy and confusion matrix.
-		\item \textbf{Train on hardware data:} Train the same classifier type on the Module~3 hardware training set (the standard Week~2 result).
-		\item \textbf{Compare:} The accuracy drop from step~3 to step~2 is the \textbf{sim-to-real gap}:
+		\item \textbf{Train on clean data:} Filter the Module~3 dataset to \texttt{regime} = \texttt{clean} (C1--C4 rows). Train the chosen classifier (CNN-1D recommended for the windowed 8-row sequence variant; Random Forest acceptable as a faster baseline) on the spreading factor detection task using these clean rows only.
+		\item \textbf{Evaluate on contended data:} Filter the dataset to \texttt{regime} = \texttt{contended} (C5 rows). Apply the clean-trained model to a held-out subset of the contended rows. Record accuracy and confusion matrix. This is the \texttt{Acc(clean$\to$contended)} measurement.
+		\item \textbf{Within-regime baseline:} For comparison, evaluate the clean-trained model on the held-out clean test split. This is the \texttt{Acc(clean$\to$clean)} or in-regime baseline.
+		\item \textbf{Compare:} The accuracy drop is the \textbf{operating-condition gap}:
 
 		\begin{equation}
-			\Delta_{\text{sim}\to\text{real}} = \text{Acc}_{\text{hw}\to\text{hw}} - \text{Acc}_{\text{sim}\to\text{hw}}
-			\label{eq:sim2real}
+			\Delta_{\text{op-shift}} = \text{Acc}(\text{clean}\!\to\!\text{clean}) - \text{Acc}(\text{clean}\!\to\!\text{contended})
+			\label{eq:opshift}
 		\end{equation}
 
-		\item \textbf{Analyze feature-level shift:} For each feature, compare the distribution (mean, standard deviation, histogram shape) between sim and hardware data. Features with the largest distributional shift are the primary contributors to the accuracy gap.
+		\item \textbf{Mitigation via fine-tuning:} For neural network classifiers (MLP, CNN-1D), freeze all but the final layer of the clean-trained model and re-train only the final linear layer on 10--20\% of the contended training subset. Re-evaluate on the same contended test split. The framework's expected outcome is that fine-tuning recovers at least half of $\Delta_{\text{op-shift}}$ on the SF task, demonstrating that the convolutional or hidden-layer features generalize across the regime boundary while the classifier head was mis-calibrated to the clean-only feature distribution.
+		\item \textbf{Analyze feature-level shift:} For each feature, compare the distribution (mean, standard deviation, histogram shape) between the clean and contended regimes. Features with the largest distributional shift (likely \texttt{rssi\_delta} due to half-duplex shadowing patterns and \texttt{inter\_arrival\_ms} due to the multi-modal mix of DATA cadence, ACK round-trip, and PAUSE-burst spacing) are the primary contributors to the accuracy gap.
 	\end{enumerate}
 
 	\begin{tcolorbox}[infobox={Expected Results}]
-		The sim-to-real accuracy drop is expected to be substantial (15--40\% for SF detection) because:
+		The clean$\to$contended accuracy drop is expected to be moderate (5--20\% for SF detection, larger for the packet-type task because the contended regime is the only one containing ACK and PAUSE rows) because:
 		\begin{itemize}
-			\item The simulator uses idealized FSPL propagation; hardware data includes multipath fading, antenna pattern irregularity, and near-field effects.
-			\item The simulator's timing model is exact; hardware inter-arrival times include STM32 interrupt jitter, \UART{} buffering, and \RF{} channel contention.
-			\item The simulator's \SNR{} model is AWGN; real \SNR{} includes colored noise, interference, and receiver non-linearities.
+			\item The contended regime adds half-duplex collisions and ACK exchanges that change the \texttt{rssi} variance and \texttt{rssi\_delta} dynamics relative to the clean regime, even though the channel itself is physically the same.
+			\item The contended regime adds Threat PAUSE bursts that the classifier never saw during clean training. PAUSE rows have entirely different RSSI dynamics (sourced by the Threat at its fixed reference position) and inter-arrival timing ($\sim$100\,ms cadence within button-hold windows).
+			\item The contended regime exercises ALOHA collisions that produce a long lower tail in \texttt{snr} that the C1--C4 fixed-schedule rows never see.
 		\end{itemize}
-		This result is not a failure---it is the \emph{point}. The experiment demonstrates why simulation alone is insufficient for training operational classifiers and motivates the hardware data collection investment in Module~3.
+		This result is not a failure---it is the \emph{point}. The experiment demonstrates that operating-condition shift is a real generalization barrier even within identical hardware, and motivates the multi-regime data collection investment in Module~3 (specifically, the existence of the C5 sub-campaigns with PAUSE bursts).
 	\end{tcolorbox}
 
 	\subsection{Performance-vs.-Condition Analysis}
@@ -783,28 +789,28 @@
 
 	Using Campaign C4 data (distance sweep), compute accuracy at each distance. Plot accuracy vs.\ distance and overlay the RSSI vs.\ distance curve from Module~3 EDA to correlate classification degradation with signal attenuation.
 
-	\subsubsection{Beacon-Count-Stratified Accuracy}
+	\subsubsection{Active-Station-Count-Stratified Accuracy}
 
-	Using Campaign C5 data, compare classifier accuracy across 1-beacon, 2-beacon, and 3-beacon configurations. This reveals whether the classifier is robust to multi-emitter environments or whether increasing beacon density degrades performance (e.g., through increased \RSSI{} delta volatility or inter-arrival time irregularity).
+	Using Campaign C5 data, compare classifier accuracy across the five C5 sub-configurations: C5a (1 station, Target~A only), C5b (2 stations, ping-pong, fixed initiator), C5c (2 stations, ping-pong, ALOHA initiator), C5d (3 stations, ping-pong + held-button PAUSE bursts), C5e (3 stations, ALOHA + intermittent PAUSE bursts). This reveals whether the classifier is robust to multi-station environments and PAUSE-induced traffic perturbations, or whether increasing station density and Threat activity degrades performance (e.g., through increased \RSSI{} delta volatility or inter-arrival time irregularity).
 
 	\begin{tcolorbox}[infobox={Exercise: Performance-vs.-Condition Curves}]
-		For the best-performing model on each task:
+		For the best-performing model on each of the four tasks (SF, modulation, emitter ID, packet type):
 		\begin{enumerate}
 			\item Plot accuracy vs.\ \SNR{} bin (5 bins, error bars from Wilson CI).
-			\item Plot accuracy vs.\ distance (4 distances from C4).
-			\item Plot accuracy vs.\ beacon count (1/2/3 from C5).
+			\item Plot accuracy vs.\ distance (4 distances from C4) --- only meaningful for SF / modulation / emitter ID tasks; the packet-type task does not vary across C4 because C4 is single-station DATA-only.
+			\item Plot accuracy vs.\ C5 sub-configuration (C5a--C5e).
 			\item Identify the operating condition where accuracy drops below 80\% for each task. Report this as the system's classification floor.
-			\item Discuss: which degradation mechanism (low \SNR{}, long distance, high beacon count) has the most severe impact on each task? Why?
+			\item Discuss: which degradation mechanism (low \SNR{}, long distance, high station density, PAUSE-burst perturbation) has the most severe impact on each task? Why?
 		\end{enumerate}
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 3 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 15 Deliverable}]
 		\textbf{Neural Network Training and Transfer Experiment Report} --- A document containing:
 		\begin{enumerate}
-			\item MLP architecture, training curves (loss and accuracy vs.\ epoch for train and val), final test accuracy, confusion matrices for all three tasks.
+			\item MLP architecture, training curves (loss and accuracy vs.\ epoch for train and val), final test accuracy, confusion matrices for all four tasks.
 			\item CNN-1D architecture, training curves, test accuracy, and comparison against MLP (discussion of whether added complexity is justified).
-			\item Sim-to-real transfer experiment: sim-trained accuracy, hardware-trained accuracy, accuracy gap, feature-level distribution shift analysis.
-			\item Performance-vs.-condition curves: accuracy vs.\ \SNR{}, distance, and beacon count with interpretive discussion.
+			\item Operating-condition shift experiment: clean-trained accuracy, contended-evaluation accuracy, $\Delta_{\text{op-shift}}$, fine-tuning recovery, feature-level distribution shift analysis comparing clean and contended regimes (entirely on hardware data; no simulator data is used).
+			\item Performance-vs.-condition curves: accuracy vs.\ \SNR{}, distance, and C5 sub-configuration with interpretive discussion.
 			\item Updated model comparison table incorporating all classifiers (baseline, RF, SVM, MLP, CNN-1D) across all tasks.
 			\item Source code for MLP and CNN-1D training scripts.
 		\end{enumerate}
@@ -812,7 +818,7 @@
 
 	\newpage
 	% ══════════════════════════════════════════════════════════════
-	\section{Week 4: Real-Time Inference and Pipeline Integration}
+	\section{Session 16: Real-Time Inference and Pipeline Integration}
 	\label{sec:realtime}
 	% ══════════════════════════════════════════════════════════════
 
@@ -821,7 +827,7 @@
 	\begin{itemize}[leftmargin=2em]
 		\item Deploy a trained classification model in a real-time inference script that classifies live \FPGA{} feature exports.
 		\item Measure inference latency and verify it meets the real-time constraint (classification before the next packet arrives).
-		\item Demonstrate end-to-end operation: beacon transmits $\rightarrow$ \FPGA{} processes $\rightarrow$ host classifies $\rightarrow$ result displayed.
+		\item Demonstrate end-to-end operation: cooperative target transmits $\rightarrow$ Threat intercepts $\rightarrow$ \FPGA{} processes $\rightarrow$ host classifies (all four tasks) $\rightarrow$ result displayed.
 		\item Conduct final model selection and document the complete \ML{} pipeline.
 		\item Prepare the model and inference script for Module~5 system validation.
 	\end{itemize}
@@ -858,20 +864,20 @@
 				\draw[arrow] (model) -- (display) node[midway, above, elabel] {class label};
 			\end{tikzpicture}%
 		}
-		\caption{Real-time inference pipeline. The script receives feature vectors from the \FPGA{} via USB-\UART{}, applies the same preprocessing (scaling) used during training, runs the classifier, and displays the result. The scaler and model are loaded from serialized files produced during Weeks~1--3.}
+		\caption{Real-time inference pipeline. The script receives feature vectors from the \FPGA{} via USB-\UART{}, applies the same preprocessing (scaling) used during training, runs the classifier, and displays the result. The scaler and model are loaded from serialized files produced during Sessions~13--15.}
 		\label{fig:inference}
 	\end{figure}
 
 	\subsubsection{Real-Time Constraint}
 
-	The inference script must classify each feature vector before the next one arrives. The inter-arrival time depends on the beacon configuration:
+	The inference script must classify each feature vector before the next one arrives. The inter-arrival time depends on the cooperative-target initiator cadence (Target~A's DATA schedule):
 
 	\begin{equation}
 		T_{\text{available}} = T_{\text{beacon interval}} - L_{\text{\UART{}}} = T_{\text{beacon}} - 3.73\text{~ms}
 		\label{eq:realtime}
 	\end{equation}
 
-	For the minimum beacon interval tested (1~second at SF7), $T_{\text{available}} \approx 996$~ms. The inference latency budget is:
+	For the minimum initiator interval tested (1~second at SF7), $T_{\text{available}} \approx 996$~ms. The inference latency budget is:
 
 	\begin{table}[ht!]
 		\centering
@@ -883,13 +889,13 @@
 			\textbf{Component} & \textbf{Expected} & \textbf{Notes} \\
 			\midrule
 			\UART{} frame reception & 3.04~ms & 35 bytes $\times$ 10 bits $\div$ 115200 baud \\
-			Feature parsing & $<$0.1~ms & Python struct unpacking \\
+			Feature parsing & $<$0.1~ms & Python struct unpacking (includes \texttt{pkt\_type} bit-field extraction from \texttt{Modulation Code} byte if not already split by the FPGA) \\
 			Scaler transform & $<$0.1~ms & Vectorized NumPy operation \\
-			Random Forest inference & $<$1~ms & scikit-learn predict on 1 sample \\
-			MLP inference & $<$1~ms & PyTorch forward pass (CPU) \\
-			Display update & $<$1~ms & Console print or GUI update \\
+			Random Forest inference $\times$ 4 & $<$2~ms & scikit-learn predict on 1 sample, run sequentially for SF / mod / emitter / packet-type \\
+			MLP inference $\times$ 4 (alternative) & $<$2~ms & PyTorch forward pass (CPU), four task-specific models \\
+			Display update & $<$1~ms & Console print or GUI update with all four predicted labels \\
 			\midrule
-			\textbf{Total} & $<$\textbf{6~ms} & Well within the 996~ms budget \\
+			\textbf{Total} & $<$\textbf{8~ms} & Well within the 996~ms budget \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -911,22 +917,22 @@
 
 		\item \textbf{Classification:} Apply the scaler transform, run the classifier's predict method, and extract the predicted class label and (if available) the prediction probability.
 
-		\item \textbf{Display:} Print the classification result to the console in a structured format:
+		\item \textbf{Display:} Print the classification result to the console in a structured format showing all four predicted labels:
 		\begin{center}
 			\small\ttfamily
-			[12:34:56.789] Beacon 0x01 | RSSI: -62 dBm | SNR: 8.5 dB | Predicted SF: 7 (conf: 0.94)
+			[12:34:56.789] Beacon 0x01 | RSSI: -62 dBm | SNR: 8.5 dB | Pred: SF7 / LoRa / Target~A / DATA (conf: 0.94/0.99/0.91/0.88)
 		\end{center}
 	\end{enumerate}
 
 	\subsubsection{Multi-Task Inference}
 
-	The script should support running multiple classification tasks simultaneously. Each received feature vector is classified for SF, modulation, and emitter ID in a single pass:
+	The script should support running all four classification tasks simultaneously. Each received feature vector is classified for SF, modulation, emitter ID, and packet type in a single pass:
 
 	\begin{figure}[ht!]
 		\centering
-		\resizebox{0.85\textwidth}{!}{%
+		\resizebox{0.9\textwidth}{!}{%
 			\begin{tikzpicture}[
-				node distance=1.5cm and 1.5cm,
+				node distance=1.2cm and 1.5cm,
 				block/.style={rectangle, draw=stevens, fill=lightgray, thick,
 					minimum width=2.5cm, minimum height=0.9cm, align=center, font=\small},
 				model/.style={rectangle, draw=accentblue, fill=blue!5, thick,
@@ -935,41 +941,50 @@
 				elabel/.style={font=\scriptsize\itshape, color=accentblue}
 				]
 				\node[block] (input) {Scaled Feature\\Vector (8 dim)};
-				\node[model, above right=0.8cm and 2.5cm of input] (sf) {SF Classifier\\(RF / MLP)};
-				\node[model, right=2.5cm of input] (mod) {Mod Classifier\\(RF / MLP)};
-				\node[model, below right=0.8cm and 2.5cm of input] (eid) {Emitter ID\\Classifier\\(RF / MLP)};
+				\node[model, above right=1.5cm and 2.5cm of input] (sf) {SF Classifier\\(RF / MLP)};
+				\node[model, above right=0.3cm and 2.5cm of input] (mod) {Mod Classifier\\(RF / MLP)};
+				\node[model, below right=0.3cm and 2.5cm of input] (eid) {Emitter ID\\Classifier\\(RF / MLP)};
+				\node[model, below right=1.5cm and 2.5cm of input] (pkt) {Packet Type\\Classifier\\(RF / MLP)};
 
-				\node[block, right=2cm of mod] (out) {Combined\\Output};
+				\node[block, right=2cm of eid] (out) {Combined\\Output};
 
 				\draw[arrow] (input.east) -- ++(0.5,0) |- (sf.west);
-				\draw[arrow] (input.east) -- (mod.west);
+				\draw[arrow] (input.east) -- ++(0.5,0) |- (mod.west);
 				\draw[arrow] (input.east) -- ++(0.5,0) |- (eid.west);
+				\draw[arrow] (input.east) -- ++(0.5,0) |- (pkt.west);
 				\draw[arrow] (sf.east) -- ++(0.5,0) |- (out.west);
-				\draw[arrow] (mod.east) -- (out.west);
+				\draw[arrow] (mod.east) -- ++(0.5,0) |- (out.west);
 				\draw[arrow] (eid.east) -- ++(0.5,0) |- (out.west);
+				\draw[arrow] (pkt.east) -- ++(0.5,0) |- (out.west);
 			\end{tikzpicture}%
 		}
-		\caption{Multi-task inference. A single feature vector is classified by three independent models. Each model uses the task-specific feature subset defined in Table~\ref{tab:feature_selection}.}
+		\caption{Multi-task inference. A single feature vector is classified by four independent models. Each model uses the task-specific feature subset defined in Table~\ref{tab:feature_selection}, with strict adherence to the forbidden-column rules to prevent label leakage (especially for the packet-type task, where \texttt{pkt\_type} itself is the canonical leakage trap).}
 		\label{fig:multi_task}
 	\end{figure}
 
 	\subsection{Live Demonstration Protocol}
 
 	\begin{tcolorbox}[infobox={Exercise: End-to-End Live Classification}]
-		With the full system running (2 beacons, receiver, \FPGA{}, host PC):
+		With the full system running (Target~A + Target~B in ping-pong, Threat capturing and connected to the \FPGA{}, host PC):
 		\begin{enumerate}
 			\item Start the inference script connected to the \FPGA{}'s USB-\UART{} port.
 			\item Observe real-time classification output for 60 seconds. Verify:
 			\begin{itemize}
-				\item SF predictions match the beacons' configured spreading factors.
+				\item SF predictions match the targets' configured spreading factor.
 				\item Modulation predictions correctly identify LoRa.
-				\item Emitter ID predictions distinguish between Beacon~1 and Beacon~2.
+				\item Emitter ID predictions distinguish between Target~A (Beacon~ID \texttt{0x01}) and Target~B (Beacon~ID \texttt{0x02}).
+				\item Packet-type predictions correctly identify DATA rows from Target~A and ACK rows from Target~B.
 			\end{itemize}
-			\item Change Beacon~1's spreading factor from SF7 to SF10 (requires firmware reflash or runtime reconfiguration). Observe the inference output transition.
-			\item Move Beacon~2 from 3~m to 8~m distance. Observe whether classification accuracy degrades and whether \RSSI{} changes are reflected in the console output.
-			\item Introduce a third beacon. Verify that the emitter ID classifier detects the new emitter and the SF classifier correctly identifies its configuration.
+			\item Change Target~A's spreading factor from SF7 to SF10 (requires firmware reflash or runtime reconfiguration). Observe the inference output transition for both the SF and packet-type predictions (the slower SF10 cadence will change the inter-arrival pattern that the packet-type classifier uses).
+			\item Move Target~B from 3~m to 8~m distance. Observe whether classification accuracy degrades and whether \RSSI{} changes are reflected in the console output.
+			\item Hold the Threat's user button for 5~s. Verify that:
+			\begin{itemize}
+				\item PAUSE rows (Beacon~ID \texttt{0xFF}) appear in the inference output, classified with \texttt{pkt\_type} = PAUSE.
+				\item During the button-hold window, Target~A's DATA TX stops appearing in the live stream (because Target~A is paused), and the inference output reflects this gap.
+				\item After the button is released, normal DATA / ACK ping-pong resumes within $\sim$500\,ms.
+			\end{itemize}
 		\end{enumerate}
-		\textbf{Milestone:} This demonstration represents the complete end-to-end pipeline: a physical \RF{} signal, transmitted by a beacon, received and processed by an \FPGA{}, and classified by a machine learning model---all operating in real time.
+		\textbf{Milestone:} This demonstration represents the complete end-to-end pipeline: a physical \RF{} signal exchange between two cooperative targets, intercepted by the Threat, processed by the \FPGA{}, and classified by four parallel machine learning models, with the closed-loop intercept-and-act behavior of the PAUSE protocol observable in the live classification stream---all operating in real time.
 	\end{tcolorbox}
 
 	\subsection{Inference Latency Measurement}
@@ -986,7 +1001,7 @@
 
 	\subsection{Final Model Selection}
 
-	Based on the complete results from Weeks~2--4, select the final model for each task. The selection criteria should balance:
+	Based on the complete results from Sessions~14--16, select the final model for each task. The selection criteria should balance:
 
 	\begin{table}[ht!]
 		\centering
@@ -1007,18 +1022,18 @@
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Expected Outcome}]
-		For this dataset size ($\sim$2{,}500 samples, 8 features), Random Forest is likely to be the best overall choice: it typically matches or exceeds the neural network models on tabular data at this scale, provides feature importances, requires no scaling, and has negligible inference latency. The MLP may slightly outperform on tasks with complex feature interactions, while the CNN-1D is unlikely to improve over the MLP given the short feature vector length. The primary value of the neural network experiments is pedagogical: students learn to implement, train, and evaluate them, compare them against simpler alternatives, and make an evidence-based model selection rather than defaulting to ``deep learning is always better.''
+		For this dataset size ($\sim$2{,}500 samples, 8 features), Random Forest is likely to be the best overall choice for the SF / modulation / emitter ID tasks: it typically matches or exceeds the neural network models on tabular data at this scale, provides feature importances, requires no scaling, and has negligible inference latency. The MLP may slightly outperform on tasks with complex feature interactions, while the CNN-1D is unlikely to improve over the MLP unless it operates on the windowed 8-row sequence variant (where it can exploit short-term temporal patterns in the inter-arrival sequence). The packet-type classification task is the most likely to favor the CNN-1D over the Random Forest because the discriminative signal lives in the sequential pattern of inter-arrival times across consecutive packets, not in any single row's features. The primary value of the neural network experiments is pedagogical: students learn to implement, train, and evaluate them, compare them against simpler alternatives, and make an evidence-based model selection rather than defaulting to ``deep learning is always better.''
 	\end{tcolorbox}
 
-	\begin{tcolorbox}[deliverable={Week 4 Deliverable}]
+	\begin{tcolorbox}[deliverable={Session 16 Deliverable}]
 		\textbf{Real-Time Inference and Final Pipeline Report} --- A document containing:
 		\begin{enumerate}
 			\item Inference script source code (\texttt{inference.py}) with documentation.
 			\item Live demonstration results: classification output log for the 60-second run, including the SF change and distance change experiments.
 			\item Inference latency analysis: histogram of processing times, mean/std/99th percentile, comparison against real-time budget.
-			\item Final model selection table: all classifiers $\times$ all tasks, with accuracy, macro F1, robustness rating, latency, and final selection with justification.
-			\item Complete \ML{} pipeline documentation: end-to-end flow from CSV to real-time classification, including all file paths, dependencies, and execution instructions.
-			\item Serialized model files (\texttt{.pkl} / \texttt{.pt}) and scaler files, ready for Module~5 system validation.
+			\item Final model selection table: all classifiers $\times$ all four tasks, with accuracy, macro F1, robustness rating, latency, and final selection with justification.
+			\item Complete \ML{} pipeline documentation: end-to-end flow from CSV to real-time classification (including the bit-field decoding of \texttt{Modulation Code}), all four task models, all file paths, dependencies, and execution instructions.
+			\item Serialized model files (\texttt{.pkl} / \texttt{.pt}) for all four tasks plus the shared scaler file, ready for Module~5 system validation.
 		\end{enumerate}
 	\end{tcolorbox}
 
@@ -1079,8 +1094,8 @@
 				\draw[arrow, dashed] (preproc.south) -- ++(0,-0.5) -| (scale_rt.north) node[near start, right, elabel] {saved scaler};
 
 				% Labels
-				\node[font=\small\bfseries\color{stevens}, above=0.3cm of csv, anchor=south west] {Offline Training Path (Weeks 1--3)};
-				\node[font=\small\bfseries\color{stevens}, above=0.3cm of fpga, anchor=south west] {Real-Time Inference Path (Week 4)};
+				\node[font=\small\bfseries\color{stevens}, above=0.3cm of csv, anchor=south west] {Offline Training Path (Sessions 13--15)};
+				\node[font=\small\bfseries\color{stevens}, above=0.3cm of fpga, anchor=south west] {Real-Time Inference Path (Session 16)};
 			\end{tikzpicture}%
 		}
 		\caption{Complete Module~4 \ML{} pipeline. The offline path (top) trains and evaluates classifiers on the Module~3 dataset. The real-time path (bottom) deploys the trained model to classify live \FPGA{} feature exports. The scaler and model artifacts connect the two paths.}
@@ -1127,8 +1142,8 @@
 			\toprule
 			\textbf{Item} & \textbf{Qty} & \textbf{Purpose} \\
 			\midrule
-			STM32 Nucleo-L476RG + RFM95W & $\geq 2$ & Beacons for live inference demonstration \\
-			STM32 Nucleo-L476RG + RFM95W & 1 & Receiver \MCU{} \\
+			STM32 Nucleo-L476RG + RFM95W & 2 & Cooperative targets (Target~A, Target~B) for live ping-pong demonstration \\
+			STM32 Nucleo-L476RG + RFM95W & 1 & Interceptor (Threat) MCU; user button (B1) reachable for PAUSE-burst demonstration \\
 			Digilent Nexys A7-100T & 1 & \FPGA{} running Module~2 pipeline \\
 			USB Micro-B Cables & 4--5 & Power, programming, \UART{} \\
 			Host PC (any OS) & 1 & Python runtime, model training, inference \\
@@ -1149,10 +1164,10 @@
 			\toprule
 			\textbf{Assessment Item} & \textbf{Weight} & \textbf{Due} \\
 			\midrule
-			Data Preprocessing Report (validation, sentinels, decoding, feature selection, pipeline code) & 15\% & Week 1 \\
-			Classical Classifier Report (baselines, RF, SVM, tuning, confusion matrices, feature importances) & 25\% & Week 2 \\
-			Neural Network and Transfer Report (MLP, CNN-1D, sim-to-real gap, performance-vs.-condition) & 30\% & Week 3 \\
-			Real-Time Inference and Final Pipeline Report (inference script, live demo, latency, model selection) & 30\% & Week 4 \\
+			Data Preprocessing Report (validation, sentinels, decoding, four-task feature selection with leakage analysis, pipeline code) & 15\% & Session 13 \\
+			Classical Classifier Report (baselines, RF, SVM, tuning, confusion matrices, feature importances for all four tasks) & 25\% & Session 14 \\
+			Neural Network and Operating-Condition Shift Report (MLP, CNN-1D, clean$\to$contended gap on hardware data, fine-tuning recovery, performance-vs.-condition) & 30\% & Session 15 \\
+			Real-Time Multi-Task Inference and Final Pipeline Report (four-task inference script, live ping-pong + PAUSE demo, latency, model selection) & 30\% & Session 16 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -1187,11 +1202,11 @@
 		\item matplotlib Gallery. [Online]. Available: \url{https://matplotlib.org/stable/gallery/} (Confusion matrix plotting, bar charts, learning curves.)
 	\end{enumerate}
 
-	\subsection{Domain Adaptation and Distribution Shift}
+	\subsection{Distribution Shift and Operating-Condition Generalization}
 
 	\begin{enumerate}[leftmargin=2em]
-		\item J.\ Quinonero-Candela \textit{et al.}, \textit{Dataset Shift in Machine Learning}, MIT Press, 2009. (Foundational treatment of covariate shift, prior probability shift, and concept drift.)
-		\item K.\ Weiss, T.\ M.\ Khoshgoftaar, and D.\ Wang, ``A Survey of Transfer Learning,'' \textit{Journal of Big Data}, vol.~3, no.~9, 2016.
+		\item J.\ Quinonero-Candela \textit{et al.}, \textit{Dataset Shift in Machine Learning}, MIT Press, 2009. (Foundational treatment of covariate shift, prior probability shift, and concept drift; the LH4-F operating-condition shift experiment is a covariate-shift study within the same hardware platform.)
+		\item K.\ Weiss, T.\ M.\ Khoshgoftaar, and D.\ Wang, ``A Survey of Transfer Learning,'' \textit{Journal of Big Data}, vol.~3, no.~9, 2016. (Background for the freeze-and-fine-tune mitigation strategy used in LH4-F.)
 	\end{enumerate}
 
 	\newpage
@@ -1201,15 +1216,15 @@
 
 	Upon successful completion of Module~4, students will have:
 	\begin{itemize}[leftmargin=2em]
-		\item A reproducible preprocessing pipeline that transforms raw \FPGA{} feature vectors into classifier-ready input, with explicit handling of sentinels, signed fields, feature selection, and scaling.
-		\item Trained and evaluated classifiers for three distinct tasks (spreading factor detection, modulation classification, emitter identification) using both classical \ML{} (Random Forest, SVM) and neural network (MLP, CNN-1D) approaches.
-		\item Quantitative evidence of the simulation-to-hardware distribution shift, measured through cross-domain transfer accuracy degradation and feature-level distributional analysis.
-		\item Performance-vs.-condition curves that characterize classifier accuracy as a function of \SNR{}, physical distance, and beacon count, defining the system's operational classification envelope.
-		\item A real-time inference script that classifies live \FPGA{} feature exports, demonstrating end-to-end pipeline operation from \RF{} transmission to classification output.
-		\item Serialized model and scaler artifacts ready for deployment and benchmarking.
+		\item A reproducible preprocessing pipeline that transforms raw \FPGA{} feature vectors into classifier-ready input, with explicit handling of sentinels, signed fields, four-task feature selection (with strict label-leakage discipline including the \texttt{pkt\_type} trap), and scaling.
+		\item Trained and evaluated classifiers for four distinct tasks (spreading factor detection, modulation classification, emitter identification, packet-type classification across DATA / ACK / PAUSE) using both classical \ML{} (Random Forest, SVM) and neural network (MLP, CNN-1D) approaches.
+		\item Quantitative evidence of the operating-condition distribution shift, measured through clean$\to$contended accuracy degradation entirely on hardware data, with fine-tuning recovery on the SF detection task.
+		\item Performance-vs.-condition curves that characterize classifier accuracy as a function of \SNR{}, physical distance, and active-station count (across the C5a--C5e sub-configurations including PAUSE-burst scenarios), defining the system's operational classification envelope.
+		\item A real-time multi-task inference script that classifies live \FPGA{} feature exports across all four tasks simultaneously, demonstrating end-to-end pipeline operation from cooperative-target \RF{} transmission, through interceptor (Threat) capture, to classification output --- including live observation of the closed-loop PAUSE intercept-and-act behavior.
+		\item Serialized model and scaler artifacts (four task models + shared scaler) ready for deployment and benchmarking.
 	\end{itemize}
 
-	Module~5 will subject the complete system to stress testing and final validation. The trained classifiers from this module will be evaluated under adversarial conditions: concurrent multi-beacon operation at maximum density, rapid parameter changes, edge-of-range deployments, and extended-duration stability tests. The performance-vs.-condition analysis from Week~3 provides the baseline expectations; Module~5 will determine whether the system meets those expectations under sustained operational load. The final project report and presentation will synthesize results from all five modules into a coherent narrative of cross-domain system design, integration, and evaluation.
+	Module~5 will subject the complete system to stress testing and final validation. The trained classifiers from this module will be evaluated under adversarial conditions: concurrent multi-station operation at maximum density, rapid parameter changes, edge-of-range deployments, sustained PAUSE bursts, and extended-duration stability tests. The performance-vs.-condition analysis from Session~15 provides the baseline expectations; Module~5 will determine whether the system meets those expectations under sustained operational load. The closed-loop PAUSE protocol additionally provides Module~5 with two new measurement axes (response latency and RSSI-targeting accuracy) that further characterize the system's intercept-and-act behavior. The final project report and presentation will synthesize results from all five modules into a coherent narrative of cross-domain system design, integration, and evaluation.
 
 	\vfill
 	\clearpage

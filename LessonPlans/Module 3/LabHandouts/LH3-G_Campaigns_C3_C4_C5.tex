@@ -7,13 +7,13 @@
 \labheader{3-G}{Data Collection --- Campaigns C3, C4, and C5}
 
 \section{Objective}
-Execute the three remaining single-variable sweep campaigns: modulation type (C3), physical distance (C4), and beacon count with both fixed-interval and \mbox{ALOHA} modes (C5). These campaigns complete the controlled experimental dataset that drives all machine learning work in Module~4.
+Execute the three remaining single-variable sweep campaigns: modulation type (C3), physical distance (C4), and active-station count with both fixed-interval / ALOHA initiator modes plus interleaved PAUSE bursts (C5). These campaigns complete the controlled experimental dataset that drives all machine learning work in Module~4 --- including the packet-type classification task and the operating-condition shift experiment.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~3-F complete (collection script working; C1 and C2 CSV files validated).
 	\item Tape measure available for Campaign~C4 distance measurements.
-	\item All three beacons operational for Campaign~C5.
+	\item All three radios (Target~A, Target~B, Threat) operational for Campaign~C5; Threat user button reachable by an operator who can hold it for the documented intervals.
 \end{itemize}
 
 \section{Procedure}
@@ -21,22 +21,22 @@ Execute the three remaining single-variable sweep campaigns: modulation type (C3
 \subsection{Campaign C3: Modulation Type Sweep}
 
 \subsubsection{Setup}
-Configure Beacon~A: +14~dBm, 3~m from receiver, 2-second fixed interval. Change only the modulation type: LoRa (spreading factor-based) and \FSK{} (frequency shift keying). Keep the receiver and \FPGA{} configuration unchanged --- the Module~2 parser was designed to handle both packet types, as the forwarding frame format is identical regardless of over-the-air modulation.
+Configure Target~A: +14~dBm, 3~m from the interceptor, 2-second fixed initiator interval. Target~B off, Threat button not held (DATA-only collection). Change only the modulation type: LoRa (spreading factor-based) and \FSK{} (frequency shift keying). Keep the interceptor and \FPGA{} configuration unchanged --- the Module~2 parser handles all packet types and modulations through the same code path, as the forwarding frame format is identical regardless of over-the-air modulation.
 
 \begin{tcolorbox}[infobox={LoRa vs.\ FSK in this System}]
-	The beacon's RFM95W (SX1276) supports both LoRa spread-spectrum and \FSK{} modulation. The feature vector fields (\mbox{RSSI}, \mbox{SNR}, spreading factor code, modulation code) differ between the two: \FSK{} does not use a spreading factor, so \texttt{spread\_factor} will report a sentinel value (0x00 in the LH1-F firmware). The modulation code field uses the canonical Module~1/2 mapping \textbf{\texttt{mod\_code} = 0x01 (LoRa), 0x02 (\FSK{}), 0x03 (\OOK{})}; it is the ground-truth label for the modulation classification task in Module~4. The feature distribution --- especially \mbox{RSSI}, \mbox{SNR}, and frequency error --- will differ between LoRa and \FSK{} because the SX1276 uses different receive paths and sensitivity levels for each modulation.
+	The Target's RFM95W (SX1276) supports both LoRa spread-spectrum and \FSK{} modulation. The feature vector fields (\mbox{RSSI}, \mbox{SNR}, spreading factor code, modulation kind) differ between the two: \FSK{} does not use a spreading factor, so \texttt{spread\_factor} will report a sentinel value (\texttt{0x00} in the LH1-F firmware). The modulation kind field at offset~1 of the feature vector uses the canonical Module~1/2 mapping \textbf{\texttt{mod\_kind} = \texttt{0x01} (LoRa), \texttt{0x02} (\FSK{}), \texttt{0x03} (\OOK{})}, with the low 2 bits cleared by the LH2-F bit-field extractor; it is the ground-truth label for the modulation classification task in Module~4. The feature distribution --- especially \mbox{RSSI}, \mbox{SNR}, and frequency error --- will differ between LoRa and \FSK{} because the SX1276 uses different receive paths and sensitivity levels for each modulation.
 \end{tcolorbox}
 
 \subsubsection{Execution}
 \begin{enumerate}[leftmargin=2em]
-	\item Run with LoRa modulation first: create \texttt{campaign\_c3\_lora.json} with \texttt{sweep\_variable: "mod"}, \texttt{sweep\_value: "lora"}, and \texttt{target\_packets: 300}. Collect 300 packets.
-	\item Switch Beacon~A to \FSK{} mode (update firmware, reflash). Create \texttt{campaign\_c3\_fsk.json} and collect 300 packets.
+	\item Run with LoRa modulation first: create \texttt{campaign\_c3\_lora.json} with \texttt{sweep\_variable: "mod"}, \texttt{sweep\_value: "lora"}, \texttt{fixed\_mod\_kind: 1}, \texttt{expected\_pkt\_types: [0]}, and \texttt{target\_packets: 300}. Collect 300 packets.
+	\item Switch Target~A to \FSK{} mode (update firmware, reflash). Create \texttt{campaign\_c3\_fsk.json} with \texttt{fixed\_mod\_kind: 2} and collect 300 packets.
 \end{enumerate}
 
 \subsubsection{Validation}
 \begin{enumerate}[leftmargin=2em]
-	\item Verify 600 total rows; 300 rows per modulation type.
-	\item Confirm \texttt{mod\_code} = \texttt{0x01} for the LoRa run and \texttt{mod\_code} = \texttt{0x02} for the \FSK{} run (canonical Module~1/2 codes). Any mismatch is a firmware configuration error.
+	\item Verify 600 total rows; 300 rows per modulation type; \texttt{pkt\_type = 0} (DATA) on every row.
+	\item Confirm \texttt{mod\_kind} = \texttt{0x01} for the LoRa run and \texttt{mod\_kind} = \texttt{0x02} for the \FSK{} run (canonical Module~1/2 codes, low 2 bits cleared). Any mismatch is a firmware configuration error.
 	\item Compare \mbox{RSSI} distributions between LoRa and \FSK{} at the same distance and power. \FSK{} typically produces slightly lower \mbox{SNR} than LoRa at the same \mbox{TX} power because LoRa's processing gain is not available. Plot histogram or violin plot of \mbox{RSSI} and \mbox{SNR} for both modulation types.
 \end{enumerate}
 
@@ -46,25 +46,25 @@ Configure Beacon~A: +14~dBm, 3~m from receiver, 2-second fixed interval. Change 
 \subsection{Campaign C4: Physical Distance Sweep}
 
 \subsubsection{Setup}
-Configure Beacon~A: +14~dBm, SF7, LoRa, 2-second fixed interval. Vary only the physical separation between the beacon and the receiver. Use a tape measure for all distance measurements and record to the nearest 0.5~m.
+Configure Target~A: +14~dBm, SF7, LoRa, 2-second fixed initiator interval. Target~B off, Threat button not held (DATA-only collection). Vary only the physical separation between Target~A and the interceptor (Threat) antenna. Use a tape measure for all distance measurements and record to the nearest 0.5~m.
 
 \begin{tcolorbox}[warning={Distance Measurement Protocol}]
-	Measure distance from the \emph{antenna} of the beacon to the \emph{antenna} of the receiver, not board-to-board. In an indoor environment, multipath reflections from walls, furniture, and the ground plane are unavoidable; the measured \mbox{RSSI} will deviate from the free-space path loss model. Record the measurement method and any significant obstructions (e.g., ``metal shelving at 2~m between beacon and receiver'') in the campaign notes field. This information is required for the distribution shift analysis in LH3-H.
+	Measure distance from the \emph{antenna} of Target~A to the \emph{antenna} of the interceptor (Threat), not board-to-board. In an indoor environment, multipath reflections from walls, furniture, and the ground plane are unavoidable; the measured \mbox{RSSI} will deviate from the free-space path loss model. Record the measurement method and any significant obstructions (e.g., ``metal shelving at 2~m between Target~A and the interceptor'') in the campaign notes field. This information is required for the operating-condition shift analysis in LH3-H.
 \end{tcolorbox}
 
 \subsubsection{Execution}
 \begin{enumerate}[leftmargin=2em]
-	\item For each distance --- 1~m, 3~m, 5~m, 8~m --- place the beacon, confirm the receiver is receiving (check debug \UART{}), then run \texttt{collect.py} with the appropriate config JSON (\texttt{distance\_m} field must match). Collect 200 packets per distance.
-	\item Between distance changes, verify the beacon is still transmitting (check debug \UART{}) and the receiver is still receiving before starting the next collection run.
+	\item For each distance --- 1~m, 3~m, 5~m, 8~m --- place Target~A, confirm the Threat is receiving (check debug \UART{}), then run \texttt{collect.py} with the appropriate config JSON (\texttt{distance\_m} field must match). Collect 200 packets per distance.
+	\item Between distance changes, verify Target~A is still transmitting (check its USART2 debug) and the Threat is still receiving before starting the next collection run.
 \end{enumerate}
 
 \subsubsection{Validation}
 \begin{enumerate}[leftmargin=2em]
-	\item Verify 800 total rows, 200 per distance.
+	\item Verify 800 total rows, 200 per distance, all with \texttt{pkt\_type = 0} (DATA).
 	\item Compute mean \mbox{RSSI} per distance. It should decrease (become more negative) as distance increases.
-	\item Overlay the theoretical free-space path loss (\mbox{FSPL}) curve. For the 915\,MHz carrier, TX power $P_{\text{tx}}$, and distance $d$:
+	\item Overlay the theoretical free-space path loss (\mbox{FSPL}) curve. For the 906.5\,MHz carrier, TX power $P_{\text{tx}}$, and distance $d$:
 	\[
-		\text{\mbox{RSSI}}_{\text{theory}}(d) = P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - 20\log_{10}(d) - 20\log_{10}(915 \times 10^6) + 147.55
+		\text{\mbox{RSSI}}_{\text{theory}}(d) = P_{\text{tx}} + G_{\text{tx}} + G_{\text{rx}} - 20\log_{10}(d) - 20\log_{10}(906.5 \times 10^6) + 147.55
 	\]
 	where $G_{\text{tx}} = G_{\text{rx}} \approx 0$\,dBi for the spring antennas from LH1-A.
 	\item Generate a scatter plot of measured mean \mbox{RSSI} vs.\ distance with the \mbox{FSPL} curve overlaid. Indoor measurements will typically show higher \mbox{RSSI} than \mbox{FSPL} at short distances (constructive multipath) and more variable behavior at longer distances.
@@ -73,9 +73,9 @@ Configure Beacon~A: +14~dBm, SF7, LoRa, 2-second fixed interval. Vary only the p
 \labfigure{LH3G_c4_rssi_vs_distance.png}{0.85\textwidth}{Measured mean \mbox{RSSI} vs.\ distance from Campaign~C4 (scatter) with the theoretical \mbox{FSPL} model overlaid (line). Indoor multipath causes deviations from the \mbox{FSPL} model; document them as part of the distribution shift analysis in LH3-H.}{fig:lh3g-c4}
 
 \newpage
-\subsection{Campaign C5: Beacon Count Scaling}
+\subsection{Campaign C5: Active-Station Scaling + PAUSE-Burst Population}
 
-Campaign C5 is the most complex campaign because it involves multiple simultaneous transmitters and interleaved data. It is broken into five sub-configurations.
+Campaign C5 is the most complex campaign because it involves multiple simultaneous transmitters, interleaved DATA / ACK / PAUSE traffic, and operator-driven button-hold windows on the Threat. It is broken into five sub-configurations.
 
 \subsubsection{C5 Sub-configurations}
 \begin{table}[h!]
@@ -83,46 +83,49 @@ Campaign C5 is the most complex campaign because it involves multiple simultaneo
 	\renewcommand{\arraystretch}{1.3}
 	\begin{tabularx}{\textwidth}{c c c c X}
 		\toprule
-		\textbf{Config} & \textbf{Beacons} & \textbf{Mode} & \textbf{Interval} & \textbf{Purpose} \\
+		\textbf{Config} & \textbf{Active stations} & \textbf{Mode} & \textbf{Interval} & \textbf{Purpose} \\
 		\midrule
-		C5a & 1 & Fixed & 2\,s & Baseline (no multi-beacon interference) \\
-		C5b & 2 & Fixed & 2\,s / 3\,s & Staggered (minimal collision probability) \\
-		C5c & 2 & ALOHA & [1,3]\,s & Random access (some collisions expected) \\
-		C5d & 3 & Fixed & 1\,s each (staggered) & High-rate, low-collision \\
-		C5e & 3 & ALOHA & [0.5,2]\,s & Maximum contention \\
+		C5a & 1 (Target~A only)             & Fixed                 & 2\,s              & Baseline (no responder, no PAUSE; DATA-only) \\
+		C5b & 2 (Target~A + Target~B ping-pong) & Fixed                 & 1\,s DATA + event-driven ACK & Staggered ping-pong (DATA + ACK rows; minimal collision) \\
+		C5c & 2 (Target~A + Target~B)       & ALOHA initiator       & [1,3]\,s DATA + event ACK & Random-access initiator (some collisions; DATA + ACK) \\
+		C5d & 3 (A + B + Threat PAUSE bursts)  & Fixed + held-button   & 1\,s DATA + 100\,ms PAUSE & Ping-pong + sustained PAUSE bursts addressed at higher-RSSI Target (DATA + ACK + PAUSE) \\
+		C5e & 3 (A + B + Threat PAUSE bursts)  & ALOHA + intermittent button & [0.5,2]\,s DATA + 5\,s on / 5\,s off PAUSE & Maximum contention with PAUSE-induced TX hold-offs (DATA + ACK + PAUSE) \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
 
 \subsubsection{Execution}
 \begin{enumerate}[leftmargin=2em]
-	\item For each sub-configuration, create the corresponding JSON config file. Use \texttt{num\_beacons} to record how many beacons were active. For multi-beacon runs, the \texttt{label\_beacon} field in the output CSV will come from the feature vector's \texttt{beacon\_id} field (since each row represents a single beacon's packet).
-	\item Collect 300 packets per sub-configuration (note: for multi-beacon runs, 300 packets means 300 \emph{total} received frames, not 300 per beacon).
+	\item For each sub-configuration, create the corresponding JSON config file with \texttt{campaign\_id: "C5a"} (or \texttt{C5b}, \texttt{C5c}, ...). Set \texttt{num\_active\_stations} accordingly and \texttt{expected\_pkt\_types}: \texttt{[0]} for C5a, \texttt{[0,1]} for C5b/C5c, \texttt{[0,1,2]} for C5d/C5e. The \texttt{label\_beacon} field in the output CSV comes from the feature vector's \texttt{beacon\_id} field (since each row represents a single station's packet); the \texttt{label\_pkt} field comes from the feature vector's \texttt{pkt\_type} (canonical authority for that label).
+	\item Collect 300 packets per sub-configuration (note: 300 packets means 300 \emph{total} received frames, summed across all active stations and all packet types).
 	\item For C5b through C5e, run the collection script for 5 minutes regardless of whether 300 packets are reached. Record the actual count; do not pad with a second run.
+	\item For C5d, the operator must hold the Threat button for the full 5-minute run. For C5e, the operator should hold and release on a 5\,s on / 5\,s off cadence to produce post-PAUSE recovery transients in the dataset.
 \end{enumerate}
 
 \subsubsection{Validation}
 \begin{enumerate}[leftmargin=2em]
-	\item Verify that C5b shows a roughly 50/50 split of frames between Beacon~A and Beacon~B (the staggered fixed-interval configuration should deliver approximately equal numbers of frames from each beacon).
-	\item Compare \PER{} between C5b (fixed, low collision) and C5c (ALOHA, higher collision). \mbox{ALOHA} should show increased \PER{} due to \RF{} collisions.
-	\item For C5c and C5e, check the \texttt{inter\_arrival\_ms} distribution per beacon. Under \mbox{ALOHA}, inter-arrival times should vary more widely than under fixed scheduling.
+	\item Verify that C5b shows a roughly 50/50 split of frames between Beacon~ID \texttt{0x01} (DATA) and Beacon~ID \texttt{0x02} (ACK) --- one ACK is generated per successful DATA, so the row counts should be close to equal under low collision.
+	\item Compare \PER{} between C5b (fixed initiator, low collision) and C5c (ALOHA initiator, higher collision). \mbox{ALOHA} should show increased \PER{} due to \RF{} collisions.
+	\item For C5c and C5e, check the \texttt{inter\_arrival\_ms} distribution per Beacon~ID. Under \mbox{ALOHA}, inter-arrival times should vary more widely than under fixed scheduling. ACK rows (Beacon~ID \texttt{0x02}) should follow a tight distribution centered on the round-trip time, regardless of initiator mode.
+	\item For C5d and C5e, verify that the dataset contains rows with Beacon~ID \texttt{0xFF} and \texttt{pkt\_type = 2} (PAUSE), and that those rows have \texttt{target\_id\_if\_pause} matching the higher-RSSI Target's ID and \texttt{pause\_duration\_units = 5}.
 	\item Watch for any \FIFO{} overflow alarms (\texttt{led(15)} on the Nexys A7) during C5d and C5e. If overflow occurs, record it in the campaign notes.
 \end{enumerate}
 
 \begin{tcolorbox}[infobox={What C5 Teaches Module~4}]
-	The C5 dataset has two uses in Module~4:
+	The C5 dataset has three uses in Module~4:
 	\begin{itemize}[leftmargin=1.2em]
-		\item \textbf{Emitter identification:} the \texttt{label\_beacon} column provides ground truth for training a classifier that distinguishes Beacon~A from Beacon~B from Beacon~C based on their feature vectors. Even when all beacons transmit at the same power, SF, and modulation, subtle hardware differences (crystal frequency offset, RFM95W component tolerance) produce distinguishable \mbox{RSSI} and frequency-error signatures.
-		\item \textbf{Scheduling mode classification:} the contrast between fixed-interval (C5b, C5d) and \mbox{ALOHA} (C5c, C5e) inter-arrival time distributions provides a basis for classifying a beacon's transmission scheduling policy --- a task with applications in spectrum monitoring.
+		\item \textbf{Emitter identification:} the \texttt{label\_beacon} column provides ground truth for training a classifier that distinguishes Target~A vs.\ Target~B vs.\ Threat based on their feature vectors. Even when all stations transmit at the same power, SF, and modulation, subtle hardware differences (crystal frequency offset, RFM95W component tolerance) produce distinguishable \mbox{RSSI} and frequency-error signatures.
+		\item \textbf{Packet-type classification:} the \texttt{label\_pkt} column provides ground truth for distinguishing DATA, ACK, and PAUSE rows. The forbidden \texttt{pkt\_type} feature column is the canonical label-leakage trap (LH4-B): a model trained with \texttt{pkt\_type} retained will trivially achieve perfect accuracy. The Module~4 task forces the classifier to discriminate from RSSI dynamics, inter-arrival pattern, and per-station observation history alone.
+		\item \textbf{Operating-condition shift:} C5 (contended regime) vs.\ C1--C4 (clean regime) provides the canonical train/test split for the LH4-F operating-condition shift experiment. The accuracy drop from clean$\to$contended is the framework's central pedagogical observation about distribution shift, performed entirely on hardware data without any simulator dependency.
 	\end{itemize}
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] C3: 600 rows, 300 per modulation type; \texttt{mod\_code} field correct for both runs.
+	\item[$\square$] C3: 600 rows, 300 per modulation type; \texttt{mod\_kind} field correct for both runs (low 2 bits cleared).
 	\item[$\square$] C4: 800 rows, 200 per distance; mean \mbox{RSSI} decreases with distance; \mbox{FSPL} overlay plot generated.
-	\item[$\square$] C5: all five sub-configurations executed; C5b shows approximately equal beacon \mbox{ID} counts; C5c \PER{} $>$ C5b \PER{}.
-	\item[$\square$] All CSV files use the same schema as C1/C2 (same column order and names).
+	\item[$\square$] C5: all five sub-configurations executed; C5b shows approximately equal DATA / ACK counts; C5c \PER{} $>$ C5b \PER{}; C5d and C5e contain Beacon~\mbox{ID} \texttt{0xFF} PAUSE rows with valid \texttt{target\_id\_if\_pause}.
+	\item[$\square$] All CSV files use the same schema as C1/C2 (same column order and names, including the new \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units}, and \texttt{label\_pkt} columns).
 	\item[$\square$] Any \FIFO{} overflow events during C5d/C5e documented in campaign notes.
 \end{itemize}
 
@@ -130,7 +133,7 @@ Campaign C5 is the most complex campaign because it involves multiple simultaneo
 	\begin{enumerate}[leftmargin=1.2em]
 		\item Campaign C3 CSV files (2 files: LoRa and \FSK{}) and violin/histogram plot of \mbox{RSSI} and \mbox{SNR} by modulation type.
 		\item Campaign C4 CSV files (4 files, one per distance) and scatter plot of measured mean \mbox{RSSI} vs.\ distance with \mbox{FSPL} overlay. Include the measurement method and any obstructions noted.
-		\item Campaign C5 CSV files (5 files: C5a--C5e) and summary: packet count per beacon \mbox{ID} per sub-configuration, \PER{} comparison between C5b and C5c, inter-arrival time distribution comparison between C5b and C5c.
+		\item Campaign C5 CSV files (5 files: C5a--C5e) and summary: row count per (Beacon~\mbox{ID}, \texttt{pkt\_type}) pair per sub-configuration, \PER{} comparison between C5b and C5c, inter-arrival time distribution comparison between C5b and C5c, and PAUSE-row breakdown for C5d and C5e (number of PAUSE rows, distribution of \texttt{target\_id\_if\_pause}).
 		\item Updated preliminary data quality assessment covering C3, C4, and C5.
 	\end{enumerate}
 \end{tcolorbox}

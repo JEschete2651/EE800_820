@@ -4,15 +4,15 @@
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{2-G}{End-to-End Pipeline Simulation with Recorded Beacon Data}
+\labheader{2-G}{End-to-End Pipeline Simulation with Recorded Interceptor Data}
 
 \section{Objective}
-Stand up a single testbench that drives the complete Module~2 pipeline --- \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{pkt\_parser} $\to$ \texttt{crc} engines $\to$ \texttt{feature\_extract} $\to$ \texttt{feature\_bram} --- using a recorded Module~1 capture, and compare every exported feature vector against a Python reference.
+Stand up a single testbench that drives the complete Module~2 pipeline --- \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{pkt\_parser} $\to$ \texttt{crc} engines $\to$ \texttt{feature\_extract} $\to$ \texttt{feature\_bram} --- using a recorded Module~1 interceptor capture (mixed DATA, ACK, and PAUSE traffic), and compare every exported feature vector against a Python reference.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~2-A through 2-F (full pipeline integrated under \texttt{ingest\_top}).
-	\item Recorded multi-beacon Module~1 capture (\texttt{.bin}) with at least 1000 frames.
+	\item Recorded Module~1 interceptor capture (\texttt{.bin}) with at least 1000 frames covering the cooperative-target ping-pong (DATA/ACK from Beacon~IDs \texttt{0x01} and \texttt{0x02}) and at least one button-hold burst of PAUSE traffic from the Threat (Beacon~ID \texttt{0xFF}).
 \end{itemize}
 
 \section{Procedure}
@@ -20,8 +20,8 @@ Stand up a single testbench that drives the complete Module~2 pipeline --- \text
 \subsection{Step 1 --- Scenario selection}
 Pick three test captures from Module~1:
 \begin{enumerate}[leftmargin=2em]
-	\item \textbf{Clean single-beacon}: one emitter, no dropped frames. Validates the happy path.
-	\item \textbf{Multi-beacon mix}: three or more emitters transmitting in overlapping time windows. Validates beacon-ID dispatch and \BRAM{} write arbitration.
+	\item \textbf{Clean single-station}: only Target~A initiating DATA, no responder, no PAUSE. Validates the happy path.
+	\item \textbf{Cooperative-target mix with PAUSE bursts}: Target~A DATA + Target~B ACK ping-pong, with one or more button-hold windows producing PAUSE bursts addressed to whichever Target has the higher RSSI. Validates Beacon-ID dispatch, \BRAM{} write arbitration, and that the \texttt{pkt\_type} field correctly distinguishes DATA / ACK / PAUSE rows in the dumped \BRAM{}.
 	\item \textbf{Corrupted stream}: intentionally introduce bit flips in a small fraction of frames (pre-process the \texttt{.bin} with a short Python script). Validates the reject path.
 \end{enumerate}
 
@@ -40,8 +40,8 @@ Write \texttt{sim/ref\_pipeline.py} that ingests the same \texttt{.bin}, applies
 \subsection{Step 4 --- Diff and pass criteria}
 Diff the simulation dump against the Python reference. Pass criteria:
 \begin{itemize}[leftmargin=2em]
-	\item \textbf{Clean single-beacon}: byte-for-byte match on all non-reserved fields.
-	\item \textbf{Multi-beacon mix}: byte-for-byte match on all occupied rows.
+	\item \textbf{Clean single-station}: byte-for-byte match on all non-reserved fields of row \texttt{0x01}.
+	\item \textbf{Cooperative-target mix with PAUSE bursts}: byte-for-byte match on all occupied rows. Specifically: row \texttt{0x01} has \texttt{pkt\_type} = \texttt{0x00} (DATA), row \texttt{0x02} has \texttt{pkt\_type} = \texttt{0x01} (ACK), and row \texttt{0xFF} has \texttt{pkt\_type} = \texttt{0x02} (PAUSE) with \texttt{target\_id\_if\_pause} (offset~28) matching the higher-RSSI Target's ID and \texttt{pause\_duration\_units} (offset~29) = \texttt{0x05}.
 	\item \textbf{Corrupted stream}: the number of \texttt{frame\_reject} events equals the number of frames with injected bit flips, and no corrupted frame produced a feature update.
 \end{itemize}
 
@@ -57,7 +57,7 @@ A 1000-frame capture at 115200\,baud is roughly 4\,s of wall-clock time in simul
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Clean-capture test: pipeline dump matches Python reference with zero diffs.
-	\item[$\square$] Multi-beacon test: occupied rows match; unoccupied rows remain all-zero.
+	\item[$\square$] Cooperative-target-with-PAUSE test: rows \texttt{0x01}, \texttt{0x02}, and \texttt{0xFF} match; unoccupied rows remain all-zero; \texttt{pkt\_type} field at offset~3 is correct for each row.
 	\item[$\square$] Corrupted-stream test: reject count matches injected-bit-flip count.
 	\item[$\square$] Waveform captures saved for the first 10 frames and for one rejected frame.
 \end{itemize}

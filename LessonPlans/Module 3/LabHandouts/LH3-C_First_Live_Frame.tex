@@ -7,12 +7,12 @@
 \labheader{3-C}{First Live Frame --- Systematic Integration Debugging}
 
 \section{Objective}
-Connect the STM32 receiver to the \FPGA{} and work through the four debugging layers (physical interface, baud rate and framing, protocol synchronization, data integrity) until the \mbox{ILA{}} captures the first \texttt{frame\_valid} pulse on live hardware. This handout is the central milestone of Module~3: a validated end-to-end data path spanning all four hardware components (beacon \MCU{} $\to$ \RF{} link $\to$ receiver \MCU{} $\to$ \FPGA{} fabric).
+Connect the STM32 interceptor (Threat) to the \FPGA{} and work through the four debugging layers (physical interface, baud rate and framing, protocol synchronization, data integrity) until the \mbox{ILA{}} captures the first \texttt{frame\_valid} pulse on live hardware. This handout is the central milestone of Module~3: a validated end-to-end data path spanning all four hardware components (cooperative target \MCU{} $\to$ \RF{} link $\to$ interceptor \MCU{} $\to$ \FPGA{} fabric).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~3-A complete (all 8 checklist items passed, wiring plan documented).
-	\item Lab Handout~3-B complete (debug bitstream programmed, \mbox{ILA{}} dashboard verified with 11 probes).
+	\item Lab Handout~3-A complete (all 9 checklist items passed, wiring plan documented).
+	\item Lab Handout~3-B complete (debug bitstream programmed, \mbox{ILA{}} dashboard verified with 12 probes).
 \end{itemize}
 
 \begin{tcolorbox}[warning={Make Connections Now}]
@@ -23,22 +23,22 @@ Connect the STM32 receiver to the \FPGA{} and work through the four debugging la
 
 \subsection{Step 1 --- Physical connection}
 \begin{enumerate}[leftmargin=2em]
-	\item With all boards \textbf{powered off}, run a GND jumper wire from the STM32 Nucleo GND header pin to the Nexys A7 PMOD JA pin~5 (or pin~11, both are GND). This is the most important connection.
-	\item Run a signal wire from STM32 \texttt{USART3 TX} (\texttt{PC4}) to Nexys A7 \texttt{JA[0]} (Artix-7 ball \texttt{C17}). Verify the \texttt{.xdc} constraint from LH2-A/LH3-B names this port \texttt{uart\_rxd}.
+	\item With all boards \textbf{powered off}, run a GND jumper wire from the STM32 Threat Nucleo GND header pin to the Nexys A7 PMOD JA pin~5 (or pin~11, both are GND). This is the most important connection.
+	\item Run a signal wire from the Threat's \texttt{USART3 TX} (\texttt{PC4}) to Nexys A7 \texttt{JA[0]} (Artix-7 ball \texttt{C17}). Verify the \texttt{.xdc} constraint from LH2-A/LH3-B names this port \texttt{uart\_rxd}.
 	\item Power on the Nexys A7 first (so its \UART{} receiver is active before the STM32 starts transmitting).
-	\item Power on the receiver Nucleo. Then power on both beacon Nucleos.
+	\item Power on the Threat Nucleo. Then power on both Target Nucleos (Target~A and Target~B for ping-pong traffic).
 \end{enumerate}
 
-\labfigure{LH3C_pmod_wiring.jpg}{0.8\textwidth}{STM32 \texttt{USART3 TX} (\texttt{PC4}) wired to Nexys A7 \texttt{JA[0]} with a dedicated GND jumper. The GND wire (black) must be present; without it, the \UART{} signal levels are referenced to different potentials.}{fig:lh3c-wiring}
+\labfigure{LH3C_pmod_wiring.jpg}{0.8\textwidth}{Threat STM32 \texttt{USART3 TX} (\texttt{PC4}) wired to Nexys A7 \texttt{JA[0]} with a dedicated GND jumper. The GND wire (black) must be present; without it, the \UART{} signal levels are referenced to different potentials.}{fig:lh3c-wiring}
 
 \subsection{Step 2 --- Layer~1: Physical interface check}
 \begin{enumerate}[leftmargin=2em]
 	\item In the Vivado \mbox{ILA} dashboard, arm the trigger on \texttt{uart\_rxd\_sync} falling edge (start bit of any byte).
-	\item Wait up to 5 seconds. The receiver transmits a forwarding frame every time it receives a beacon packet (approximately every 2 seconds).
+	\item Wait up to 5 seconds. The Threat transmits a forwarding frame every time it intercepts a packet (DATA + ACK pairs at $\sim$1\,s, so $\sim$2 frames per second; PAUSE bursts only when its user button is held).
 	\item \textbf{If the trigger fires:} the physical layer is working. Proceed to Step~3.
 	\item \textbf{If the trigger does not fire:} the signal is not reaching the \FPGA{}. Debug:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Confirm the STM32 receiver's \texttt{USART3 TX} is on \texttt{PC4} (check the HAL initialization in LH1-G firmware).
+		\item Confirm the Threat's \texttt{USART3 TX} is on \texttt{PC4} (check the HAL initialization in the LH1-G firmware).
 		\item Confirm the \texttt{.xdc} constraint file maps \texttt{uart\_rxd} to \texttt{C17} and is active (not commented out).
 		\item With a \mbox{DMM} in \mbox{DC} voltage mode, probe the signal wire at the \mbox{PMOD} connector while the STM32 is running. You should see a voltage between 1.5\,V and 3.3\,V (the \mbox{DMM} averages the \mbox{UART} idle/active transitions). A reading of exactly 0\,V means no signal or a broken wire.
 	\end{itemize}
@@ -49,11 +49,11 @@ Connect the STM32 receiver to the \FPGA{} and work through the four debugging la
 	\item Arm the trigger on \texttt{rx\_valid} rising edge.
 	\item When the trigger fires, examine the \texttt{rx\_data} waveform. The first byte of a forwarding frame should be \texttt{0x7E}. Check several captures to determine if bytes are decoding correctly or producing garbage.
 	\item Monitor \texttt{rx\_error}. If it asserts on most bytes, the baud rate is mismatched. Compute the expected divisor: for a 100\,MHz \FPGA{} clock and 115200 baud, the divisor is $100{,}000{,}000 / 115{,}200 \approx 868$. Check the \VHDL{} \texttt{uart\_rx} generic.
-	\item If \texttt{rx\_error} asserts intermittently (not on every byte), the STM32 may be configured for 2 stop bits while the \FPGA{} expects 1. Check the HAL \UART{} initialization in the receiver firmware.
+	\item If \texttt{rx\_error} asserts intermittently (not on every byte), the STM32 may be configured for 2 stop bits while the \FPGA{} expects 1. Check the HAL \UART{} initialization in the Threat firmware.
 \end{enumerate}
 
 \begin{tcolorbox}[infobox={Baud Rate Deviation Tolerance}]
-	The Module~2 \UART{} receiver uses $16\times$ oversampling and samples at the bit midpoint, which provides $\pm 3\%$ baud rate tolerance. The STM32L476 derives its \UART{} clock from the \mbox{APB1} bus; if the \mbox{PLL} configuration in the receiver firmware is different from what was used in LH1-G testing, the baud rate may be off. If \texttt{rx\_error} appears on every frame, measure the actual bit period with a logic analyzer or oscilloscope and compute the deviation:
+	The Module~2 \UART{} receiver uses $16\times$ oversampling and samples at the bit midpoint, which provides $\pm 3\%$ baud rate tolerance. The STM32L476 derives its \UART{} clock from the \mbox{APB1} bus; if the \mbox{PLL} configuration in the Threat firmware is different from what was used in LH1-G testing, the baud rate may be off. If \texttt{rx\_error} appears on every frame, measure the actual bit period with a logic analyzer or oscilloscope and compute the deviation:
 	\[
 		\text{Deviation (\%)} = \frac{|T_{\text{measured}} - 8.68\,\mu\text{s}|}{8.68\,\mu\text{s}} \times 100
 	\]
@@ -64,8 +64,8 @@ Connect the STM32 receiver to the \FPGA{} and work through the four debugging la
 \subsection{Step 4 --- Layer~3: Protocol synchronization check}
 \begin{enumerate}[leftmargin=2em]
 	\item With \texttt{rx\_valid} triggering and bytes decoding correctly, monitor \texttt{parser\_state}. After detecting \texttt{0x7E}, the parser should transition: \texttt{HUNT} $\to$ \texttt{LENGTH} $\to$ \texttt{META} $\to$ \texttt{PAYLOAD} $\to$ \texttt{CRC\_CHECK} $\to$ \texttt{DONE}.
-	\item If the parser stays in \texttt{HUNT} despite valid bytes arriving, the \texttt{0x7E} start delimiter is never appearing. Set \mbox{ILA} trigger on \texttt{rx\_valid} and examine 50 consecutive \texttt{rx\_data} values. If you see only non-\texttt{7E} bytes, the receiver firmware is transmitting a different frame format than expected by the parser.
-	\item To quickly check: open the receiver debug \UART{} terminal simultaneously and watch one complete packet reception. The forwarding frame format (from Module~1 Table~6) should match what is in the \mbox{ILA} capture. If the receiver firmware was modified since LH1-G, it may have changed the start delimiter or frame structure.
+	\item If the parser stays in \texttt{HUNT} despite valid bytes arriving, the \texttt{0x7E} start delimiter is never appearing. Set \mbox{ILA} trigger on \texttt{rx\_valid} and examine 50 consecutive \texttt{rx\_data} values. If you see only non-\texttt{7E} bytes, the Threat firmware is transmitting a different frame format than expected by the parser.
+	\item To quickly check: open the Threat debug \UART{} terminal simultaneously and watch one complete packet reception. The forwarding frame format (from Module~1 Table~6) should match what is in the \mbox{ILA} capture. If the Threat firmware was modified since LH1-G, it may have changed the start delimiter or frame structure.
 	\item If the parser advances from \texttt{HUNT} to \texttt{LENGTH} but then returns to \texttt{HUNT}, the length byte does not match the expected value (0x29 = 41 for a 43-byte frame). Capture the byte at offset 1 and compare.
 \end{enumerate}
 
@@ -92,7 +92,7 @@ captured_crc = 0xXX  # byte 42 from the ILA capture
 print(f"Computed: {computed:#04x}  Captured: {captured_crc:#04x}  Match: {computed == captured_crc}")
 	\end{verbatim}
 	\item If the computed \mbox{CRC} matches the captured byte~42 but the \FPGA{} still rejects, the \VHDL{} \mbox{CRC} engine has a bug (wrong polynomial, wrong initialization, wrong byte range). Re-run the Module~2 LH2-E testbench against this live frame as stimulus.
-	\item If the computed \mbox{CRC} does \emph{not} match byte~42, the STM32 receiver firmware is computing \mbox{CRC} differently (different polynomial \texttt{0x31} vs \texttt{0x07}, different initialization value, or including/excluding the start delimiter). Compare against the receiver source from LH1-G.
+	\item If the computed \mbox{CRC} does \emph{not} match byte~42, the STM32 Threat firmware is computing \mbox{CRC} differently (different polynomial \texttt{0x31} vs \texttt{0x07}, different initialization value, or including/excluding the start delimiter). Compare against the Threat source from LH1-G.
 \end{enumerate}
 
 \begin{tcolorbox}[warning={CRC Polynomial Mismatch is the Most Common Layer-4 Failure}]
@@ -103,36 +103,38 @@ print(f"Computed: {computed:#04x}  Captured: {captured_crc:#04x}  Match: {comput
 \subsection{Step 6 --- First frame milestone}
 \begin{enumerate}[leftmargin=2em]
 	\item Once all four layers are verified, arm the \mbox{ILA} trigger on \texttt{frame\_valid} rising edge.
-	\item When the trigger fires, examine the captured values for \texttt{beacon\_id}, \texttt{rssi\_out}, and the \texttt{byte\_counter} (should read 43 at the DONE state).
-	\item Simultaneously read the receiver's debug \UART{} terminal. The last reception line should show the same packet.
+	\item When the trigger fires, examine the captured values for \texttt{beacon\_id}, \texttt{pkt\_type}, \texttt{rssi\_out}, and the \texttt{byte\_counter} (should read 43 at the DONE state).
+	\item Simultaneously read the Threat's debug \UART{} terminal. The last reception line should show the same packet.
 	\item Confirm the following match between the \mbox{ILA} capture and the STM32 debug log:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Parsed \texttt{beacon\_id} equals the transmitting beacon's configured \mbox{ID}.
-		\item Parsed \texttt{rssi\_out} is within $\pm$2~dB of the \RSSI{} printed by the receiver.
+		\item Parsed \texttt{beacon\_id} equals the originating station's configured \mbox{ID} (\texttt{0x01} for Target~A DATA, \texttt{0x02} for Target~B ACK).
+		\item Parsed \texttt{pkt\_type} matches the expected packet type (\texttt{00}=DATA on \texttt{0x01}, \texttt{01}=ACK on \texttt{0x02}).
+		\item Parsed \texttt{rssi\_out} is within $\pm$2~dB of the \RSSI{} printed by the Threat.
 		\item Both CRC flags pass: \texttt{frame\_valid} = 1 and \texttt{frame\_reject} = 0.
 	\end{itemize}
+	\item Optionally, hold the Threat's user button for 2\,s and re-arm the trigger. A PAUSE frame should appear with \texttt{beacon\_id} = \texttt{0xFF} and \texttt{pkt\_type} = \texttt{10}, confirming the third packet type also flows through the \FPGA{} pipeline. (See LH3-A Step~3 for the expected \texttt{"I'm Jammed"} response on the targeted Target.)
 \end{enumerate}
 
 \labfigure{LH3C_first_frame_valid.png}{0.85\textwidth}{\mbox{ILA} capture of the first \texttt{frame\_valid} pulse on live hardware. The \texttt{beacon\_id} and \texttt{rssi\_out} fields are highlighted for comparison against the STM32 receiver debug log.}{fig:lh3c-frame-valid}
 
 \subsection{Step 7 --- Ten-frame field comparison}
 \begin{enumerate}[leftmargin=2em]
-	\item Arm the \mbox{ILA} on \texttt{frame\_valid} and capture 10 consecutive frames. For each, record \texttt{beacon\_id} and \texttt{rssi\_out} from the \mbox{ILA} waveform.
-	\item In the receiver terminal, capture the corresponding 10 reception log lines.
+	\item Arm the \mbox{ILA} on \texttt{frame\_valid} and capture 10 consecutive frames covering both DATA (Beacon~ID \texttt{0x01}) and ACK (Beacon~ID \texttt{0x02}) ping-pong rows. For each, record \texttt{beacon\_id}, \texttt{pkt\_type}, and \texttt{rssi\_out} from the \mbox{ILA} waveform.
+	\item In the Threat terminal, capture the corresponding 10 reception log lines.
 	\item Build a side-by-side comparison table:
 	\begin{center}
-		\begin{tabular}{c c c c c}
+		\begin{tabular}{c c c c c c}
 			\toprule
-			\textbf{Frame \#} & \textbf{FPGA ID} & \textbf{STM32 ID} & \textbf{FPGA RSSI} & \textbf{STM32 RSSI} \\
+			\textbf{Frame \#} & \textbf{FPGA ID} & \textbf{FPGA pkt\_type} & \textbf{Threat ID/type} & \textbf{FPGA RSSI} & \textbf{Threat RSSI} \\
 			\midrule
-			1 & & & & \\
-			2 & & & & \\
-			$\vdots$ & & & & \\
-			10 & & & & \\
+			1 & & & & & \\
+			2 & & & & & \\
+			$\vdots$ & & & & & \\
+			10 & & & & & \\
 			\bottomrule
 		\end{tabular}
 	\end{center}
-	\item All beacon \mbox{ID}s should match exactly. \mbox{RSSI} discrepancies up to $\pm$3~dB are acceptable (rounding in the 1-byte unsigned representation). Larger discrepancies indicate a field offset error in the parser or a byte-ordering issue in the \mbox{RSSI{}} extraction.
+	\item All Beacon~\mbox{ID}s and \texttt{pkt\_type} values should match exactly. \mbox{RSSI} discrepancies up to $\pm$3~dB are acceptable (rounding in the 1-byte unsigned representation). Larger discrepancies indicate a field offset error in the parser or a byte-ordering issue in the \mbox{RSSI{}} extraction.
 \end{enumerate}
 
 \section{Verification Checklist}
@@ -141,7 +143,7 @@ print(f"Computed: {computed:#04x}  Captured: {captured_crc:#04x}  Match: {comput
 	\item[$\square$] Baud/framing: \texttt{rx\_error} is absent or rare ($<$1\% of bytes); decoded bytes are correct hex values.
 	\item[$\square$] Protocol sync: parser \FSM{} advances through all states on a live frame; \texttt{0x7E} delimiter detected.
 	\item[$\square$] Data integrity: \texttt{frame\_valid} fires; \texttt{frame\_reject} stays low on back-to-back frames.
-	\item[$\square$] Ten-frame comparison: all \texttt{beacon\_id} fields match STM32 log; \RSSI{} within $\pm$3~dB.
+	\item[$\square$] Ten-frame comparison: all \texttt{beacon\_id} and \texttt{pkt\_type} fields match Threat log; \RSSI{} within $\pm$3~dB.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 3-C Deliverable --- Module 3 Integration Milestone}]

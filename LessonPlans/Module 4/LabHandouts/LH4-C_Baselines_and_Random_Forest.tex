@@ -7,11 +7,11 @@
 \labheader{4-C}{DummyClassifier, Decision Tree, and Random Forest with Grid Search}
 
 \section{Objective}
-Establish a three-rung classical baseline for each classification task: a majority-class \texttt{DummyClassifier}, a single \texttt{DecisionTreeClassifier} with fixed depth, and a grid-searched \texttt{RandomForestClassifier}. Every subsequent model in Module~4 must beat the random-forest number; if a neural network cannot outperform the forest, the feature representation --- not the model family --- is the problem.
+Establish a three-rung classical baseline for each of the four classification tasks: a majority-class \texttt{DummyClassifier}, a single \texttt{DecisionTreeClassifier} with fixed depth, and a grid-searched \texttt{RandomForestClassifier}. Every subsequent model in Module~4 must beat the random-forest number; if a neural network cannot outperform the forest, the feature representation --- not the model family --- is the problem.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-B complete (\texttt{artifacts/\{sf,mod,beacon\}/} present).
+	\item Lab Handout~4-B complete (\texttt{artifacts/\{sf,mod,beacon,pkt\}/} present).
 	\item \texttt{scikit-learn $\geq$ 1.3}.
 	\item \texttt{statsmodels $\geq$ 0.14} (for \texttt{proportion\_confint}; used in Step~4 Wilson CI). Install with \texttt{pip install statsmodels}. If \texttt{statsmodels} cannot be installed, use the dependency-free fallback in the Step~4 sidebar.
 \end{itemize}
@@ -63,7 +63,7 @@ def baselines(task):
     print(f"[{task}] Tree-5 acc = {acc_dt:.3f}")
     return dum, dt, acc_dum, acc_dt
 
-for t in ["sf", "mod", "beacon"]:
+for t in ["sf", "mod", "beacon", "pkt"]:
     baselines(t)
 \end{lstlisting}
 
@@ -98,7 +98,7 @@ def grid_search_rf(task):
     print(f"[{task}] RF CV acc = {gs.best_score_:.3f}, test acc = {acc_te:.3f}")
     return best, gs, acc_te
 
-for t in ["sf", "mod", "beacon"]:
+for t in ["sf", "mod", "beacon", "pkt"]:
     grid_search_rf(t)
 \end{lstlisting}
 
@@ -163,13 +163,13 @@ def plot_importance(model, feature_names, task):
 plot_importance(best, pre["feature_cols"], t)
 \end{lstlisting}
 
-For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. Any wildly different ordering is worth investigating.
+For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. For the packet-type task, \texttt{inter\_arrival\_ms} and \texttt{rssi\_delta} should dominate (DATA, ACK, and PAUSE rows have very different temporal signatures). Any wildly different ordering is worth investigating.
 
 \subsection{Step 6 --- Save the winning forests}
 
 \begin{lstlisting}[language=Python]
 import joblib
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
     best, gs, acc_te = grid_search_rf(task)
     joblib.dump({"model": best,
                  "test_acc": acc_te,
@@ -191,6 +191,7 @@ Fill in a summary table that every subsequent model must improve on:
 		SF Detection     & & & & \\
 		Modulation       & & & & \\
 		Emitter ID       & & & & \\
+		Packet Type      & & & & \\
 		\bottomrule
 	\end{tabularx}
 	\caption{Baselines from Steps 2--5. Carry this table forward; every model in LH4-D through LH4-F is benchmarked against the RF column.}
@@ -198,7 +199,7 @@ Fill in a summary table that every subsequent model must improve on:
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Dummy, tree, and random-forest accuracies computed for all three tasks.
+	\item[$\square$] Dummy, tree, and random-forest accuracies computed for all four tasks (SF, modulation, emitter ID, packet type).
 	\item[$\square$] Grid search complete; best parameters recorded.
 	\item[$\square$] Wilson 95\% CI reported for each random-forest test accuracy.
 	\item[$\square$] Feature importance plot generated for each task.
@@ -207,10 +208,10 @@ Fill in a summary table that every subsequent model must improve on:
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-C Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Filled baseline summary table (three rows, four accuracy columns, CI column).
-		\item Three feature-importance bar plots (one per task), each with a 2--3 sentence interpretation.
-		\item \texttt{artifacts/\{sf,mod,beacon\}/rf.pkl}: the grid-searched random forests, their CV/test accuracies, and chosen hyperparameters.
-		\item One short paragraph per task discussing whether the top-ranked features match the physical expectation (e.g., \mbox{RSSI}/\mbox{SNR} dominating SF detection).
+		\item Filled baseline summary table (four rows, four accuracy columns, CI column).
+		\item Four feature-importance bar plots (one per task), each with a 2--3 sentence interpretation.
+		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/rf.pkl}: the grid-searched random forests, their CV/test accuracies, and chosen hyperparameters.
+		\item One short paragraph per task discussing whether the top-ranked features match the physical expectation (e.g., \mbox{RSSI}/\mbox{SNR} dominating SF detection; inter-arrival time dominating packet type).
 	\end{enumerate}
 \end{tcolorbox}
 
