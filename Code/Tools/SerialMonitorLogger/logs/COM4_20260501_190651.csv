@@ -1,0 +1,3 @@
+timestamp,port,line
+2026-05-01T19:06:51.568,COM4,lora_init done
+2026-05-01T19:06:51.571,COM4,"Threat (Interceptor, ID=0xFF) ready"

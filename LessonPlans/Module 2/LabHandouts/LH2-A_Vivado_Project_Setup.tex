@@ -1,96 +1,365 @@
 \documentclass[11pt,letterpaper]{article}
 \newcommand{\labid}{2-A}
-\newcommand{\labtitleshort}{Vivado Project Setup}
+\newcommand{\labtitleshort}{Module 2 Project Orientation}
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{2-A}{Vivado Project Setup and \VHDL{} Skeleton for the Ingestion Pipeline}
+\labheader{2-A}{Module~2 Project Orientation, \FPGA{} Passthrough, and Capture Set}
 
 \section{Objective}
-Create the Vivado project and directory layout that will host the full Module~2 \RTL{} ingestion pipeline. By the end of this handout you will have a compiling (empty-but-valid) top-level entity, a constraint file limited to the signals we actually use, and a simulation set ready to accept testbenches in Lab Handouts~2-B through 2-G.
+Open the \texttt{ingest\_top} Vivado project built in LH1-H and prepare it for incremental \RTL{} development across Module~2. The five \VHDL{} files you wrote in LH1-H form the bring-up baseline; later handouts replace each block one at a time. By the end of this handout the project will have a simulation fileset, an \FPGA{} bitstream that simultaneously drives the seven-segment display \emph{and} echoes the raw Threat byte stream out the Nexys A7's onboard USB-UART, two raw \texttt{.bin} captures copied into a \texttt{data/} folder for the Module~2 testbenches to consume, and a documented baseline utilization snapshot.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~1-E (Vivado toolchain validated on Nexys A7-100T).
-	\item Basic \VHDL{} syntax familiarity.
+	\item Lab Handout~1-H complete: \texttt{ingest\_top} synthesizes, implements, programs, and produces a live Beacon~ID on the seven-segment display.
+	\item Target~A, Target~B (LH1-F), and the Threat (LH1-G) all flashed and known to be ping-ponging on the radio.
+	\item Host PC with Python 3.9+ and the \texttt{pyserial} package installed (\texttt{pip install pyserial}).
 \end{itemize}
 
 \section{Materials}
 \begin{itemize}[leftmargin=2em]
 	\item Digilent Nexys A7-100T development board.
 	\item Host PC with Vivado ML Standard installed.
-	\item \texttt{Nexys-A7-100T-Master.xdc} constraint file from Digilent.
+	\item The LH1-H \texttt{ingest\_top} project directory.
+	\item USB cable connecting the Nexys A7 to the host (the same cable used to program the board).
 \end{itemize}
+
+\begin{tcolorbox}[infobox={Module~2 development model}]
+	A single \texttt{ingest\_top} project accumulates all Module~2 \RTL{}. Rather than starting over, each handout (LH2-B through LH2-F) replaces exactly one \VHDL{} file with a new student-written version and adds a corresponding testbench to the simulation fileset. This keeps synthesis, timing, and resource numbers directly comparable across sessions, and the project arrives at Module~3 in a single coherent state. \textbf{Do not delete the LH1-H files yet} --- each Module~2 handout instructs you exactly when to remove which file from the project.
+\end{tcolorbox}
+
+\begin{tcolorbox}[infobox={Why we capture \texttt{.bin} files in this handout}]
+	The Module~2 testbenches (LH2-B regression and LH2-G end-to-end) replay a recorded byte stream into the \HDL{} under simulation. That recording has to come from somewhere. Earlier course revisions captured it via a separate USB-to-UART adapter wired to the Threat's \texttt{USART3 TX} pin. To remove that hardware dependency, this handout adds one line of \VHDL{} and one line of \XDC{} that route the same byte stream out the Nexys A7's onboard FT2232 USB-UART. The same USB cable that programs the board also enumerates as a \mbox{COM} port on the host, and a tiny Python script captures the bytes to disk.
+\end{tcolorbox}
 
 \section{Procedure}
 
-\subsection{Step 1 --- Create the project directory}
+\subsection{Step 1 --- Open the LH1-H project}
 \begin{enumerate}[leftmargin=2em]
-	\item On the host PC, create a working directory \texttt{ee800\_m2\_ingest/} with subfolders \texttt{rtl/}, \texttt{sim/}, \texttt{xdc/}, and \texttt{data/}. The \texttt{data/} folder will hold recorded Module~1 byte captures used as testbench stimulus.
-	\item Copy \texttt{Nexys-A7-100T-Master.xdc} into \texttt{xdc/} and rename it \texttt{ingest\_top.xdc}.
+	\item Launch Vivado. On the start page, click the \texttt{ingest\_top} entry under \textbf{Recent Projects}, or use \textit{File} $\to$ \textit{Open Project} and navigate to \texttt{ingest\_top.xpr}.
+	\item Confirm the Sources panel shows all five LH1-H files (\texttt{uart\_rx.vhd}, \texttt{byte\_fifo.vhd}, \texttt{frame\_\allowbreak detector.vhd}, \texttt{seg7\_driver.vhd}, \texttt{ingest\_top.vhd}) and that \texttt{ingest\_top} is bold (set as Top).
+	\item Confirm the bottom-right part indicator reads \texttt{xc7a100tcsg324-1}.
 \end{enumerate}
 
-\subsection{Step 2 --- Create the Vivado project}
+\subsection{Step 2 --- Add a simulation fileset}
 \begin{enumerate}[leftmargin=2em]
-	\item Vivado $\to$ \textit{File} $\to$ \textit{Project} $\to$ \textit{New}. Name it \texttt{ingest\_top}, location \texttt{ee800\_m2\_ingest/}.
-	\item Project type: \textbf{\RTL{} Project}. Do not add sources yet.
-	\item Target device: \textbf{xc7a100tcsg324-1}.
+	\item In the Flow Navigator, click \textbf{Project Settings} $\to$ \textbf{Simulation}. Confirm the \textit{Simulation top module name} field is writable --- if no \texttt{sim\_1} fileset exists yet, Vivado may prompt you to create one. Accept.
+	\item In the Sources panel, select the \textbf{Simulation Sources} tab. Confirm the \texttt{sim\_1} set is present. All testbenches added in LH2-B through LH2-G will go here.
 \end{enumerate}
 
-\labfigure{LH2A_project_wizard.png}{0.8\textwidth}{Vivado New Project wizard with target part \texttt{xc7a100tcsg324-1} selected.}{fig:lh2a-wizard}
+\begin{tcolorbox}[infobox={Keeping simulation sources isolated}]
+	Adding testbenches only to the simulation fileset (never to Design Sources) prevents them from appearing in the synthesis hierarchy. Vivado will not attempt to synthesize them.
+\end{tcolorbox}
 
-\subsection{Step 3 --- Add the \VHDL{} top skeleton}
-Create \texttt{rtl/ingest\_top.vhd} with the following entity. Leave the architecture body empty for now --- Lab Handouts 2-B through 2-F will fill it in incrementally.
-\begin{verbatim}
+\subsection{Step 3 --- Create the \texttt{data/} folder}
+\begin{enumerate}[leftmargin=2em]
+	\item In the project directory (the folder containing \texttt{ingest\_top.xpr}), create a \texttt{data/} subfolder alongside the auto-generated \texttt{ingest\_top.srcs/}, \texttt{ingest\_top.runs/}, \texttt{ingest\_top.sim/}, and \texttt{ingest\_top.cache/} folders. Modern Vivado prefixes these working folders with the project name; if your project is named differently you will see the same suffixes prefixed with that name.
+	\item Leave \texttt{data/} empty for now --- Step~6 below produces the \texttt{.bin} captures that go into it.
+	\item Note: \texttt{data/} is not added to Vivado's Sources panel --- it is a plain file-system folder that testbenches open via \texttt{std.textio}.
+\end{enumerate}
+
+\newpage
+\subsection{Step 4 --- Add the USB-UART passthrough to the bitstream}
+
+You will add one output port to \texttt{ingest\_top}, route the raw \texttt{uart\_rx\_pin} signal directly to it, and uncomment the \XDC{} entry that maps that port to the FT2232's UART RX pin (FPGA pin \texttt{D4}, called \texttt{UART\_RXD\_OUT} in the master \XDC{}). The Threat's \texttt{USART3 TX} stream is already at 115200 8N1; the FT2232 channel exposed to the host is also 115200 8N1; both ends agree on framing, so a direct wire echoes the byte stream byte-for-byte without any re-serialization.
+
+\begin{tcolorbox}[infobox={Why a direct wire works}]
+	A \UART{} ``adapter'' at the silicon level is just a baud generator and a shift register on each end. As long as both ends are clocked to the same baud rate and agree on word format, the line in between is just digital 1s and 0s. Routing the \FPGA{}'s incoming \mbox{RX} pin through to its outgoing \mbox{TX}-to-host pin makes the \FPGA{} look like a passive piece of wire from the host's perspective. The \FPGA{} also runs the \texttt{uart\_rx} block in parallel, so the same bits drive both the seven-segment display \emph{and} the host capture --- the two paths are completely independent.
+\end{tcolorbox}
+
+\subsubsection*{Step 4.1 --- Edit \texttt{ingest\_top.vhd}}
+
+Open \texttt{ingest\_top.vhd}. Add a new output port \texttt{UART\_RXD\_OUT} to the entity, then add one assignment statement at the bottom of the architecture that drives that port from the existing \texttt{uart\_rx\_pin} input. The complete file should now read:
+
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{ingest\_top.vhd} after the LH2-A passthrough edits. Two new lines: the \texttt{UART\_RXD\_OUT} port declaration, and the assignment of \texttt{uart\_rx\_pin} to that port at the bottom of the architecture.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
 entity ingest_top is
-    Port ( sysclk   : in  STD_LOGIC;                      -- 100 MHz
-           rstn     : in  STD_LOGIC;                      -- active-low reset
-           uart_rxd : in  STD_LOGIC;                      -- from STM32 RX
-           led      : out STD_LOGIC_VECTOR(15 downto 0)); -- status LEDs
+    port (
+        CLK100MHZ    : in  std_logic;
+        CPU_RESETN   : in  std_logic;                       -- active-low pushbutton
+        uart_rx_pin  : in  std_logic;                       -- PMOD JA pin 1 (C17)
+        UART_RXD_OUT : out std_logic;                       -- onboard USB-UART, FPGA -> host (D4)
+        CA, CB, CC, CD, CE, CF, CG : out std_logic;         -- 7-seg segments (active low)
+        DP           : out std_logic;
+        AN           : out std_logic_vector(7 downto 0);
+        LED          : out std_logic_vector(15 downto 0)
+    );
 end ingest_top;
 
 architecture rtl of ingest_top is
-begin
-    led <= (others => '0');
-end rtl;
-\end{verbatim}
+    signal rst_n      : std_logic;
 
-\subsection{Step 4 --- Prune the constraint file}
+    signal rx_data    : std_logic_vector(7 downto 0);
+    signal rx_strobe  : std_logic;
+
+    signal fifo_data  : std_logic_vector(7 downto 0);
+    signal fifo_rd_en : std_logic;
+    signal fifo_empty : std_logic;
+    signal fifo_full  : std_logic;
+
+    signal beacon_id  : std_logic_vector(7 downto 0);
+    signal new_frame  : std_logic;
+
+    signal seg_bus    : std_logic_vector(6 downto 0);
+begin
+    rst_n <= CPU_RESETN;                                    -- already active-low
+
+    u_uart : entity work.uart_rx
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  rx => uart_rx_pin,
+                  rx_data => rx_data, rx_strobe => rx_strobe);
+
+    u_fifo : entity work.byte_fifo
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  wr_en => rx_strobe, wr_data => rx_data,
+                  rd_en => fifo_rd_en, rd_data => fifo_data,
+                  empty => fifo_empty, full => fifo_full);
+
+    u_det : entity work.frame_detector
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  fifo_empty => fifo_empty, fifo_data => fifo_data,
+                  fifo_rd_en => fifo_rd_en,
+                  beacon_id => beacon_id, new_frame => new_frame);
+
+    u_seg : entity work.seg7_driver
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  beacon_id => beacon_id, new_frame => new_frame,
+                  seg => seg_bus, dp => DP, an => AN);
+
+    -- Break out the segment bus to the named XDC ports (CA..CG).
+    CA <= seg_bus(0);
+    CB <= seg_bus(1);
+    CC <= seg_bus(2);
+    CD <= seg_bus(3);
+    CE <= seg_bus(4);
+    CF <= seg_bus(5);
+    CG <= seg_bus(6);
+
+    -- Status LEDs (the rest are forced low).
+    LED(0)            <= rx_strobe;
+    LED(1)            <= new_frame;
+    LED(2)            <= fifo_empty;
+    LED(3)            <= fifo_full;
+    LED(15 downto 4)  <= (others => '0');
+
+    -- Passthrough: forward the raw PMOD JA1 stream out the onboard USB-UART
+    -- so the host PC can capture .bin files via the same USB cable that
+    -- programs the board. No re-serialization needed: both ends are 115200
+    -- 8N1, so a direct wire echoes the stream byte-for-byte.
+    UART_RXD_OUT <= uart_rx_pin;
+end rtl;
+\end{lstlisting}
+
+Save (\texttt{Ctrl+S}).
+
+\subsubsection*{Step 4.2 --- Uncomment the \texttt{UART\_RXD\_OUT} pin in the \XDC{}}
+
+Open the \texttt{Nexys-A7-100T-Master.xdc} you copied into the project in LH1-H Step~3. Find the line that reads:
+
+\begin{lstlisting}[language={[Sharp]C}, basicstyle=\scriptsize\ttfamily]
+#set_property -dict { PACKAGE_PIN D4    IOSTANDARD LVCMOS33 } [get_ports { UART_RXD_OUT }]; #IO_L11N_T1_SRCC_35 Sch=uart_rxd_out
+\end{lstlisting}
+
+Remove the leading \texttt{\#} so the line becomes active:
+
+\begin{lstlisting}[language={[Sharp]C}, basicstyle=\scriptsize\ttfamily]
+set_property -dict { PACKAGE_PIN D4    IOSTANDARD LVCMOS33 } [get_ports { UART_RXD_OUT }]; #IO_L11N_T1_SRCC_35 Sch=uart_rxd_out
+\end{lstlisting}
+
+Save the \XDC{}. Do \emph{not} also uncomment the \texttt{UART\_TXD\_IN} line directly below it --- the host-to-FPGA direction is unused.
+
+\subsubsection*{Step 4.3 --- Re-synthesize and program}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Open \texttt{xdc/ingest\_top.xdc}. Uncomment only: the 100\,MHz system clock (\texttt{E3}), all 16 \mbox{LEDs} (\texttt{H17}--\texttt{V11}), the center pushbutton for reset (\texttt{N17}), and the Pmod JA pin you will wire to the STM32 \texttt{USART} \texttt{TX}.
-	\item Rename the signals in the constraint file to match the top-level port names: \texttt{sysclk}, \texttt{rstn}, \texttt{led[*]}, \texttt{uart\_rxd}.
-	\item Add the clock definition \texttt{create\_clock -period 10.000 -name sysclk [get\_ports sysclk]} if the master \texttt{.xdc} does not already contain it.
+	\item \textbf{Confirm \texttt{ingest\_top} is set as the Design Sources top.} In the Sources panel's \textit{Design Sources} tab, \texttt{ingest\_top} should appear in \textbf{bold}. If it is not bold (a previous testbench or another entity may be set as top), right-click \texttt{ingest\_top} $\to$ \textbf{Set as Top}. Synthesis uses the Design Sources top regardless of what is set as top in Simulation Sources; verify it explicitly before every synthesis run.
+	\item Flow Navigator $\to$ \textbf{Run Synthesis}. If Vivado prompts you about a stale run from LH1-H, click \textbf{Yes} to delete it. Wait for completion. Expect zero errors.
+	\item Flow Navigator $\to$ \textbf{Run Implementation}. Confirm WNS $\geq 0$\,ns and WHS $\geq 0$\,ns in the timing report.
+	\item Flow Navigator $\to$ \textbf{Generate Bitstream}.
+	\item Open Hardware Manager, auto-connect to the Nexys A7, and program with the new bitstream.
+	\item With Target~A, Target~B, and the Threat all powered on, confirm the seven-segment display still alternates Beacon~IDs \texttt{01}/\texttt{02} as it did at the end of LH1-H. The display behavior must be \emph{unchanged} --- the passthrough is purely additive.
 \end{enumerate}
 
-\begin{tcolorbox}[infobox={Why one consolidated top, not one project per session?}]
-	A single \texttt{ingest\_top} accumulates logic across all four Module~2 sessions. This keeps synthesis, timing, and resource numbers comparable across labs, and matches how the design will ship to Module~3. Per-handout testbenches stay isolated by adding them only to the simulation set.
+\subsubsection*{Step 4.4 --- Identify the host-side \mbox{COM} port}
+
+The Nexys A7's onboard FT2232HQ exposes two USB interfaces over the same cable: one channel is the \mbox{JTAG} that Vivado uses to program the board, the other is a virtual \mbox{COM} port wired to FPGA pins \texttt{D4} (FPGA $\to$ host) and \texttt{C4} (host $\to$ FPGA). After programming, with the \mbox{USB} cable still connected:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Windows: open \textbf{Device Manager} (Win+X $\to$ Device Manager), expand \textbf{Ports (COM \& LPT)}, and look for an entry such as \texttt{USB Serial Port (COM\textit{N})} that appears only when the Nexys A7 is plugged in. Note the \mbox{COM} number for Step~6.
+	\item Linux/macOS: the device appears as \texttt{/dev/ttyUSB\textit{N}} or \texttt{/dev/tty.usbserial-\textit{xxx}}. Run \texttt{ls /dev/tty*} before and after plugging in the board to spot the new entry.
+	\item If no entry appears, install the FTDI VCP driver (Windows: \url{https://ftdichip.com/drivers/vcp-drivers/}; Linux/macOS: usually built in). Re-plug the Nexys A7 after installing.
+\end{enumerate}
+
+\begin{tcolorbox}[warning={Do not unplug the board mid-capture}]
+	The same \mbox{USB} cable carries both \mbox{JTAG} and the \UART{} channel. Do not run Vivado's Hardware Manager (or any \mbox{JTAG} operation) while a long capture is in progress --- you will glitch the \UART{} stream. Once the bitstream is loaded, close Hardware Manager before you start recording.
 \end{tcolorbox}
 
-\subsection{Step 5 --- Verify the empty project synthesizes}
+\newpage
+\subsection{Step 5 --- Save the raw-capture script}
+
+The host-side capture is a 50-line Python script. Save the listing below as \texttt{raw\_capture.py} under \texttt{Code/Tools/RawCapture/}, alongside a one-line \texttt{requirements.txt} containing \texttt{pyserial>=3.5}.
+
+\begin{lstlisting}[language=Python, basicstyle=\scriptsize\ttfamily, caption={\texttt{Code/Tools/RawCapture/raw\_capture.py} --- captures raw bytes from a serial port to a \texttt{.bin} file. Stops after \texttt{-{}-frames N} start delimiters \emph{or} \texttt{-{}-seconds S} elapsed, whichever comes first. Both have generous defaults so passing only the first three positional arguments is fine for most runs.}]
+"""Raw byte capture from a serial port to a .bin file.
+
+Reads bytes off a COM port and writes them verbatim to disk. Used to
+produce the capture_clean.bin and capture_mixed.bin files required by
+the Module 2 testbenches. The Threat's USART3 TX stream is already
+present on the Nexys A7's onboard USB-UART after the LH2-A Step 4
+passthrough; this script captures it from the host side.
+"""
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import serial
+
+
+FRAME_LEN = 43
+START_DELIM = 0x7E
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("port")
+    ap.add_argument("baud", type=int)
+    ap.add_argument("out_bin", type=Path)
+    ap.add_argument("--frames", type=int, default=2000,
+                    help="stop after this many start-delimiters seen (default 2000)")
+    ap.add_argument("--seconds", type=float, default=1800.0,
+                    help="hard timeout in seconds (default 30 min)")
+    args = ap.parse_args()
+
+    print(f"Opening {args.port} @ {args.baud} 8N1")
+    ser = serial.Serial(args.port, args.baud, timeout=1.0)
+
+    frames = 0
+    bytes_written = 0
+    t_start = time.monotonic()
+    deadline = t_start + args.seconds
+
+    with args.out_bin.open("wb") as f:
+        while frames < args.frames and time.monotonic() < deadline:
+            chunk = ser.read(256)
+            if not chunk:
+                continue
+            f.write(chunk)
+            bytes_written += len(chunk)
+            frames += chunk.count(START_DELIM.to_bytes(1, "little"))
+            if frames and frames % 100 == 0:
+                elapsed = time.monotonic() - t_start
+                print(f"  {frames} start delimiters / "
+                      f"{bytes_written} bytes / {elapsed:.1f}s",
+                      end="\r")
+
+    elapsed = time.monotonic() - t_start
+    print()
+    print(f"Wrote {bytes_written} bytes ({frames} start delimiters) "
+          f"to {args.out_bin} in {elapsed:.1f}s")
+    ser.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+\end{lstlisting}
+
+Install the dependency once:
+
+\begin{lstlisting}[language=bash, basicstyle=\scriptsize\ttfamily]
+cd Code/Tools/RawCapture
+pip install -r requirements.txt
+\end{lstlisting}
+
+\newpage
+\subsection{Step 6 --- Record \texttt{capture\_clean.bin} and \texttt{capture\_mixed.bin}}
+
+Both captures must contain $\geq$ 1500 start delimiters. At the steady-state DATA + ACK cadence ($\sim$2 frames per second) that is roughly 12--15 minutes per recording. Run them sequentially.
+
+\subsubsection*{Step 6.1 --- Clean capture (DATA + ACK only)}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Expect zero errors and one or two warnings about unused inputs (\texttt{rstn}, \texttt{uart\_rxd}) --- these are expected and will disappear as logic is added.
-	\item Open the post-synthesis utilization report. Record the baseline \mbox{LUT}/\mbox{FF}/\mbox{BRAM} counts. They should be effectively zero; this is your reference point for resource growth in later labs.
+	\item Power on Target~A, Target~B, and the Threat. Confirm the Nexys A7 seven-segment display alternates \texttt{01}/\texttt{02} normally.
+	\item Do \emph{not} touch the Threat's \texttt{B1} button at any point during this capture.
+	\item In a host terminal, from \texttt{Code/Tools/RawCapture/}, run (substitute your \mbox{COM} number from Step~4.4):
+\begin{lstlisting}[language=bash, basicstyle=\scriptsize\ttfamily]
+python raw_capture.py COM7 115200 ../../ingest_top/data/capture_clean.bin --frames 1500
+\end{lstlisting}
+	\item The script prints a progress line every 100 start delimiters. Wait for it to exit on its own. Final output should report $\geq$ 64\,500 bytes ($1500 \times 43$, plus a few bytes of partial frame at the start).
 \end{enumerate}
 
-\labfigure{LH2A_baseline_util.png}{0.8\textwidth}{Post-synthesis utilization of the empty skeleton. All counters should read near zero --- this is the baseline for Module~2 resource tracking.}{fig:lh2a-util}
+\subsubsection*{Step 6.2 --- Mixed capture (DATA + ACK with traffic gaps)}
+
+\begin{enumerate}[leftmargin=2em]
+	\item With the same setup still running, start a second capture:
+\begin{lstlisting}[language=bash, basicstyle=\scriptsize\ttfamily]
+python raw_capture.py COM7 115200 ../../ingest_top/data/capture_mixed.bin --frames 1500
+\end{lstlisting}
+	\item About 30 seconds in, hold the Threat's \texttt{B1} button for $\sim$5\,seconds, then release. The targeted Target goes silent during the holdoff window; the radio ping-pong stalls and resumes when the holdoff expires. On the seg7, the right-most digits will freeze on the last received Beacon~\mbox{ID} for the duration of the hold, then resume alternating once the link recovers. The capture will contain a corresponding gap (no \texttt{0x7E} delimiters for $\sim$500\,ms).
+	\item Optionally repeat the button hold once or twice more during the recording so the file contains multiple gaps separated by clean DATA/ACK regions. These gaps are what exercises the parser's re-sync logic in Module~2.
+	\item Wait for the script to exit. Final size should again be roughly $1500 \times 43 \approx 64\,500$ bytes, though wall-clock time will be slightly longer than the clean capture because of the button-hold gaps.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why no PAUSE frames appear in the \texttt{.bin}}]
+The Threat \emph{transmits} PAUSE frames on the radio when its button is held; it does not \emph{receive} its own transmissions (the SX1276 is half-duplex shadowed during its own \mbox{TX}). Only frames the Threat receives off-air are forwarded over \texttt{USART3} to the \FPGA{}, so PAUSE frames never appear in the byte stream this script captures. The button hold still produces a meaningful change in the recording --- the gap caused by the targeted Target going silent --- and that gap is what the Module~2 testbenches use as a re-sync stress case. Module~3 introduces a separate ingest path for PAUSE traffic.
+\end{tcolorbox}
+
+\begin{tcolorbox}[warning={If a capture comes up short or empty}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Script reports zero start delimiters:} wrong \mbox{COM} port, or the FPGA bitstream from Step~4.3 was not actually programmed (re-program and try again).
+		\item \textbf{Script reports a few hundred start delimiters then stalls:} the Threat's \texttt{USART3 TX} \mbox{DMA} \mbox{IRQ} is not firing. Re-flash the Threat with the firmware corrected per the LH1-C Step~1.6 \mbox{NVIC} fix (\texttt{USART3} global interrupt enabled).
+		\item \textbf{Bytes appear but the parse rate looks low:} confirm the seg7 is updating normally at $\sim$2\,Hz; if not, the radio link itself is degraded.
+	\end{itemize}
+\end{tcolorbox}
+
+\subsubsection*{Step 6.3 --- Confirm the files landed in \texttt{data/}}
+
+\begin{enumerate}[leftmargin=2em]
+	\item Verify both files exist in \texttt{ingest\_top/data/}:
+\begin{lstlisting}[basicstyle=\scriptsize\ttfamily]
+ingest_top/
+  data/
+    capture_clean.bin     (~64.5 kB)
+    capture_mixed.bin     (~64.5 kB)
+  ingest_top.cache/
+  ingest_top.runs/
+  ingest_top.sim/
+  ingest_top.srcs/
+  ingest_top.xpr
+\end{lstlisting}
+	\item LH2-G Step~3 will add a third file (\texttt{capture\_corrupt.bin}), generated synthetically from \texttt{capture\_mixed.bin}; you do not need to record that one now.
+\end{enumerate}
+
+\newpage
+\subsection{Step 7 --- Record the LH1-H baseline utilization}
+\begin{enumerate}[leftmargin=2em]
+	\item Open the post-synthesis utilization report for the Step~4.3 run (\textit{Reports} $\to$ \textit{Report Utilization}). Record the \mbox{LUT}, \mbox{FF}, and \mbox{BRAM} tile counts. These are the LH1-H baseline (the passthrough adds one wire and zero logic, so the numbers are within rounding of pre-passthrough LH1-H values) --- each subsequent handout adds or replaces a block and the delta will be visible in the same report format.
+	\item Save a screenshot of the utilization report for your deliverable.
+\end{enumerate}
+
+\labfigure{LH2A_baseline_util.png}{0.8\textwidth}{Post-synthesis utilization of the LH1-H baseline (after the Step~4 passthrough). Record these numbers; each Module~2 handout adds or replaces one block and the resource delta is tracked cumulatively.}{fig:lh2a-util}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Directory layout \texttt{rtl/}, \texttt{sim/}, \texttt{xdc/}, \texttt{data/} created.
-	\item[$\square$] Vivado project targets \texttt{xc7a100tcsg324-1}.
-	\item[$\square$] \texttt{ingest\_top.vhd} compiles with no errors.
-	\item[$\square$] Constraint file exposes only \texttt{sysclk}, \texttt{rstn}, \texttt{led[*]}, and \texttt{uart\_rxd}.
-	\item[$\square$] Synthesis completes; baseline utilization recorded.
+	\item[$\square$] \texttt{ingest\_top.xpr} opens with all five LH1-H files present and \texttt{ingest\_top} set as Top.
+	\item[$\square$] \texttt{sim\_1} simulation fileset exists and is empty (ready for testbenches).
+	\item[$\square$] \texttt{data/} folder created in the project root.
+	\item[$\square$] \texttt{ingest\_top.vhd} has the \texttt{UART\_RXD\_OUT} port and the corresponding pass\-through assignment; \XDC{} \texttt{D4} entry is uncommented.
+	\item[$\square$] New bitstream programs and the seven-segment display still alternates \texttt{01}/\texttt{02}.
+	\item[$\square$] Host \mbox{COM} port identified and capture script runs without errors.
+	\item[$\square$] \texttt{capture\_clean.bin} and \texttt{capture\_mixed.bin} present in \texttt{data/}, each $\geq$ 1500 start delimiters.
+	\item[$\square$] LH1-H baseline utilization recorded (LUT, FF, BRAM tile counts).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-A Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{ingest\_top.vhd} and pruned \texttt{ingest\_top.xdc}.
-		\item Screenshot of the Vivado Project Manager showing the hierarchy and project part.
+		\item Screenshot of the Vivado Sources panel showing all five LH1-H files and the \texttt{sim\_1} fileset.
+		\item Updated \texttt{ingest\_top.vhd} and pruned \texttt{Nexys-A7-100T-Master.xdc} (with the \texttt{UART\_RXD\_OUT} line uncommented).
+		\item \texttt{Code/Tools/RawCapture/raw\_capture.py} and its \texttt{requirements.txt}.
+		\item Both \texttt{.bin} captures (\texttt{capture\_clean.bin} and \texttt{capture\_mixed.bin}) in \texttt{ingest\_top/data/}, each containing $\geq$ 1500 start delimiters. The mixed capture must include at least one $\sim$5\,s button-hold gap so that the parser's re-sync logic is exercised in Module~2.
 		\item Baseline post-synthesis utilization screenshot.
+		\item One-sentence note per LH1-H file describing what Module~2 handout replaces it (LH2-B replaces \texttt{uart\_rx}; LH2-C replaces \texttt{byte\_fifo}; LH2-D \emph{deletes} \texttt{frame\_detector} and adds \texttt{pkt\_parser}; LH2-D updates \texttt{ingest\_top} to drive the \texttt{seg7\_driver} inputs from the new parser outputs --- the \texttt{seg7\_driver} entity itself is unchanged; LH2-F retires \texttt{seg7\_driver} entirely).
 	\end{enumerate}
 \end{tcolorbox}
 

@@ -1,0 +1,115 @@
+FIGURE INVENTORY  --  All labfigure references across all modules and lab handouts
+Generated: 2026-04-30
+Format per entry:  FILENAME | TYPE | DESCRIPTION
+TYPE: photo=must shoot, diagram=must draw/create, screenshot=must capture from running SW
+
+Modules 4 and 5 lab handouts contain NO figure references (pure text/code).
+
+================================================================================
+MODULE 1
+================================================================================
+
+--- LH1-A: Breakout Assembly ---
+LH1A_header_seating.jpg    | photo      | RFM95W breakout dry-fit onto snapped header strip, breadboard as right-angle soldering jig
+LH1A_solder_joints.jpg     | photo      | Macro view of finished header solder joints (shiny concave fillets); pass/fail reference
+LH1A_spring_antenna.jpg    | photo      | Spring antenna soldered vertically into ANT pad
+LH1A_idle_current.jpg      | photo      | Bench DMM in series with 3.3 V rail reading ~1 mA idle; short-circuit sanity check
+
+--- LH1-B: Dev Environment Setup ---
+LH1B_vscode_extensions.png | screenshot | VS Code Extensions panel with full STM32 extension stack installed
+LH1B_cubemx_pinout.png     | screenshot | STM32CubeMX pinout view with Nucleo-L476RG selected, CMake chosen as toolchain
+LH1B_blinky_terminal.png   | screenshot | VS Code terminal showing successful CMake build and flash cycle for blinky
+
+--- LH1-C: SPI Bringup ---
+LH1C_wiring_diagram.png    | diagram    | Schematic of Nucleo-L476RG <-> RFM95W wiring (power, GND, SPI1, CS, RST, DIO0)
+LH1C_breadboard_photo.jpg  | photo      | Physical breadboard build matching the schematic
+LH1C_regversion_printf.png | screenshot | Serial monitor showing first successful "RegVersion = 0x12" read
+
+--- LH1-D: Two Node Packet Test ---
+LH1D_two_node_bench.jpg    | photo      | Both Nucleo+RFM95W nodes on bench ~1 m apart, spring antennas upright
+LH1D_dual_serial.png       | screenshot | Side-by-side Serial Monitors: Target A CSV ping-pong log and Target B RX DATA log
+LH1D_rssi_histogram.png    | screenshot | RSSI histogram across 100 consecutive ping-pong receptions at 1 m bench separation
+                                           (referenced in Code/Nucleo_RFM95_TargetA copy of LH1-D only)
+
+--- LH1-E: Vivado Loopback ---
+LH1E_vivado_installer.png  | screenshot | Vivado installer device-family selection with Artix-7 / 7 Series checked
+LH1E_part_selection.png    | screenshot | Vivado "Default Part" dialog with xc7a100tcsg324-1 highlighted
+LH1E_board_leds.jpg        | photo      | Nexys A7 with two slide switches up and matching LEDs lit; DONE LED illuminated
+
+--- LH1-F: Beacon Firmware ---
+LH1F_pause_response_log.png | screenshot | Annotated Target A USART2 capture during 3-s Threat button-hold: CSV lines, "I'm Jammed", silence, CSV resume
+
+--- LH1-G: Receiver Firmware (Threat) ---
+LH1G_isr_mainloop_dataflow.png | diagram    | Threat firmware data-flow: DIO0 -> EXTI -> ISR -> ring buffer -> main loop (frame build, CRC, UART DMA out) plus PAUSE TX scheduler
+LH1G_frame_layout.png          | diagram    | 43-byte forwarding frame layout: delimiter, length, metadata, embedded 32-byte radio packet, CRC-8
+LH1G_ring_buffer_diagram.png   | diagram    | Single-producer/single-consumer ring buffer: ISR advances head, main loop advances tail, DMB barrier
+LH1G_python_parser_output.png  | screenshot | Host-side pyserial parser output: 43-byte frames, CRC-8 validated, fields extracted (Beacon ID, seq, RSSI, SNR, packet type)
+
+--- LH1-H: FPGA Ingestion End-to-End ---
+LH1H_block_diagram.png    | diagram    | FPGA ingestion block diagram: uart_rx -> byte_fifo -> frame_detector -> seg7_driver with key signals labeled
+LH1H_pmod_wiring.png      | photo      | STM32 USART3 TX (PC4) wired to Nexys A7 PMOD JA pin 1 with common GND; annotated photo
+LH1H_seg7_display.jpg     | photo      | Module 1 capstone: Nexys A7 seven-segment showing live Beacon ID from full cooperative-target -> RF -> Threat -> FPGA chain
+
+================================================================================
+MODULE 2
+================================================================================
+
+--- LH2-A: Vivado Project Setup ---
+LH2A_baseline_util.png     | screenshot | Post-synthesis utilization of LH1-H baseline; baseline resource numbers before M2 edits
+
+--- LH2-B: UART Receiver ---
+LH2B_waveform.png          | screenshot | Sim waveform: rx start-bit fall, eight data bits, stop bit, rx_strobe pulse aligned with rx_data=0xA5
+
+--- LH2-C: Byte FIFO ---
+LH2C_session5_datapath.png | diagram    | Session 5 datapath after integration: synchronizer -> uart_rx -> byte_fifo, with occupancy LEDs
+
+--- LH2-D: Packet Parser FSM ---
+LH2D_parser_fsm.png        | diagram    | Packet parser FSM with full transition set; labeled arcs show byte/condition per transition
+LH2D_tb_waveform.png       | screenshot | Testbench waveform: three frames (valid, rejected, valid); frame_valid/frame_reject pulses on correct cycles
+
+--- LH2-E: CRC Verification ---
+LH2E_crc_coverage.png      | diagram    | Byte coverage for each CRC engine: CRC-8 bytes 1-41, CRC-16 bytes 10-39, embedded positions
+
+--- LH2-F: Feature Extraction ---
+LH2F_feature_datapath.png  | diagram    | Feature extraction datapath: BRAM read port feeds compute block; write port commits updated vector
+
+--- LH2-G: End-to-End Simulation ---
+LH2G_full_pipeline.png     | screenshot | Full M2 pipeline under tb_ingest_top: file-driven stimulus, frame_valid/frame_reject probes, BRAM dump path
+
+--- LH2-H: Resource and Timing Analysis ---
+LH2H_timing_summary.png    | screenshot | Vivado Timing Summary report: all four categories (WNS/TNS, WHS/THS, WPWS/TPWS) showing positive slack
+LH2H_ila_capture.png       | screenshot | ILA capture on hardware: frame_valid pulses at ping-pong cadence, frame_reject stays quiet
+
+================================================================================
+MODULE 3
+================================================================================
+
+--- LH3-A: Pre-Integration Verification ---
+LH3A_threat_uart_capture.png  | screenshot | Terminal capture of Threat debug UART: DATA type=0, ACK type=1, button-hold PAUSE burst; all three packet types present
+
+--- LH3-B: FPGA Deployment and ILA ---
+LH3B_debug_architecture.png      | diagram    | ingest_top debug wrapper: ILA core instantiated when g_DEBUG=true, probes tapped after source registers
+LH3B_vivado_synthesis_ila.png    | screenshot | Vivado synthesis report showing ILA core resource usage (4 BRAM tiles for capture buffer)
+LH3B_ila_dashboard.png           | screenshot | Vivado ILA dashboard: 12 probe channels listed and idle before UART input connected
+
+--- LH3-C: First Live Frame ---
+LH3C_pmod_wiring.jpg          | photo      | Threat STM32 USART3 TX (PC4) wired to Nexys A7 JA[0] with dedicated GND jumper
+LH3C_parser_fsm_capture.png   | screenshot | ILA capture: parser FSM HUNT->LENGTH->META->PAYLOAD->CRC_CHECK->DONE transitions; byte_counter confirms 43 bytes
+LH3C_first_frame_valid.png    | screenshot | ILA capture of first frame_valid pulse on live hardware; beacon_id and rssi_out highlighted
+
+--- LH3-D: PER and Latency ---
+LH3D_gpio_latency_waveform.png | photo/screenshot | Oscilloscope capture: Ch1 Target A TX_TRIG (blue), Ch2 FPGA frame_valid (red); cursor measures end-to-end latency
+
+--- LH3-E: Throughput and Stress Test ---
+LH3E_prod_utilization.png   | screenshot | Post-implementation utilization of production bitstream (g_DEBUG=false); BRAM count = 2 tiles not 6
+
+--- LH3-F: Collection Script and Campaigns C1/C2 ---
+LH3F_c2_interarrival_boxplot.png | screenshot | Box plot of inter-arrival time (ms) by spreading factor from Campaign C2; median doubling with each SF increment
+
+--- LH3-G: Campaigns C3/C4/C5 ---
+LH3G_c3_modulation_rssi.png    | screenshot | Violin plot: RSSI distribution for LoRa vs FSK from Campaign C3
+LH3G_c4_rssi_vs_distance.png   | screenshot | Mean RSSI vs distance from Campaign C4 (scatter) with FSPL model overlaid (line)
+
+================================================================================
+MODULES 4 & 5  --  No figure references found in any lab handout
+================================================================================

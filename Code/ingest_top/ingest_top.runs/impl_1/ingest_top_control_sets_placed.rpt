@@ -1,0 +1,98 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (win64) Build 6299465 Fri Nov 14 19:35:11 GMT 2025
+| Date         : Fri May  1 22:06:45 2026
+| Host         : TARDIS-Ivory running 64-bit major release  (build 9200)
+| Command      : report_control_sets -verbose -file ingest_top_control_sets_placed.rpt
+| Design       : ingest_top
+| Device       : xc7a100t
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Control Set Information
+
+Table of Contents
+-----------------
+1. Summary
+2. Histogram
+3. Flip-Flop Distribution
+4. Detailed Control Set Information
+
+1. Summary
+----------
+
++----------------------------------------------------------+-------+
+|                          Status                          | Count |
++----------------------------------------------------------+-------+
+| Total control sets                                       |    20 |
+|    Minimum number of control sets                        |    20 |
+|    Addition due to synthesis replication                 |     0 |
+|    Addition due to physical synthesis replication        |     0 |
+| Unused register locations in slices containing registers |    21 |
++----------------------------------------------------------+-------+
+* Control sets can be merged at opt_design using control_set_merge or merge_equivalent_drivers
+** Run report_qor_suggestions for automated merging and remapping suggestions
+
+
+2. Histogram
+------------
+
++--------------------+-------+
+|       Fanout       | Count |
++--------------------+-------+
+| Total control sets |    20 |
+| >= 0 to < 4        |     0 |
+| >= 4 to < 6        |     1 |
+| >= 6 to < 8        |     7 |
+| >= 8 to < 10       |     8 |
+| >= 10 to < 12      |     0 |
+| >= 12 to < 14      |     1 |
+| >= 14 to < 16      |     2 |
+| >= 16              |     1 |
++--------------------+-------+
+* Control sets can be remapped at either synth_design or opt_design
+
+
+3. Flip-Flop Distribution
+-------------------------
+
++--------------+-----------------------+------------------------+-----------------+--------------+
+| Clock Enable | Synchronous Set/Reset | Asynchronous Set/Reset | Total Registers | Total Slices |
++--------------+-----------------------+------------------------+-----------------+--------------+
+| No           | No                    | No                     |              14 |            6 |
+| No           | No                    | Yes                    |               0 |            0 |
+| No           | Yes                   | No                     |              36 |           15 |
+| Yes          | No                    | No                     |              56 |           12 |
+| Yes          | No                    | Yes                    |               0 |            0 |
+| Yes          | Yes                   | No                     |              65 |           20 |
++--------------+-----------------------+------------------------+-----------------+--------------+
+
+
+4. Detailed Control Set Information
+-----------------------------------
+
++----------------------+--------------------------------------+--------------------------+------------------+----------------+--------------+
+|     Clock Signal     |             Enable Signal            |     Set/Reset Signal     | Slice Load Count | Bel Load Count | Bels / Slice |
++----------------------+--------------------------------------+--------------------------+------------------+----------------+--------------+
+|  CLK100MHZ_IBUF_BUFG | u_uart/sub_cnt[3]_i_1_n_0            | u_seg/CPU_RESETN         |                1 |              4 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG |                                      | u_uart/os_cnt[0]_i_1_n_0 |                2 |              6 |         3.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/FSM_onehot_state[5]_i_1_n_0 | u_seg/CPU_RESETN         |                3 |              6 |         2.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/byte_idx[5]_i_1_n_0         | u_seg/CPU_RESETN         |                3 |              6 |         2.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/r_ptr0                      | u_seg/CPU_RESETN         |                1 |              6 |         6.00 |
+|  CLK100MHZ_IBUF_BUFG | u_uart/E[0]                          | u_seg/CPU_RESETN         |                1 |              6 |         6.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/crc8_en_reg_n_0             | u_parser/u_crc16/SS[0]   |                2 |              7 |         3.50 |
+|  CLK100MHZ_IBUF_BUFG | u_fifo/count[6]_i_1_n_0              | u_seg/CPU_RESETN         |                3 |              7 |         2.33 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/payload_r[247]_i_1_n_0      |                          |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/crc16_byte[7]_i_1_n_0       |                          |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/payload_r[255]_i_1_n_0      |                          |                1 |              8 |         8.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/crc8_byte[7]_i_1_n_0        |                          |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/payload_r[23]_i_1_n_0       |                          |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/LED_OBUF[0]                 | u_seg/CPU_RESETN         |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_uart/rx_data[7]_i_1_n_0            |                          |                1 |              8 |         8.00 |
+|  CLK100MHZ_IBUF_BUFG | u_uart/shifter[7]_i_1_n_0            |                          |                2 |              8 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG | u_uart/rx_strobe_reg_1               |                          |                3 |             12 |         4.00 |
+|  CLK100MHZ_IBUF_BUFG |                                      |                          |                6 |             14 |         2.33 |
+|  CLK100MHZ_IBUF_BUFG | u_parser/crc16_en_reg_n_0            | u_parser/u_crc16/SS[0]   |                4 |             15 |         3.75 |
+|  CLK100MHZ_IBUF_BUFG |                                      | u_seg/CPU_RESETN         |               13 |             30 |         2.31 |
++----------------------+--------------------------------------+--------------------------+------------------+----------------+--------------+
+
+

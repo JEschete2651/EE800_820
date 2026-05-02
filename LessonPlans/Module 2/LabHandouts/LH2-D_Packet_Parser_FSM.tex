@@ -7,97 +7,442 @@
 \labheader{2-D}{Packet Parser Finite State Machine}
 
 \section{Objective}
-Implement the \VHDL{} parser that drains \texttt{byte\_fifo}, locks onto the Module~1 interceptor forwarding frame (start delimiter \texttt{0x7E}, 1-byte length, 8-byte metadata, 32-byte embedded radio packet, 1-byte \CRC{}-8), and produces registered outputs for each field. By the end of this handout a valid frame will emit a \texttt{frame\_valid} pulse with the parsed fields stable on the same cycle. The parser is type-agnostic: the same code path handles DATA, ACK, and PAUSE radio packets because they share the 32-byte layout. Packet-type discrimination happens later in the feature extraction module (Lab Handout~2-F).
+Delete the bring-up \texttt{frame\_detector} from LH1-H, write a new \texttt{pkt\_parser.vhd} that drains \texttt{byte\_fifo}, locks onto the Module~1 interceptor forwarding frame (start delimiter \texttt{0x7E}, 1-byte length, 8-byte metadata, 32-byte embedded radio packet, 1-byte \CRC{}-8), and produces registered outputs for each field. By the end of this handout a valid frame will emit a \texttt{frame\_valid} pulse with the parsed fields stable on the same cycle. The parser is type-agnostic: the same code path handles DATA, ACK, and PAUSE radio packets because they share the 32-byte layout. Packet-type discrimination happens later in the feature extraction module (Lab Handout~2-F).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~2-C (Session~5 pipeline integration verified).
+	\item Lab Handout~2-C (\texttt{byte\_fifo} replaced with the depth-64 Module~2 version).
 	\item Module~1 receiver frame format reference (43 bytes total).
 \end{itemize}
 
 \section{Background}
 The interceptor forwarding frame is defined by the Module~1 lesson plan (Table~6) and is the single canonical spec across Modules~1--5. Reproduced verbatim below:
 \begin{center}
-\begin{tabular}{c l c l}
+\begin{tabularx}{\textwidth}{@{}c l c X@{}}
 \toprule
 \textbf{Offset} & \textbf{Field} & \textbf{Size} & \textbf{Notes} \\
 \midrule
-0     & Start delimiter \texttt{0x7E}                         & 1\,B & Frame sync \\
-1     & Length byte                                           & 1\,B & Must equal \texttt{0x29} (41 decimal) \\
-2--5  & RX timestamp (uint32, \mbox{LE}, ms)                  & 4\,B & Metadata \\
-6     & \RSSI{} (int8, dBm)                                   & 1\,B & Metadata \\
-7     & \SNR{} (int8, 0.25\,dB)                               & 1\,B & Metadata \\
-8--9  & Frequency error (int16, \mbox{LE}, Hz)                & 2\,B & Metadata \\
-10--41 & Radio packet (32 bytes; DATA / ACK / PAUSE)           & 32\,B & Includes embedded \CRC{}-16 at packet bytes 30--31 = frame 40--41 \\
-42    & Frame \CRC{}-8/ITU (poly \texttt{0x07}) over bytes 1--41 & 1\,B & Transport integrity \\
+0      & Start delimiter \texttt{0x7E}                            & 1\,B  & Frame sync \\
+1      & Length byte                                              & 1\,B  & Must equal \texttt{0x29} (41 decimal) \\
+2--5   & RX timestamp (uint32, \mbox{LE}, ms)                     & 4\,B  & Metadata \\
+6      & \RSSI{} (int8, dBm)                                      & 1\,B  & Metadata \\
+7      & \SNR{} (int8, 0.25\,dB)                                  & 1\,B  & Metadata \\
+8--9   & Frequency error (int16, \mbox{LE}, Hz)                   & 2\,B  & Metadata \\
+10--41 & Radio packet (32 bytes; DATA / ACK / PAUSE)              & 32\,B & Includes embedded \CRC{}-16 at packet bytes 30--31 = frame 40--41 \\
+42     & Frame \CRC{}-8/ITU (poly \texttt{0x07}) over bytes 1--41 & 1\,B  & Transport integrity \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
 \begin{tcolorbox}[infobox={Length-Field Rule}]
 The length byte equals the count of bytes \emph{excluding the start delimiter and the trailing \CRC{}}. For a 43-byte frame, byte[1] must equal \texttt{0x29} (41 decimal). Reject any frame where byte[1] $\neq$ \texttt{0x29}.
 \end{tcolorbox}
 
-Byte 42 is the frame \CRC{}-8/ITU computed over bytes 1--41 (not 0--41 --- the start delimiter is excluded). The radio packet also carries its own \CRC{}-16/CCITT-FALSE internally at packet bytes 30--31 (frame offsets 40--41), checked in Lab Handout~2-E.
+Byte 42 is the frame \CRC{}-8/ITU computed over bytes 1--41 (not 0--41 --- the start delimiter is excluded). The radio packet also carries its own \CRC{}-16/CCITT-FALSE internally at packet bytes 30--31 (frame offsets 40--41), checked in Lab Handout~2-E. \textbf{The Beacon ID is at radio packet byte~2 = frame offset 12} (\texttt{payload(2)} once stored in the payload register array below).
 
-\begin{tcolorbox}[infobox={Pre-Check: Known-Good Reference Frame}]
-Before wiring this parser into \texttt{ingest\_top}, grab the reference frame hex and expected parser outputs bundled with Module~2 (\texttt{sim/reference\_frame.hex} and \texttt{sim/reference\_frame\_expected.txt}). Feed them through your parser in simulation. If the reference frame fails to parse, the bug is local to this handout, not a Module~1 spec drift issue. This pre-check eliminates false-negative debugging against Module~1 firmware.
+\begin{tcolorbox}[infobox={Relationship to the LH1-H Bring-Up Frame Detector}]
+The LH1-H \texttt{frame\_detector} locked on \texttt{0x7E}, counted to 43 bytes, and exposed Beacon~ID and \texttt{new\_frame} --- but did not check the length byte, did not verify any \CRC{}, and had no \texttt{REJECT} state. \texttt{pkt\_parser} is the production replacement: it adds explicit length verification (this handout), \CRC{}-8 and \CRC{}-16 checks (LH2-E), a \texttt{REJECT} path with a pulse output, and deterministic re-synchronization after a bad frame.
 \end{tcolorbox}
 
 \section{Procedure}
 
-\subsection{Step 1 --- Define the parser states}
-Create \texttt{rtl/pkt\_parser.vhd}. States: \texttt{HUNT}, \texttt{LEN}, \texttt{META}, \texttt{PAYLOAD}, \texttt{CRC}, \texttt{VALID}, \texttt{REJECT}.
-\begin{itemize}[leftmargin=2em]
-	\item \texttt{HUNT}: pop bytes from the \FIFO{} until one equals \texttt{0x7E}.
-	\item \texttt{LEN}: consume the length byte; verify it equals \texttt{0x29} (41 decimal). If not, go to \texttt{REJECT}.
-	\item \texttt{META}: capture 8 bytes into an 8-byte metadata register array.
-	\item \texttt{PAYLOAD}: capture 32 bytes into a 32-byte payload register array.
-	\item \texttt{CRC}: capture the \CRC{}-8 byte. Compare against the running \CRC{} computed across bytes 1--41 (computation module in 2-E; stub it with a placeholder for now). Do \emph{not} include the start delimiter (byte 0) in the \CRC{} span.
-	\item \texttt{VALID}: one-cycle pulse \texttt{frame\_valid}, return to \texttt{HUNT}.
-	\item \texttt{REJECT}: one-cycle pulse \texttt{frame\_reject}, return to \texttt{HUNT}.
-\end{itemize}
+\subsection{Step 1 --- Remove the LH1-H \texttt{frame\_detector}}
+\begin{enumerate}[leftmargin=2em]
+	\item In the Sources panel, right-click \texttt{frame\_detector.vhd} $\to$ \textbf{Remove File from Project}. \textbf{Tick} ``Also delete the file from disk.'' This file is never used again --- \texttt{pkt\_parser} is a strict superset.
+	\item \texttt{u\_det} in the hierarchy will show a red ``!'' marker. You will replace it with a \texttt{u\_parser} instance in Step~3.
+\end{enumerate}
+
+\subsection{Step 2 --- Create \texttt{pkt\_parser.vhd}}
+\begin{enumerate}[leftmargin=2em]
+	\item Sources panel: \textbf{+} $\to$ \textbf{Add or create design sources} $\to$ \textbf{Create File}. File type \textbf{VHDL}, name \texttt{pkt\_parser}. Dismiss the Define Module dialog.
+	\item Open the new file, replace its contents with the listing below, and save.
+\end{enumerate}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{pkt\_parser.vhd} --- 43-byte frame parser. Length-checked in this handout; \CRC{}-checked in LH2-E. Exposes \texttt{metadata}, \texttt{payload}, and \texttt{rx\_crc} stable on \texttt{frame\_valid}.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity pkt_parser is
+    port (
+        clk           : in  std_logic;
+        rst_n         : in  std_logic;
+        -- byte_fifo read interface
+        fifo_empty    : in  std_logic;
+        fifo_data     : in  std_logic_vector(7 downto 0);
+        fifo_rd_en    : out std_logic;
+        -- Backpressure from feature extractor (LH2-F). Stub to '0' for now.
+        feat_busy     : in  std_logic;
+        -- Parsed outputs (stable on the cycle frame_valid is high)
+        metadata      : out std_logic_vector(63 downto 0);   -- 8 bytes, byte 0 in LSB
+        payload       : out std_logic_vector(255 downto 0);  -- 32 bytes, byte 0 in LSB
+        rx_crc        : out std_logic_vector(7 downto 0);    -- captured CRC-8 (frame byte 42)
+        frame_valid   : out std_logic;                        -- 1-cycle pulse, good frame
+        frame_reject  : out std_logic                         -- 1-cycle pulse, bad frame
+    );
+end pkt_parser;
+
+architecture rtl of pkt_parser is
+    type state_t is (S_HUNT, S_REQ, S_WAIT, S_CAPTURE, S_VALID, S_REJECT);
+    signal state    : state_t := S_HUNT;
+    signal byte_idx : integer range 0 to 63 := 0;
+
+    signal meta_r    : std_logic_vector(63 downto 0)  := (others => '0');
+    signal payload_r : std_logic_vector(255 downto 0) := (others => '0');
+    signal crc_r     : std_logic_vector(7 downto 0)   := (others => '0');
+begin
+    metadata <= meta_r;
+    payload  <= payload_r;
+    rx_crc   <= crc_r;
+
+    process (clk) begin
+        if rising_edge(clk) then
+            frame_valid  <= '0';
+            frame_reject <= '0';
+            fifo_rd_en   <= '0';
+
+            if rst_n = '0' then
+                state    <= S_HUNT;
+                byte_idx <= 0;
+            else
+                case state is
+                    when S_HUNT =>
+                        -- Wait for FIFO data and for feature extractor to be ready.
+                        if fifo_empty = '0' and feat_busy = '0' then
+                            fifo_rd_en <= '1';
+                            state      <= S_WAIT;
+                            byte_idx   <= 0;
+                        end if;
+                    when S_REQ =>
+                        if fifo_empty = '0' then
+                            fifo_rd_en <= '1';
+                            state      <= S_WAIT;
+                        end if;
+                    when S_WAIT =>
+                        state <= S_CAPTURE;             -- registered FIFO output appears
+                    when S_CAPTURE =>
+                        if byte_idx = 0 then
+                            -- Looking for the start delimiter.
+                            if fifo_data = x"7E" then
+                                byte_idx <= 1;
+                                state    <= S_REQ;
+                            else
+                                state <= S_HUNT;
+                            end if;
+                        elsif byte_idx = 1 then
+                            -- Length byte must be 0x29.
+                            if fifo_data = x"29" then
+                                byte_idx <= 2;
+                                state    <= S_REQ;
+                            else
+                                state <= S_REJECT;
+                            end if;
+                        elsif byte_idx >= 2 and byte_idx <= 9 then
+                            -- Metadata bytes 0..7 (frame offsets 2..9).
+                            meta_r(((byte_idx - 2) * 8 + 7) downto ((byte_idx - 2) * 8))
+                                <= fifo_data;
+                            byte_idx <= byte_idx + 1;
+                            state    <= S_REQ;
+                        elsif byte_idx >= 10 and byte_idx <= 41 then
+                            -- Radio packet bytes 0..31 (frame offsets 10..41).
+                            payload_r(((byte_idx - 10) * 8 + 7) downto ((byte_idx - 10) * 8))
+                                <= fifo_data;
+                            if byte_idx = 41 then
+                                byte_idx <= 42;
+                                state    <= S_REQ;
+                            else
+                                byte_idx <= byte_idx + 1;
+                                state    <= S_REQ;
+                            end if;
+                        elsif byte_idx = 42 then
+                            -- Trailing CRC-8 byte. CRC verification is added in LH2-E;
+                            -- for now we simply capture and accept.
+                            crc_r <= fifo_data;
+                            state <= S_VALID;
+                        end if;
+                    when S_VALID =>
+                        frame_valid <= '1';
+                        state       <= S_HUNT;
+                        byte_idx    <= 0;
+                    when S_REJECT =>
+                        frame_reject <= '1';
+                        state        <= S_HUNT;
+                        byte_idx     <= 0;
+                end case;
+            end if;
+        end if;
+    end process;
+end rtl;
+\end{lstlisting}
+
+\subsection{Step 3 --- Update \texttt{ingest\_top.vhd} to use \texttt{pkt\_parser}}
+
+The LH1-H \texttt{ingest\_top} instantiated \texttt{u\_det} (\texttt{frame\_detector}). Replace it with \texttt{u\_parser} (\texttt{pkt\_parser}) and drive the \texttt{seg7\_driver} from the parser's payload byte~2 (Beacon~ID) and \texttt{frame\_valid}. \textbf{Note}: the LH1-H \texttt{seg7\_driver} entity itself is unchanged --- only its source signals move from \texttt{frame\_detector} to \texttt{pkt\_parser}.
+
+Open \texttt{ingest\_top.vhd}, replace its contents with the listing below, and save.
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{ingest\_top.vhd} (Module~2 LH2-D revision) --- \texttt{frame\_detector} replaced by \texttt{pkt\_parser}; \texttt{seg7\_driver} now displays Beacon~ID from \texttt{payload(15 downto 8)} (which is radio packet byte~2 = frame offset~12).}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity ingest_top is
+    port (
+        CLK100MHZ    : in  std_logic;
+        CPU_RESETN   : in  std_logic;
+        uart_rx_pin  : in  std_logic;                       -- PMOD JA pin 1 (C17)
+        UART_RXD_OUT : out std_logic;                       -- onboard USB-UART (LH2-A)
+        CA, CB, CC, CD, CE, CF, CG : out std_logic;
+        DP           : out std_logic;
+        AN           : out std_logic_vector(7 downto 0);
+        LED          : out std_logic_vector(15 downto 0)
+    );
+end ingest_top;
+
+architecture rtl of ingest_top is
+    signal rst_n      : std_logic;
+
+    signal rx_data    : std_logic_vector(7 downto 0);
+    signal rx_strobe  : std_logic;
+
+    signal fifo_data  : std_logic_vector(7 downto 0);
+    signal fifo_rd_en : std_logic;
+    signal fifo_empty : std_logic;
+    signal fifo_full  : std_logic;
+
+    signal metadata     : std_logic_vector(63 downto 0);
+    signal payload      : std_logic_vector(255 downto 0);
+    signal rx_crc       : std_logic_vector(7 downto 0);
+    signal frame_valid  : std_logic;
+    signal frame_reject : std_logic;
+
+    -- Alias kept so the seg7_driver port map still reads "new_frame => new_frame"
+    -- (the LH1-H block-diagram name); the parser's frame_valid is its source.
+    signal new_frame  : std_logic;
+    signal beacon_id  : std_logic_vector(7 downto 0);
+    signal seg_bus    : std_logic_vector(6 downto 0);
+begin
+    rst_n <= CPU_RESETN;
+
+    u_uart : entity work.uart_rx
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  rx => uart_rx_pin,
+                  rx_data => rx_data, rx_strobe => rx_strobe);
+
+    u_fifo : entity work.byte_fifo
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  wr_en => rx_strobe, wr_data => rx_data,
+                  rd_en => fifo_rd_en, rd_data => fifo_data,
+                  empty => fifo_empty, full => fifo_full);
+
+    u_parser : entity work.pkt_parser
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  fifo_empty => fifo_empty, fifo_data => fifo_data,
+                  fifo_rd_en => fifo_rd_en,
+                  feat_busy => '0',                          -- LH2-F replaces with real signal
+                  metadata => metadata, payload => payload,
+                  rx_crc => rx_crc,
+                  frame_valid => frame_valid, frame_reject => frame_reject);
+
+    -- Beacon ID = radio packet byte 2 = payload bytes (15 downto 8) in the
+    -- packed payload vector (byte 0 in LSB, byte 2 spans bits 23..16).
+    beacon_id <= payload(23 downto 16);
+    new_frame <= frame_valid;
+
+    u_seg : entity work.seg7_driver
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  beacon_id => beacon_id, new_frame => new_frame,
+                  seg => seg_bus, dp => DP, an => AN);
+
+    CA <= seg_bus(0);
+    CB <= seg_bus(1);
+    CC <= seg_bus(2);
+    CD <= seg_bus(3);
+    CE <= seg_bus(4);
+    CF <= seg_bus(5);
+    CG <= seg_bus(6);
+
+    LED(0)            <= rx_strobe;
+    LED(1)            <= frame_valid;
+    LED(2)            <= fifo_empty;
+    LED(3)            <= fifo_full;
+    LED(4)            <= frame_reject;
+    LED(15 downto 5)  <= (others => '0');
+
+    -- Passthrough: forward the raw PMOD JA1 stream out the onboard USB-UART
+    -- (added in LH2-A so the host can capture .bin files via the same USB
+    -- cable that programs the board). Both ends are 115200 8N1.
+    UART_RXD_OUT <= uart_rx_pin;
+end rtl;
+\end{lstlisting}
+
+\subsection{Step 4 --- Re-synthesize and confirm hardware still runs}
+\begin{enumerate}[leftmargin=2em]
+	\item \textbf{Confirm \texttt{ingest\_top} is set as the Design Sources top.} In the Sources panel's \textit{Design Sources} tab, \texttt{ingest\_top} must appear in \textbf{bold}. After Module~2 simulation runs, the testbench you set as top in Simulation Sources is unrelated, but Vivado occasionally also reassigns the design top during a hierarchy shuffle (such as the \texttt{frame\_detector} removal in Step~1). If anything other than \texttt{ingest\_top} is bold under Design Sources, right-click \texttt{ingest\_top} $\to$ \textbf{Set as Top} before continuing.
+	\item Run synthesis. Expect zero errors. The \texttt{u\_parser} red ``!'' marker should clear.
+	\item Re-program the board. The Beacon~ID display should still update; \texttt{LED[1]} (\texttt{frame\_valid}) should pulse at the per-frame cadence; \texttt{LED[4]} (\texttt{frame\_reject}) should stay dark when the Threat is emitting clean frames.
+\end{enumerate}
 
 \labfigure{LH2D_parser_fsm.png}{0.85\textwidth}{Packet parser \FSM{} with the full transition set. Each labeled arc shows the byte or condition that fires the transition.}{fig:lh2d-fsm}
 
-\subsection{Step 2 --- Drive the \FIFO{} correctly}
-The parser must assert \texttt{rd\_en} only when \texttt{empty = 0}. Use a one-cycle pipeline delay between the \texttt{rd\_en} pulse and sampling \texttt{rd\_data}: a synchronous \FIFO{} presents new data one clock after \texttt{rd\_en} is high.
+\subsection{Step 5 --- Parser testbench}
 
-\begin{tcolorbox}[warning={Byte-off-by-one}]
-	The most common parser bug is sampling \texttt{rd\_data} on the same cycle as the \texttt{rd\_en} pulse. That captures the \textit{previous} byte. Verify the intended timing in a short waveform before adding the full state set.
-\end{tcolorbox}
+Add a simulation source \texttt{tb\_pkt\_parser}. The testbench drives a small in-memory \FIFO{} stub (rather than the real \texttt{byte\_fifo}) so the test runs in microseconds. It pre-loads three frames: valid, rejected (wrong length byte), valid.
 
-\subsection{Step 3 --- Expose the parsed fields}
-Top-level outputs of \texttt{pkt\_parser}:
-\begin{itemize}[leftmargin=2em]
-	\item \texttt{frame\_valid}, \texttt{frame\_reject} --- one-cycle pulses.
-	\item \texttt{metadata(0 to 7)} --- 8 bytes, stable on the \texttt{frame\_valid} cycle.
-	\item \texttt{payload(0 to 31)} --- 32 bytes, stable on the \texttt{frame\_valid} cycle.
-	\item \texttt{rx\_crc} --- the captured \CRC{}-8 byte (used by 2-E).
-\end{itemize}
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_pkt\_parser.vhd} --- three-frame stimulus drives a behavioral byte source. Asserts two \texttt{frame\_valid} pulses and one \texttt{frame\_reject} pulse, and verifies the captured Beacon~ID on each valid frame.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
 
-\subsection{Step 4 --- Parser testbench}
-Create \texttt{sim/tb\_pkt\_parser.vhd}. Stimulus:
-\begin{enumerate}[leftmargin=2em]
-	\item Pre-fill \texttt{byte\_fifo} with a known-good 43-byte frame followed by a corrupted frame (wrong length byte) and a second known-good frame.
-	\item Assert that \texttt{frame\_valid} fires exactly twice, \texttt{frame\_reject} fires exactly once, and the captured \texttt{payload} bytes match the known-good reference.
-\end{enumerate}
+entity tb_pkt_parser is
+end tb_pkt_parser;
+
+architecture sim of tb_pkt_parser is
+    constant CLK_PERIOD : time := 10 ns;
+
+    signal clk          : std_logic := '0';
+    signal rst_n        : std_logic := '0';
+
+    -- Behavioural byte source acts as a 1-deep FIFO.
+    signal src_data     : std_logic_vector(7 downto 0) := (others => '0');
+    signal src_empty    : std_logic := '1';
+    signal rd_en        : std_logic;
+    signal pending_byte : std_logic_vector(7 downto 0) := (others => '0');
+    signal has_pending  : std_logic := '0';
+
+    signal metadata     : std_logic_vector(63 downto 0);
+    signal payload      : std_logic_vector(255 downto 0);
+    signal rx_crc       : std_logic_vector(7 downto 0);
+    signal frame_valid  : std_logic;
+    signal frame_reject : std_logic;
+
+    signal valid_count  : integer := 0;
+    signal reject_count : integer := 0;
+    signal last_id      : std_logic_vector(7 downto 0) := (others => '0');
+
+    -- Build a 43-byte frame with a given Beacon ID, length byte, and a
+    -- placeholder CRC (parser doesn't check CRC until LH2-E).
+    type byte_array_t is array (natural range <>) of std_logic_vector(7 downto 0);
+
+    function make_frame (beacon : std_logic_vector(7 downto 0);
+                         len    : std_logic_vector(7 downto 0)) return byte_array_t is
+        variable f : byte_array_t(0 to 42) := (others => (others => '0'));
+    begin
+        f(0)  := x"7E";
+        f(1)  := len;
+        -- bytes 2..9 metadata, leave zero
+        -- byte 10 = radio packet byte 0, byte 12 = radio packet byte 2 = Beacon ID
+        f(12) := beacon;
+        -- bytes 13..41 payload, leave zero
+        f(42) := x"AA";                                  -- placeholder CRC
+        return f;
+    end function;
+
+    procedure push_frame (signal pend : out std_logic_vector(7 downto 0);
+                          signal hp   : out std_logic;
+                          signal r    : in  std_logic;
+                          frame       : byte_array_t) is
+    begin
+        for i in frame'range loop
+            pend <= frame(i);
+            hp   <= '1';
+            -- Wait until parser consumes this byte.
+            wait until rising_edge(clk) and r = '1';
+            hp <= '0';
+            wait until rising_edge(clk);
+        end loop;
+    end procedure;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    -- Behavioural byte source: when has_pending is high, src_empty is low and
+    -- src_data is the pending byte. The DUT pulses rd_en; the stimulus
+    -- process clears has_pending in response.
+    src_empty <= not has_pending;
+    src_data  <= pending_byte;
+
+    dut : entity work.pkt_parser
+        port map (clk => clk, rst_n => rst_n,
+                  fifo_empty => src_empty, fifo_data => src_data,
+                  fifo_rd_en => rd_en,
+                  feat_busy => '0',
+                  metadata => metadata, payload => payload, rx_crc => rx_crc,
+                  frame_valid => frame_valid, frame_reject => frame_reject);
+
+    process (clk) begin
+        if rising_edge(clk) then
+            if frame_valid = '1' then
+                valid_count <= valid_count + 1;
+                last_id     <= payload(23 downto 16);    -- radio byte 2 = Beacon ID
+            end if;
+            if frame_reject = '1' then
+                reject_count <= reject_count + 1;
+            end if;
+        end if;
+    end process;
+
+    process
+    begin
+        wait for 100 ns;
+        rst_n <= '1';
+        wait for 200 ns;
+
+        -- Frame 1: valid, Beacon ID = 0x01.
+        push_frame(pending_byte, has_pending, rd_en, make_frame(x"01", x"29"));
+        wait for 500 ns;
+        assert valid_count = 1
+            report "frame 1 should have produced frame_valid" severity failure;
+        assert last_id = x"01" report "frame 1 Beacon ID mismatch" severity failure;
+
+        -- Frame 2: bad length byte.
+        push_frame(pending_byte, has_pending, rd_en, make_frame(x"02", x"30"));
+        wait for 500 ns;
+        assert reject_count = 1
+            report "frame 2 should have produced frame_reject" severity failure;
+
+        -- Frame 3: valid, Beacon ID = 0x02.
+        push_frame(pending_byte, has_pending, rd_en, make_frame(x"02", x"29"));
+        wait for 500 ns;
+        assert valid_count = 2
+            report "frame 3 should have produced second frame_valid" severity failure;
+        assert last_id = x"02" report "frame 3 Beacon ID mismatch" severity failure;
+
+        report "tb_pkt_parser PASS" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
+Set \texttt{tb\_pkt\_parser} as the simulation top (right-click in Sources $\to$ Simulation Sources $\to$ \textbf{Set as Top}), launch behavioral simulation, then in the Tcl console type \texttt{run 20 us} (once) and press Enter. Three frames at $\sim$1.3\,$\mu$s each plus inter-frame waits keeps the test under 10\,$\mu$s of simulated time; 20\,$\mu$s gives margin. Confirm \texttt{tb\_pkt\_parser PASS} prints in the Tcl console.
 
 \labfigure{LH2D_tb_waveform.png}{0.85\textwidth}{Testbench waveform showing three frames: valid, rejected, valid. The \texttt{frame\_valid} and \texttt{frame\_reject} pulses occur on the correct cycles.}{fig:lh2d-wave}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Parser compiles under \texttt{ingest\_top} with \texttt{byte\_fifo.rd\_en} driven by the parser.
-	\item[$\square$] Known-good frame produces a \texttt{frame\_valid} pulse on the correct cycle.
-	\item[$\square$] Corrupted length byte produces a \texttt{frame\_reject} pulse and the parser returns to \texttt{HUNT}.
-	\item[$\square$] \texttt{payload} register array matches the reference bytes on \texttt{frame\_valid}.
+	\item[$\square$] LH1-H \texttt{frame\_detector.vhd} deleted from project and disk.
+	\item[$\square$] \texttt{pkt\_parser.vhd} added; \texttt{ingest\_top.vhd} updated to instantiate \texttt{u\_parser} and drive \texttt{seg7\_driver} from \texttt{payload(23 downto 16)}.
+	\item[$\square$] Synthesis produces zero errors and the seven-segment display still shows live Beacon~IDs on hardware.
+	\item[$\square$] \texttt{tb\_pkt\_parser} prints \texttt{PASS}: two \texttt{frame\_valid} pulses, one \texttt{frame\_reject} pulse, Beacon IDs match the injected values.
+	\item[$\square$] \texttt{LED[4]} (\texttt{frame\_reject}) stays dark on a clean live capture; \texttt{LED[1]} (\texttt{frame\_valid}) pulses at the ping-pong cadence.
 \end{itemize}
+
+\begin{tcolorbox}[warning={Common Pitfalls}]
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{Beacon ID slice:} the radio packet's byte~2 is at frame offset~12. In the packed \texttt{payload} vector with byte~0 in the \mbox{LSB}, byte~2 occupies bits \texttt{23 downto 16}. Driving \texttt{seg7\_driver.beacon\_id} from \texttt{payload(7 downto 0)} would display the radio packet's byte~0 (a header field), not the Beacon~ID.
+		\item \textbf{Sampling \texttt{rd\_data} on the same cycle as \texttt{rd\_en}:} \texttt{byte\_fifo} has a one-cycle registered read, so the \texttt{S\_REQ}~$\to$~\texttt{S\_WAIT}~$\to$~\texttt{S\_CAPTURE} sequence is required. Removing \texttt{S\_WAIT} captures the \emph{previous} byte every time.
+		\item \textbf{\texttt{feat\_busy} grounded forever:} fine for this handout, but LH2-F replaces \texttt{'0'} with the real signal from the feature extractor. If you skip that step, the parser will overrun the extractor.
+	\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[infobox={Known limitation: \texttt{feat\_busy} is only checked at frame boundaries}]
+The \texttt{S\_HUNT} state gates entry to a new frame on \texttt{feat\_busy = '0'}, but \texttt{S\_REQ}/\texttt{S\_WAIT}/\texttt{S\_CAPTURE} do \emph{not} re-check \texttt{feat\_busy} mid-frame. Once a frame starts parsing, the parser commits to draining all 43 bytes from the \FIFO{} regardless of downstream readiness. This is benign at current latencies: the LH2-F feature extractor's read--modify--write completes in 3 \texttt{sysclk} cycles ($\sim$30\,ns), while a single \UART{} byte takes $\sim$86.8\,$\mu$s --- so the extractor is always idle long before the parser reaches the next frame boundary. If a future Module (e.g.\ a learned scoring kernel that takes longer than one byte-time) ever extends the extractor's busy window across frame boundaries, this gating must move into \texttt{S\_REQ} as well. Do not rely on mid-frame backpressure.
+\end{tcolorbox}
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-D Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item \texttt{pkt\_parser.vhd} and updated \texttt{ingest\_top.vhd}.
-		\item \texttt{tb\_pkt\_parser.vhd} with three-frame stimulus.
-		\item Waveform screenshot annotating the \texttt{VALID/REJECT/VALID} sequence.
+		\item \texttt{tb\_pkt\_parser.vhd}.
+		\item Tcl console transcript showing \texttt{tb\_pkt\_parser PASS}.
+		\item Waveform screenshot annotating the \texttt{VALID/REJECT/VALID} sequence and the Beacon~ID on each \texttt{frame\_valid} cycle.
 	\end{enumerate}
 \end{tcolorbox}
 

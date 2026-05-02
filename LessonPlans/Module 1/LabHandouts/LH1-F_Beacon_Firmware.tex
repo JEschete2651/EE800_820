@@ -16,6 +16,7 @@ Promote the Lab Handout~1-D ping-pong skeleton into production-quality cooperati
 	\item Lab Handout~1-G (interceptor / Threat firmware) is required for the PAUSE behavioral validation in Step~7. If LH1-G is not yet complete, finish LH1-G first; the two handouts are co-validated.
 \end{itemize}
 
+\newpage
 \begin{tcolorbox}[warning={LH1-F, LH1-G, and LH1-H are tightly interconnected --- read this first}]
 The three Module~1 firmware/integration handouts cannot be \emph{fully} completed in isolation. Plan to work through all three in alternation; expect to revisit each as the others come online.
 \begin{itemize}[leftmargin=1.2em]
@@ -26,11 +27,12 @@ The three Module~1 firmware/integration handouts cannot be \emph{fully} complete
 Recommended pass order: complete LH1-F Steps~1--6 (DATA/ACK only), then build LH1-G end-to-end against that traffic, then return here to finish LH1-F Step~7 (PAUSE listener), and finally close out with LH1-H. The Module~1 deliverable is the union of all three.
 \end{tcolorbox}
 
+\newpage
 \section{Packet Format Reference}
 Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reproduced here verbatim --- do not reorder or resize fields; downstream parsers in Module~2 and beyond index these offsets directly:
 \begin{table}[h!]
 	\centering
-	\begin{tabular}{c l l}
+	\begin{tabular}{c p{11cm} l}
 		\toprule
 		\textbf{Offset} & \textbf{Field} & \textbf{Length} \\
 		\midrule
@@ -42,7 +44,7 @@ Use the canonical 32-byte format from the Module~1 lesson plan (Table~4). Reprod
 		7 & Spreading factor (LoRa SF 7--12; \texttt{0x00} if non-LoRa) & 1 \\
 		8 & Bandwidth code (\texttt{0x00}=125\,kHz, \texttt{0x01}=250\,kHz, \dots) & 1 \\
 		9--12 & Timestamp (uint32, \mbox{LE}, ms since boot) & 4 \\
-		13--29 & Payload (DATA/ACK) or PAUSE args (PAUSE: byte~0 = target ID, byte~1 = hold-off in 100\,ms units, bytes 2--16 = \texttt{0xAA}) & 17 \\
+		13--29 & Payload (DATA/ACK = \texttt{0xAA} fill) or PAUSE args (PAUSE: byte 13 = target ID, byte 14 = hold-off in 100\,ms units, bytes 15--29 = \texttt{0xAA}) & 17 \\
 		30--31 & \CRC{}-16/CCITT-FALSE over bytes 0--29 (MSB-first) & 2 \\
 		\bottomrule
 	\end{tabular}
@@ -64,10 +66,7 @@ Both Target~A and Target~B run the same shared \FSM{} skeleton. The role-specifi
 	\item \textbf{FAULT}: \texttt{printf} an error line over USART2; clear all radio IRQ flags; force \texttt{CONFIG} state.
 \end{enumerate}
 
-\labfigure{LH1F_fsm_diagram.png}{0.85\textwidth}{Cooperative-target \FSM{}: shared skeleton \texttt{INIT}$\to$\texttt{CONFIG}$\to$\texttt{IDLE}, with Target~A's \texttt{BUILD\_DATA}$\to$\texttt{TX}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG} branch and Target~B's RX-driven \texttt{BUILD\_ACK}$\to$\texttt{TX\_ACK}$\to$\texttt{LOG} branch. The \texttt{PAUSED} state is a transient overlay that suppresses scheduled DATA TX without disabling reception. The \texttt{FAULT} branch off the \texttt{TX} timeout path returns to \texttt{CONFIG}.}{fig:lh1f-fsm}
-
-\labfigure{LH1F_packet_layout.png}{0.9\textwidth}{Byte-level 32-byte radio packet layout. Fields are color-coded to match the format table; the packed \texttt{Modulation Code} byte is annotated with its bit-field interpretation.}{fig:lh1f-packet}
-
+\newpage
 \begin{table}[h!]
 	\centering
 	\caption{LoRa parameters (same as LH1-D for compatibility).}
@@ -92,7 +91,7 @@ Both Target~A and Target~B run the same shared \FSM{} skeleton. The role-specifi
 
 The following constants and helper prototypes are referenced throughout the \FSM{} code in Steps~3--5. Add them once to a new header file \texttt{Core/Inc/lh1f\_defs.h} in \emph{both} the \texttt{TargetA} and \texttt{TargetB} projects, then \texttt{\#include "lh1f\_defs.h"} from \texttt{main.c}.
 
-\begin{lstlisting}[language=C, caption={\texttt{Core/Inc/lh1f\_defs.h} --- shared constants and prototypes (identical in both projects).}]
+\begin{lstlisting}[language=C, basicstyle=\scriptsize\ttfamily, caption={\texttt{Core/Inc/lh1f\_defs.h} --- shared constants and prototypes (identical in both projects).}]
 #ifndef LH1F_DEFS_H
 #define LH1F_DEFS_H
 
@@ -133,7 +132,19 @@ void     build_packet(uint8_t out[32], uint8_t my_id, uint16_t seq,
 #endif /* LH1F_DEFS_H */
 \end{lstlisting}
 
-\begin{lstlisting}[language=C, caption={\texttt{Core/Src/lh1f\_packet.c} --- create this new file in both projects. Implements the CRC and the canonical packet builder used by every \texttt{BUILD\_*} state.}]
+\newpage
+\begin{tcolorbox}[warning={Delete the LH1-D copies of \texttt{crc16\_ccitt} and \texttt{build\_packet} first}]
+LH1-D placed inline definitions of \texttt{crc16\_ccitt} and \texttt{build\_packet} (and their forward declarations) directly in \texttt{Core/Src/main.c}. LH1-F moves both into the dedicated \texttt{lh1f\_packet.c} file shown below. Before adding the new file, open \texttt{Core/Src/main.c} in \emph{both} the Target~A and Target~B projects and delete:
+\begin{itemize}[leftmargin=1.2em]
+  \item the two forward declarations (\texttt{uint16\_t crc16\_ccitt(...);} and \texttt{void build\_packet(...);}) inside the \texttt{/* USER CODE BEGIN PFP */} block,
+  \item the full \texttt{crc16\_ccitt} function body inside \texttt{/* USER CODE BEGIN 4 */},
+  \item the full \texttt{build\_packet} function body inside \texttt{/* USER CODE BEGIN 4 */}.
+\end{itemize}
+The declarations now come from \texttt{lh1f\_defs.h} (above) and the definitions from \texttt{lh1f\_packet.c} (below). Skipping this step produces a multiple-definition linker error.
+\end{tcolorbox}
+
+\newpage
+\begin{lstlisting}[language=C, basicstyle=\scriptsize\ttfamily, caption={\texttt{Core/Src/lh1f\_packet.c} --- create this new file in both projects. Implements the CRC and the canonical packet builder used by every \texttt{BUILD\_*} state.}]
 #include "lh1f_defs.h"
 #include "main.h"
 
@@ -195,7 +206,7 @@ void build_packet(uint8_t out[32], uint8_t my_id, uint16_t seq,
 
 \begin{tcolorbox}[infobox={CRC unit-test deliverable}]
 The handout deliverable requires a unit test of \texttt{crc16\_ccitt} against a known vector. Add the following one-shot self-check inside \texttt{/* USER CODE BEGIN 2 */} (run once at boot, before the main loop):
-\begin{lstlisting}[language=C]
+\begin{lstlisting}[language=C, basicstyle=\scriptsize\ttfamily]
 {
     const uint8_t vec[9] = {'1','2','3','4','5','6','7','8','9'};
     uint16_t got = crc16_ccitt(vec, 9);
@@ -212,7 +223,7 @@ The handout deliverable requires a unit test of \texttt{crc16\_ccitt} against a 
 \subsection*{\texttt{printf} retarget (one-time setup, both projects)}
 The \FSM{} relies on \texttt{printf} reaching USART2. If you have not already done so during LH1-D, add the following retarget shim to \texttt{main.c} in both projects (outside any \texttt{USER CODE} block, near the top after the includes; the \texttt{HAL\_UART\_Transmit} reference uses \texttt{huart2} declared by CubeMX):
 
-\begin{lstlisting}[language=C, caption={\texttt{printf} retarget to USART2. Required by every \texttt{printf} call in the FSM.}]
+\begin{lstlisting}[language=C, basicstyle=\scriptsize\ttfamily, caption={\texttt{printf} retarget to USART2. Required by every \texttt{printf} call in the FSM.}]
 #include <stdio.h>
 extern UART_HandleTypeDef huart2;
 
@@ -230,6 +241,7 @@ int _write(int file, char *ptr, int len) {
 
 In the linker settings (CMakePresets or CubeMX project-level), confirm \texttt{-u \_printf\_float} is \emph{not} enabled (we do not use \texttt{\%f}) and that \texttt{Use float with printf from newlib-nano} is unchecked. This keeps the binary small and the per-call cost of \texttt{printf} bounded.
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Open the existing TargetA and TargetB projects}
@@ -265,6 +277,7 @@ HAL_TIM_Base_Start_IT(&htim2);
 	\item In Target~A only, schedule the DATA cadence: store \texttt{static uint32\_t next\_tx\_ms} in the main loop and advance it by 1000\,ms after each successful \texttt{BUILD\_DATA}$\to$\texttt{TX}$\to$\texttt{WAIT\_ACK}$\to$\texttt{LOG} cycle. Target~B does not schedule transmissions; it only responds.
 \end{enumerate}
 
+\newpage
 \subsection{Step 3 --- DIO0 EXTI ISR and shared receive path}
 
 Both targets handle the SX1276's \texttt{RxDone} interrupt via the \texttt{DIO0} pin's \texttt{EXTI} line. Implement the ISR in \texttt{/* USER CODE BEGIN 4 */}:
@@ -279,7 +292,6 @@ typedef struct {
 volatile pkt_rx_t  rx_slot;
 volatile uint8_t   rx_ready = 0;
 volatile uint32_t  paused_until_ms = 0;
-volatile uint32_t  pause_print_until_ms = 0;  /* throttle "I'm Jammed" */
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if (GPIO_Pin != RFM_DIO0_Pin) return;
@@ -341,18 +353,24 @@ uint8_t  log_was_acked = 0;
 int16_t  log_ack_rssi = 0;
 uint32_t log_rtt_ms = 0;
 
+static uint8_t was_paused = 0;
+
 while (1) {
     /* Honor PAUSE: if paused, suppress DATA scheduling but still
        process incoming RX (so ACKs can still be sent and PAUSE
        refreshes can extend the hold-off). */
     uint8_t paused_now = (ms_count < paused_until_ms);
 
-    /* Throttled "I'm Jammed" print: emit at most once per pause entry */
-    if (paused_now && pause_print_until_ms < paused_until_ms) {
+    /* Throttled "I'm Jammed" print: emit only on the rising edge of
+       paused_now (entry into a pause window). Subsequent PAUSE refreshes
+       from the Threat extend paused_until_ms but do NOT re-print. The
+       was_paused latch clears when the hold-off expires, so the next
+       fresh pause window prints again. */
+    if (paused_now && !was_paused) {
         printf("I'm Jammed (by ID=0x%02X, until t=%lu)\r\n",
                BEACON_ID_THREAT, (unsigned long)paused_until_ms);
-        pause_print_until_ms = paused_until_ms;
     }
+    was_paused = paused_now;
 
     switch (state) {
     case ST_IDLE:
@@ -479,6 +497,7 @@ while (1) {
 }
 \end{verbatim}
 
+\newpage
 \subsection{Step 5 --- Define the role and Beacon~ID per project}
 
 The same \FSM{} source above compiles into either Target~A or Target~B firmware via two compile-time defines per project. Because LH1-C built both projects with the VS Code STM32 extension's CMake flow, set the defines in \texttt{CMakeLists.txt} (do not re-run CubeMX). Open each project's \texttt{CMakeLists.txt}, find the existing \texttt{target\_compile\_definitions(\$\{CMAKE\_PROJECT\_NAME\} PRIVATE ...)} call (CubeMX generates one with \texttt{USE\_HAL\_DRIVER} and \texttt{STM32L476xx}) and append the two role lines.
@@ -505,6 +524,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 
 After editing \texttt{CMakeLists.txt}, run \textbf{Clean Reconfigure} from the VS Code STM32 extension's Build menu (or delete the \texttt{build/} directory) so CMake re-discovers the new defines. The \texttt{\#ifdef ROLE\_INITIATOR} / \texttt{\#ifdef ROLE\_RESPONDER} guards in the \FSM{} above then compile each project into its role.
 
+\newpage
 \subsection{Step 6 --- GPIO instrumentation pulse}
 Add a \mbox{GPIO} output pulse on the entry to the \texttt{TX} state. This gives a scope trigger for measuring transmission timing in Module~3.
 
@@ -533,8 +553,7 @@ HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
 	\item Wire a scope probe to Nucleo CN10 pin~25 (PB10), with ground on any GND pin (e.g., CN10 pin~9). A scope or logic analyzer on this pin should show evenly-spaced pulses (1\,s period for Target~A) when the firmware is not paused, and silence on Target~A while the Threat's user button is held.
 \end{enumerate}
 
-\labfigure{LH1F_scope_pulse.png}{0.8\textwidth}{Oscilloscope capture of the \texttt{TX}-entry \mbox{GPIO} instrumentation pulse on Target~A. The 1\,s period should be rock-steady ($\pm$5\,ms) when not paused; pulses should disappear within $\sim$100\,ms of the Threat user-button press and resume within $\sim$500\,ms of release.}{fig:lh1f-scope}
-
+\newpage
 \subsection{Step 7 --- Co-validate with the Threat from Lab Handout~1-G}
 
 \begin{enumerate}[leftmargin=2em]

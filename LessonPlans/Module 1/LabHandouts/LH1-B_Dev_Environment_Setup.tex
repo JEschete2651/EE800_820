@@ -20,6 +20,7 @@ Install the VS Code + STMicroelectronics extension stack, connect to the Nucleo-
 	Before creating any project files, update the on-board ST-LINK firmware. Connect the Nucleo via USB, then in VS Code run the command palette entry ``STM32: Update ST-LINK firmware''. Skipping this step can cause mysterious flash failures later.
 \end{tcolorbox}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Install VS Code}
@@ -61,6 +62,7 @@ C:\Program Files\CMake\bin\cmake.exe
 	\item Run the installer and accept all defaults.
 \end{enumerate}
 
+\newpage
 \subsection{Step 4 --- Install the STMicroelectronics extension stack}
 \begin{enumerate}[leftmargin=2em]
 	\item Search the marketplace for \texttt{STM32 VS Code Extension} (publisher: STMicroelectronics). Install it.
@@ -87,6 +89,7 @@ C:\Program Files\CMake\bin\cmake.exe
 
 \labfigure{LH1B_vscode_extensions.png}{0.85\textwidth}{VS Code Extensions panel with the full STMicroelectronics extension stack installed. Verify each sub-extension listed above is present and enabled.}{fig:lh1b-ext}
 
+\newpage
 \subsection{Step 5 --- Install the ARM toolchain and \HAL{} packs}
 \begin{enumerate}[leftmargin=2em]
 	\item Open the STM32Cube Bundles Manager from the VS Code command palette (\texttt{Ctrl+Shift+P} $\to$ ``STM32: Bundles Manager'').
@@ -117,6 +120,7 @@ C:\Program Files\CMake\bin\cmake.exe
 
 \labfigure{LH1B_cubemx_pinout.png}{0.85\textwidth}{STM32CubeMX pinout view with the Nucleo-L476RG selected and CMake chosen as the toolchain.}{fig:lh1b-cubemx}
 
+\newpage
 \subsection{Step 7 --- Open the project and initialize the STM32Cube bundle}
 \begin{enumerate}[leftmargin=2em]
 	\item In VS Code, open the folder that CubeMX generated (File $\to$ Open Folder). \textbf{The STM32 project folder must be the root folder of the VS Code window} --- if you open a parent directory, the ``Setup STM32Cube project(s)'' button will remain greyed out. If VS Code already has another folder open, use File $\to$ New Window and open the project folder there.
@@ -150,6 +154,7 @@ cube bundle show --project
 	\item VS Code will create \texttt{.vscode/launch.json} pre-populated with the correct GDB server configuration for the Nucleo.
 \end{enumerate}
 
+\newpage
 \subsection{Step 9 --- Write and build blinky}
 \begin{enumerate}[leftmargin=2em]
 	\item In the main loop of \texttt{main.c}, add:

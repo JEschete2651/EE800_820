@@ -75,6 +75,7 @@ Both targets must use identical physical-layer parameters. Table~\ref{tab:lora-p
 	Both targets \textbf{must} write the same \texttt{RegFrf*} values. A frequency offset of even a few kHz will prevent reception at SF7. Copy the three bytes from Table~\ref{tab:lora-params} exactly --- do not substitute 915.0\,MHz or any other frequency.
 \end{tcolorbox}
 
+\newpage
 \begin{enumerate}[leftmargin=2em]
 	\item In \texttt{main.c}, locate \texttt{/* USER CODE BEGIN PFP */} and add prototypes for every function you will define in this lab, alongside the existing LH1-C prototypes:
 \begin{verbatim}
@@ -159,6 +160,7 @@ uint16_t crc16_ccitt(const uint8_t *data, int len) {
 }
 \end{verbatim}
 
+	\newpage
 	\item Add the \texttt{build\_packet} helper that constructs a 32-byte radio packet per the Module~1 packet format (Table~4 in the lesson plan). For LH1-D the payload region is filled with a fixed 17-byte test pattern; LH1-F will replace this with structured per-packet payloads.
 \begin{verbatim}
 void build_packet(uint8_t *buf, uint8_t sender_id, uint16_t seq,
@@ -192,7 +194,8 @@ void build_packet(uint8_t *buf, uint8_t sender_id, uint16_t seq,
     buf[31] = (uint8_t)(crc);
 }
 \end{verbatim}
-
+	
+	\newpage
 	\item Locate \texttt{/* USER CODE BEGIN 2 */}. The LH1-C reset sequence and \texttt{RegVersion} read are already there. Add a call to \texttt{lora\_init()} immediately after the \texttt{RegVersion} print, and \textbf{remove or comment out} any LH1-C demo code that follows (the frequency write/read-back and the mode-transition demo). Final state of the block:
 \begin{verbatim}
 /* USER CODE BEGIN 2 */
@@ -480,6 +483,7 @@ RX DATA seq=2 rssi=-40 snr=9
 ...
 \end{verbatim}
 
+\newpage
 \begin{tcolorbox}[infobox={Optional diagnostic logging is acceptable}]
 \textbf{Optional extra logging} is allowed and may be useful during bring-up. For example, your firmware may also print a board-identifier line such as \texttt{UID: ... --> Board X} at startup, and it may print periodic summary lines such as \texttt{\# stats: sent=... acked=...}. Those lines do \emph{not} change the required radio behavior. If you manually reboot boards or restart monitoring while capturing logs, you may also see repeated startup banners and the sequence counter restarting at zero. That is acceptable for debugging; for the Step~6 analysis, extract one continuous run of at least 100 \texttt{CSV,...} rows from a single steady-state session.
 \end{tcolorbox}
@@ -530,6 +534,7 @@ These two numbers are related but not interchangeable:
 In this handout, \RSSI{} is used for the link-budget comparison, while \SNR{} is a quick indicator of demodulation margin and channel cleanliness.
 \end{tcolorbox}
 
+\newpage
 \begin{enumerate}[leftmargin=2em]
 	\item In the Target~A Serial Monitor, capture at least 100 consecutive \texttt{CSV,...} lines:
 	\begin{enumerate}[leftmargin=1.5em]
@@ -549,8 +554,6 @@ In this handout, \RSSI{} is used for the link-budget comparison, while \SNR{} is
 	\]
 	With +14\,dBm transmit power and $\sim-2$\,dBi antenna efficiency on each end, expected received power $\approx -22$\,dBm. Indoor multipath will shift this; a measured value between $-30$ and $-50$\,dBm at 1\,m is typical. A discrepancy $>$10\,dB warrants an antenna inspection.
 \end{enumerate}
-
-\labfigure{LH1D_rssi_histogram.png}{0.7\textwidth}{Example \RSSI{} histogram across 100 consecutive ping-pong receptions at 1\,m bench separation. Students generate their own version from the captured CSV as part of the deliverable.}{fig:lh1d-rssi}
 
 \newpage
 \section{Verification Checklist}
@@ -576,6 +579,7 @@ In this handout, \RSSI{} is used for the link-budget comparison, while \SNR{} is
 	\end{itemize}
 \end{tcolorbox}
 
+\newpage
 \begin{tcolorbox}[deliverable={Lab Handout 1-D Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item Source code for both \texttt{Nucleo\_RFM95W\_TargetA} and \texttt{Nucleo\_RFM95W\_TargetB} projects (or just the modified \texttt{main.c} files), including \texttt{lora\_init()}, \texttt{build\_packet()}, \texttt{crc16\_ccitt()}, and the role-specific main loops.

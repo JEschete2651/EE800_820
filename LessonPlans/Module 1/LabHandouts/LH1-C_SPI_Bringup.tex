@@ -23,6 +23,7 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 	\item Logic analyzer (optional but strongly recommended for troubleshooting).
 \end{itemize}
 
+\newpage
 \section{Wiring}
 
 \begin{table}[h!]
@@ -57,9 +58,10 @@ Establish reliable \SPI{} communication between the STM32 Nucleo-L476RG and the 
 \section{Procedure}
 
 \begin{tcolorbox}[warning={Create All Projects Now --- Do Not Copy or Move Folders Later}]
-	The STM32CubeMX + VS Code toolchain is sensitive to project folder location. Once a project is generated, \emph{moving or copying its folder breaks the CMake cache, the launch.json paths, and frequently the STM32 extension's project detection.} You will spend more time troubleshooting than writing firmware. The fix is to create every project you will ever need \emph{up front}, in its final location, and never move them. This handout creates all three working projects in Step~1 before any RF code is written. Subsequent handouts (LH1-D, LH1-F, LH1-G) only \emph{open} the appropriate pre-existing project and add code; no project copying or renaming.
+	The STM32CubeMX + VS Code toolchain is sensitive to project folder location. Once a project is generated, \emph{moving or copying its folder may break the CMake cache, the launch.json paths, and frequently the STM32 extension's project detection.} You will spend more time troubleshooting than writing firmware. The fix is to create every project you will ever need \emph{up front}, in its final location, and never move them. This handout creates all three working projects in Step~1 before any RF code is written. Subsequent handouts (LH1-D, LH1-F, LH1-G) only \emph{open} the appropriate pre-existing project and add code; no project copying or renaming.
 \end{tcolorbox}
 
+\newpage
 \subsection{Step 1 --- Create all three working projects with identical baseline configuration}
 
 You will create three STM32CubeMX projects, one per Nucleo board, each with the same baseline peripheral configuration. Each project lives permanently in its own folder for the rest of Module~1 and beyond.
@@ -164,6 +166,7 @@ Pick one folder on your local disk that will hold all three project folders perm
 	\item In the pinout view, click pin \texttt{PC4} and select \textbf{USART3\_TX}. Click pin \texttt{PC5} and select \textbf{USART3\_RX}.
 	\item In the categories tree, click \textbf{USART3}. Set \textbf{Mode} to \textbf{Asynchronous}. Confirm \textbf{Baud Rate} is \textbf{115200}, \textbf{Word Length} 8~bits, \textbf{Parity} None, \textbf{Stop Bits} 1.
 	\item In the \textbf{DMA Settings} sub-tab, click \textbf{Add}, then select \textbf{USART3\_TX} from the dropdown. Leave the default settings (Memory to Peripheral, Normal mode, Byte width). LH1-G uses USART3 TX in DMA mode to forward 43-byte frames to the FPGA without blocking the main loop.
+	\item In \textbf{NVIC Settings}, enable the \textbf{USART3 global interrupt}. The DMA channel handles bulk transfer, but \texttt{HAL\_UART\_Transmit\_DMA} also waits on the USART's Transmission Complete (TC) flag to fire \texttt{HAL\_UART\_TxCpltCallback}. Without this NVIC line, the TC interrupt is masked, the callback never runs, and after the first DMA transfer the driver's internal busy flag stays set --- every subsequent forward in LH1-G is dropped.
 \end{enumerate}
 
 \subsubsection*{Step 1.7 --- Enable TIM2 as a 1\,ms tick}
@@ -175,6 +178,7 @@ Pick one folder on your local disk that will hold all three project folders perm
 	\item In \textbf{NVIC Settings}, enable the \textbf{TIM2 global interrupt}. LH1-F's FSM uses this 1\,ms tick to maintain \texttt{ms\_count} for transmit scheduling.
 \end{enumerate}
 
+\newpage
 \subsubsection*{Step 1.8 --- Generate code for \texttt{TargetA}, then bring up the project in VS Code}
 
 \begin{enumerate}[leftmargin=2em]
@@ -207,13 +211,9 @@ After Step~1.9, you should have three folders on disk:
 \end{itemize}
 Each builds cleanly under \texttt{F7}. None will be copied, renamed, or moved for the rest of Module~1.
 
-\labfigure{LH1C_spi_config.png}{0.85\textwidth}{STM32CubeMX \SPI{}1 parameter panel configured per Table~\ref{tab:spi-bringup}: 8-bit data, MSB first, \mbox{CPOL}=0, \mbox{CPHA}=1~Edge, prescaler 32.}{fig:lh1c-cubemx}
-
+\newpage
 \subsection{Step 2 --- Open \texttt{TargetA} for SPI bring-up}
-
-The remaining steps in this handout (Steps~2--6) are performed entirely in \texttt{Nucleo\_RFM95W\_TargetA}. The SPI bring-up code you write here will be removed at the start of LH1-D and replaced with the ping-pong implementation; \texttt{TargetA} carries the production firmware from LH1-D onward.
-
-Open \texttt{Nucleo\_RFM95W\_TargetA} in VS Code (if not already open) and continue.
+The SPI bring-up code you write here will be removed at the start of LH1-D and replaced with the ping-pong implementation; Open \texttt{Nucleo\_RFM95W\_TargetA} in VS Code (if not already open) and continue.
 
 \subsection{Step 3 --- Redirect \texttt{printf} to USART2}
 \begin{enumerate}[leftmargin=2em]
@@ -244,6 +244,7 @@ int __io_putchar(int ch) {
 	Keeping the prototype and definition inside the \texttt{USER CODE} comment blocks ensures they are preserved if you regenerate code from CubeMX.
 \end{enumerate}
 
+\newpage
 \subsection{Step 4 --- Write a minimal register-read function}
 Implement the following helper:
 \begin{verbatim}

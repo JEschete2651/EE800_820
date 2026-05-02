@@ -1,0 +1,24 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 19:35:11 GMT 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Fri May  1 22:05:49 2026
+# Process ID         : 39076
+# Current directory  : D:/judee/Google Drive/School/Classes/EE800_820/Code/ingest_top/ingest_top.runs/synth_1
+# Command line       : vivado.exe -log ingest_top.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source ingest_top.tcl
+# Log file           : D:/judee/Google Drive/School/Classes/EE800_820/Code/ingest_top/ingest_top.runs/synth_1/ingest_top.vds
+# Journal file       : D:/judee/Google Drive/School/Classes/EE800_820/Code/ingest_top/ingest_top.runs/synth_1\vivado.jou
+# Running On         : TARDIS-Ivory
+# Platform           : Windows Server 2016 or Windows 10
+# Operating System   : 26200
+# Processor Detail   : AMD Ryzen 9 9950X3D 16-Core Processor          
+# CPU Frequency      : 4300 MHz
+# CPU Physical cores : 16
+# CPU Logical cores  : 32
+# Host memory        : 66197 MB
+# Swap memory        : 4160 MB
+# Total Virtual      : 70358 MB
+# Available Virtual  : 26627 MB
+#-----------------------------------------------------------
+source ingest_top.tcl -notrace

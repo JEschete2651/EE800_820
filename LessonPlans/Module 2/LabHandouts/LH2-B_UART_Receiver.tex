@@ -7,12 +7,11 @@
 \labheader{2-B}{\UART{} Receiver with Oversampling and Clock-Domain Synchronizer}
 
 \section{Objective}
-Implement a 115200-baud \UART{} receiver in \VHDL{} that captures asynchronous bytes from the Module~1 STM32 interceptor (Threat) and delivers them into the Nexys A7's 100~MHz clock domain. By the end of this handout you will have a synthesizable \texttt{uart\_rx} component that emits a one-cycle \texttt{rx\_valid} pulse per received byte, verified in simulation against a known stimulus.
+Replace the bring-up \texttt{uart\_rx} from LH1-H with a generic-parameterized 115200-baud \UART{} receiver and add a unit testbench plus a regression test against recorded Module~1 capture data. By the end of this handout your project will contain a fully verified \texttt{uart\_rx.vhd} that emits a one-cycle \texttt{rx\_strobe} pulse per received byte, plus two testbenches in the \texttt{sim\_1} fileset.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~2-A (Vivado project skeleton in place).
-	\item Working Module~1 cooperative-target / interceptor system, or a recorded \texttt{.bin} capture of the interceptor's \UART{} output.
+	\item Lab Handout~2-A (LH1-H project open, simulation fileset created, recorded Module~1 \texttt{.bin} capture in the \texttt{data/} folder).
 \end{itemize}
 
 \section{Background}
@@ -22,94 +21,359 @@ The STM32 interceptor drives the \UART{} line asynchronously; its transmit clock
 	Sampling each bit 16 times per bit-period and taking the middle sample tolerates about $\pm$3\% of baud-rate mismatch between the transmitter and the FPGA UART receiver. At 115200~baud with a 100~MHz system clock, the oversample tick period is $100\,\mathrm{MHz} / (115200 \times 16) \approx 54$ cycles. A simple counter dividing \texttt{sysclk} by 54 produces the sample-enable strobe used by the receiver \FSM{}.
 \end{tcolorbox}
 
+\begin{tcolorbox}[infobox={What changes versus the LH1-H version?}]
+	The LH1-H bring-up \texttt{uart\_rx} hard-codes 100~MHz and 115200~baud as integer literals and folds the two-flop synchronizer into the same process as the FSM. The Module~2 version below: (1) parameterizes \texttt{CLK\_FREQ\_HZ} and \texttt{BAUD} as generics so the same file is reusable on a different board or at a different baud, and (2) widens the oversample counter to 16 bits so the generic divider value at higher \texttt{CLK\_FREQ\_HZ} fits without modification. The entity port list (\texttt{clk}, \texttt{rst\_n}, \texttt{rx}, \texttt{rx\_data}, \texttt{rx\_strobe}) is identical to LH1-H so \texttt{ingest\_top.vhd} compiles without changes.
+\end{tcolorbox}
+
 \section{Procedure}
 
-\subsection{Step 1 --- Add the synchronizer}
-Create \texttt{rtl/sync\_2ff.vhd}. This is a two-\FF{} synchronizer that registers \texttt{uart\_rxd} twice before any combinational logic touches it.
-\begin{verbatim}
+\subsection{Step 1 --- Save a reference copy of the LH1-H \texttt{uart\_rx}}
+
+The Module~2 \texttt{uart\_rx} keeps the LH1-H entity name and port list, so it is edited in place rather than removed. Before editing, copy the existing file aside so you have a reference for the LH1-H-vs-Module-2 comparison required in your deliverable:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Outside Vivado, copy \texttt{ingest\_top.srcs/sources\_1/new/uart\_rx.vhd} to a backup location of your choice (for example \texttt{ingest\_top/reference/uart\_rx\_lh1h.vhd}). Do not add the backup to the Vivado project.
+\end{enumerate}
+
+\subsection{Step 2 --- Edit \texttt{uart\_rx.vhd} in place}
+\begin{enumerate}[leftmargin=2em]
+	\item In Vivado's Sources panel, double-click the existing \texttt{uart\_rx} entry under Design Sources.
+	\item Select all (\texttt{Ctrl+A}), delete the LH1-H contents, and paste the listing below verbatim. Save (\texttt{Ctrl+S}).
+\end{enumerate}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{uart\_rx.vhd} (Module~2) --- 115200~8N1 receiver, 16$\times$ oversampled, with \texttt{CLK\_FREQ\_HZ} and \texttt{BAUD} generics. Port list matches LH1-H exactly.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
 
-entity sync_2ff is
-    Port ( clk     : in  STD_LOGIC;
-           rstn    : in  STD_LOGIC;
-           din_a   : in  STD_LOGIC;
-           dout_s  : out STD_LOGIC);
-end sync_2ff;
+entity uart_rx is
+    generic (
+        CLK_FREQ_HZ : integer := 100_000_000;
+        BAUD        : integer := 115_200
+    );
+    port (
+        clk        : in  std_logic;
+        rst_n      : in  std_logic;
+        rx         : in  std_logic;
+        rx_data    : out std_logic_vector(7 downto 0);
+        rx_strobe  : out std_logic
+    );
+end uart_rx;
 
-architecture rtl of sync_2ff is
-    signal ff1, ff2 : STD_LOGIC := '1';
+architecture rtl of uart_rx is
+    constant DIV16 : integer := CLK_FREQ_HZ / (BAUD * 16);  -- 54 at defaults
+    signal os_cnt  : unsigned(15 downto 0) := (others => '0');
+    signal os_tick : std_logic := '0';
+
+    type state_t is (S_IDLE, S_START, S_DATA, S_STOP);
+    signal state    : state_t := S_IDLE;
+    signal bit_idx  : unsigned(2 downto 0) := (others => '0');
+    signal sub_cnt  : unsigned(3 downto 0) := (others => '0');
+    signal shifter  : std_logic_vector(7 downto 0) := (others => '0');
+    signal rx_sync1, rx_sync2 : std_logic := '1';
 begin
-    process(clk)
-    begin
+    process (clk) begin
         if rising_edge(clk) then
-            if rstn = '0' then
-                ff1 <= '1'; ff2 <= '1';
+            rx_sync1 <= rx;
+            rx_sync2 <= rx_sync1;
+        end if;
+    end process;
+
+    process (clk) begin
+        if rising_edge(clk) then
+            if rst_n = '0' then
+                os_cnt  <= (others => '0');
+                os_tick <= '0';
+            elsif os_cnt = to_unsigned(DIV16 - 1, os_cnt'length) then
+                os_cnt  <= (others => '0');
+                os_tick <= '1';
             else
-                ff1 <= din_a;
-                ff2 <= ff1;
+                os_cnt  <= os_cnt + 1;
+                os_tick <= '0';
             end if;
         end if;
     end process;
-    dout_s <= ff2;
+
+    process (clk) begin
+        if rising_edge(clk) then
+            rx_strobe <= '0';
+            if rst_n = '0' then
+                state   <= S_IDLE;
+                sub_cnt <= (others => '0');
+                bit_idx <= (others => '0');
+            elsif os_tick = '1' then
+                case state is
+                    when S_IDLE =>
+                        if rx_sync2 = '0' then
+                            state   <= S_START;
+                            sub_cnt <= to_unsigned(0, 4);
+                        end if;
+                    when S_START =>
+                        if sub_cnt = to_unsigned(7, 4) then
+                            if rx_sync2 = '0' then
+                                state   <= S_DATA;
+                                sub_cnt <= (others => '0');
+                                bit_idx <= (others => '0');
+                            else
+                                state <= S_IDLE;
+                            end if;
+                        else
+                            sub_cnt <= sub_cnt + 1;
+                        end if;
+                    when S_DATA =>
+                        if sub_cnt = to_unsigned(15, 4) then
+                            shifter <= rx_sync2 & shifter(7 downto 1);
+                            sub_cnt <= (others => '0');
+                            if bit_idx = to_unsigned(7, 3) then
+                                state <= S_STOP;
+                            else
+                                bit_idx <= bit_idx + 1;
+                            end if;
+                        else
+                            sub_cnt <= sub_cnt + 1;
+                        end if;
+                    when S_STOP =>
+                        if sub_cnt = to_unsigned(15, 4) then
+                            rx_data   <= shifter;
+                            rx_strobe <= '1';
+                            state     <= S_IDLE;
+                        else
+                            sub_cnt <= sub_cnt + 1;
+                        end if;
+                end case;
+            end if;
+        end if;
+    end process;
 end rtl;
-\end{verbatim}
-The idle-high reset value prevents a false start bit during reset release.
+\end{lstlisting}
 
-\subsection{Step 2 --- Implement the oversample tick generator}
-Inside \texttt{uart\_rx.vhd}, instantiate a 6-bit counter that rolls over at 53 and pulses \texttt{os\_tick} for one cycle at rollover. This is the 16$\times$115200 strobe.
-
-\subsection{Step 3 --- Implement the receive \FSM{}}
-States: \texttt{IDLE}, \texttt{START}, \texttt{DATA}, \texttt{STOP}.
-\begin{itemize}[leftmargin=2em]
-	\item \texttt{IDLE}: wait for \texttt{rxd\_sync} to fall. On fall, advance to \texttt{START} and zero a 4-bit sample counter.
-	\item \texttt{START}: on each \texttt{os\_tick}, increment. At sample 8 (mid-bit), check \texttt{rxd\_sync}. If still low, advance to \texttt{DATA}. If high, return to \texttt{IDLE} (glitch reject).
-	\item \texttt{DATA}: on each \texttt{os\_tick}, count to 16, then sample at mid-bit and shift into an 8-bit \texttt{rx\_shift} register (\mbox{LSB}-first). After 8 bits, advance to \texttt{STOP}.
-	\item \texttt{STOP}: wait one bit-period, assert \texttt{rx\_valid} for one \texttt{sysclk} cycle with \texttt{rx\_data} $=$ \texttt{rx\_shift}, return to \texttt{IDLE}.
-\end{itemize}
-
-\labfigure{LH2B_uart_fsm.png}{0.7\textwidth}{\UART{} receive \FSM{} states, transitions, and the sample points used inside \texttt{START} and \texttt{DATA}.}{fig:lh2b-fsm}
+\subsection{Step 3 --- Confirm \texttt{ingest\_top} still elaborates}
+\begin{enumerate}[leftmargin=2em]
+	\item Right-click \texttt{ingest\_top} in Sources $\to$ \textbf{Hierarchy Update} $\to$ \textbf{Automatic Update, Manual Compile Order}. The red ``!'' marker should clear.
+	\item \textbf{Confirm \texttt{ingest\_top} is set as the Design Sources top.} In the Sources panel's \textit{Design Sources} tab, \texttt{ingest\_top} should appear in \textbf{bold}. If not, right-click \texttt{ingest\_top} $\to$ \textbf{Set as Top}. Synthesis uses the Design Sources top regardless of what is set as top in Simulation Sources; verify it explicitly before every synthesis run.
+	\item Re-run synthesis. Expect zero errors. (You will see a new Vivado info note that \texttt{uart\_rx} now has generics with their default values bound.)
+	\item Optionally re-program the board and confirm the Beacon~ID display still updates --- your Module~2 implementation is now live in the end-to-end path.
+\end{enumerate}
 
 \subsection{Step 4 --- Write the unit testbench}
-Create \texttt{sim/tb\_uart\_rx.vhd}. It should:
-\begin{enumerate}[leftmargin=2em]
-	\item Generate a 100\,MHz \texttt{sysclk}.
-	\item Drive \texttt{uart\_rxd} with a bit-banged stream sending the byte \texttt{0xA5} at exactly 115200\,baud (start bit, 8 data bits \mbox{LSB}-first, stop bit).
-	\item Assert \texttt{rx\_valid} is pulsed exactly once and that \texttt{rx\_data} $=$ \texttt{0xA5} at the pulse.
-\end{enumerate}
-Add it to the simulation set in Vivado and run a 2\,ms behavioral simulation.
 
-\labfigure{LH2B_waveform.png}{0.85\textwidth}{Expected waveform: \texttt{uart\_rxd} start-bit fall, eight data bits, stop bit, and a single \texttt{rx\_valid} pulse aligned with \texttt{rx\_data = 0xA5}.}{fig:lh2b-wave}
+\begin{enumerate}[leftmargin=2em]
+	\item Sources panel: \textbf{+} $\to$ \textbf{Add or create simulation sources} $\to$ \textbf{Create File}. File type \textbf{VHDL}, name \texttt{tb\_uart\_rx}. Click \textbf{OK}, \textbf{Finish}, and dismiss the Define Module dialog.
+	\item Double-click the new \texttt{tb\_uart\_rx} entry. Replace the entire contents with the listing below and save.
+\end{enumerate}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_uart\_rx.vhd} --- bit-bangs the byte \texttt{0xA5} at 115200~baud and asserts that \texttt{rx\_strobe} pulses exactly once with \texttt{rx\_data = 0xA5}.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use STD.TEXTIO.ALL;
+
+entity tb_uart_rx is
+end tb_uart_rx;
+
+architecture sim of tb_uart_rx is
+    constant CLK_PERIOD : time    := 10 ns;          -- 100 MHz
+    constant BIT_PERIOD : time    := 8680 ns;        -- 1/115200
+
+    signal clk       : std_logic := '0';
+    signal rst_n     : std_logic := '0';
+    signal rx        : std_logic := '1';             -- idle high
+    signal rx_data   : std_logic_vector(7 downto 0);
+    signal rx_strobe : std_logic;
+
+    signal strobe_count : integer := 0;
+    signal last_byte    : std_logic_vector(7 downto 0) := (others => '0');
+
+    -- Local hex formatter. Vivado xsim does not always resolve to_hstring()
+    -- for std_logic_vector under the default VHDL version, so build the hex
+    -- string by hand to keep the testbench portable.
+    function slv_to_hex (v : std_logic_vector(7 downto 0)) return string is
+        constant HEX : string(1 to 16) := "0123456789ABCDEF";
+        variable hi  : integer := to_integer(unsigned(v(7 downto 4)));
+        variable lo  : integer := to_integer(unsigned(v(3 downto 0)));
+    begin
+        return HEX(hi + 1) & HEX(lo + 1);
+    end function;
+
+    procedure send_byte (signal s : out std_logic; b : in std_logic_vector(7 downto 0)) is
+    begin
+        s <= '0'; wait for BIT_PERIOD;                -- start
+        for i in 0 to 7 loop
+            s <= b(i); wait for BIT_PERIOD;           -- LSB first
+        end loop;
+        s <= '1'; wait for BIT_PERIOD;                -- stop
+    end procedure;
+begin
+    -- Clock generator
+    clk <= not clk after CLK_PERIOD / 2;
+
+    -- DUT
+    dut : entity work.uart_rx
+        port map (clk => clk, rst_n => rst_n,
+                  rx => rx, rx_data => rx_data, rx_strobe => rx_strobe);
+
+    -- Strobe counter / capture
+    process (clk) begin
+        if rising_edge(clk) then
+            if rx_strobe = '1' then
+                strobe_count <= strobe_count + 1;
+                last_byte    <= rx_data;
+            end if;
+        end if;
+    end process;
+
+    -- Stimulus
+    process
+    begin
+        wait for 100 ns;
+        rst_n <= '1';
+        wait for 1 us;
+
+        send_byte(rx, x"A5");
+        wait for 200 us;                              -- generous settle
+
+        assert strobe_count = 1
+            report "expected exactly one rx_strobe pulse, got "
+                   & integer'image(strobe_count) severity failure;
+        assert last_byte = x"A5"
+            report "expected rx_data=0xA5, got 0x"
+                   & slv_to_hex(last_byte) severity failure;
+
+        report "tb_uart_rx PASS" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
+\begin{enumerate}[leftmargin=2em]
+	\setcounter{enumi}{2}
+	\item In the Sources panel, right-click \texttt{tb\_uart\_rx} (under Simulation Sources) $\to$ \textbf{Set as Top}. The simulation fileset's top should now be \texttt{tb\_uart\_rx}.
+	\item Flow Navigator $\to$ \textbf{Run Simulation} $\to$ \textbf{Run Behavioral Simulation}. Vivado launches with the default \texttt{1us} runtime, which stops short of the assertions. In the Tcl console at the bottom, type \texttt{run 1 ms} and press Enter (\emph{exactly once} --- a second \texttt{run} call re-enters the stimulus and trips the strobe-count assertion). The Tcl console should then print \texttt{tb\_uart\_rx PASS} at approximately 288~us simulated.
+\end{enumerate}
+
+\labfigure{LH2B_waveform.png}{0.85\textwidth}{Expected waveform: \texttt{rx} start-bit fall, eight data bits, stop bit, and a single \texttt{rx\_strobe} pulse aligned with \texttt{rx\_data = 0xA5}.}{fig:lh2b-wave}
 
 \subsection{Step 5 --- Regression against recorded Module~1 data}
+
+This testbench reads a binary capture from \texttt{data/} and bit-bangs every byte through the receiver, comparing each captured byte to the source file. Add the file the same way as Step~4 (\textbf{+} $\to$ \textbf{Add or create simulation sources} $\to$ \textbf{Create File}, name \texttt{tb\_uart\_rx\_regression}).
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_uart\_rx\_regression.vhd} --- streams every byte from a recorded \texttt{.bin} and asserts byte-for-byte recovery. Adjust the relative path on line marked CAPTURE\_FILE if your data folder is elsewhere.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use STD.TEXTIO.ALL;
+
+entity tb_uart_rx_regression is
+end tb_uart_rx_regression;
+
+architecture sim of tb_uart_rx_regression is
+    constant CLK_PERIOD   : time   := 10 ns;
+    constant BIT_PERIOD   : time   := 8680 ns;
+    constant CAPTURE_FILE : string := "../../../../data/capture_clean.bin";  -- CAPTURE_FILE
+
+    signal clk       : std_logic := '0';
+    signal rst_n     : std_logic := '0';
+    signal rx        : std_logic := '1';
+    signal rx_data   : std_logic_vector(7 downto 0);
+    signal rx_strobe : std_logic;
+
+    signal expected_byte : std_logic_vector(7 downto 0) := (others => '0');
+    signal byte_count    : integer := 0;
+    signal mismatch_cnt  : integer := 0;
+
+    type charfile is file of character;
+
+    procedure send_byte (signal s : out std_logic; b : in std_logic_vector(7 downto 0)) is
+    begin
+        s <= '0'; wait for BIT_PERIOD;
+        for i in 0 to 7 loop
+            s <= b(i); wait for BIT_PERIOD;
+        end loop;
+        s <= '1'; wait for BIT_PERIOD;
+    end procedure;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    dut : entity work.uart_rx
+        port map (clk => clk, rst_n => rst_n,
+                  rx => rx, rx_data => rx_data, rx_strobe => rx_strobe);
+
+    -- Compare each strobed byte against the most recently transmitted byte.
+    process (clk) begin
+        if rising_edge(clk) then
+            if rx_strobe = '1' then
+                if rx_data /= expected_byte then
+                    mismatch_cnt <= mismatch_cnt + 1;
+                end if;
+                byte_count <= byte_count + 1;
+            end if;
+        end if;
+    end process;
+
+    process
+        file     fh   : charfile;
+        variable ch   : character;
+        variable byte : std_logic_vector(7 downto 0);
+        variable open_status : file_open_status;
+    begin
+        wait for 100 ns;
+        rst_n <= '1';
+        wait for 1 us;
+
+        file_open(open_status, fh, CAPTURE_FILE, read_mode);
+        assert open_status = open_ok
+            report "Could not open capture file " & CAPTURE_FILE severity failure;
+
+        while not endfile(fh) loop
+            read(fh, ch);
+            byte := std_logic_vector(to_unsigned(character'pos(ch), 8));
+            expected_byte <= byte;
+            send_byte(rx, byte);
+        end loop;
+
+        file_close(fh);
+        wait for 200 us;
+
+        assert mismatch_cnt = 0
+            report "regression: " & integer'image(mismatch_cnt)
+                   & " byte mismatches over " & integer'image(byte_count) severity failure;
+        report "tb_uart_rx_regression PASS: " & integer'image(byte_count) & " bytes" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
 \begin{enumerate}[leftmargin=2em]
-	\item Copy a recorded interceptor \texttt{.bin} from Session~4 into \texttt{data/}.
-	\item Extend the testbench to read the file via \texttt{std.textio}/\texttt{ieee.std\_logic\_textio}, emit the bytes as a serial bit stream, and log every \texttt{rx\_valid} byte to a text file.
-	\item Diff the simulation log against the original \texttt{.bin}. They must match byte-for-byte.
+	\item Set \texttt{tb\_uart\_rx\_regression} as the simulation top.
+	\item \textbf{Increase the simulation runtime before launching.} Each byte takes 87\,$\mu$s of simulated time; a 63\,kB capture needs $\sim$5.5 simulated seconds. In Project Settings $\to$ Simulation, set \texttt{xsim.simulate.runtime} to \texttt{6sec}. (Without this, Vivado launches with the 1\,us default and the stimulus process never reaches the end of the file.)
+	\item Flow Navigator $\to$ \textbf{Run Simulation} $\to$ \textbf{Run Behavioral Simulation}. Wall-clock runtime is roughly 4--6 minutes for a 1500-frame capture; \texttt{xsim} bit-bangs at about 18\,ms simulated per wall-clock second on a typical laptop. If you'd rather not bump the default, leave it at \texttt{1us} and type \texttt{run 6 sec} once in the Tcl console after the launch completes.
+	\item Confirm the Tcl console prints \texttt{tb\_uart\_rx\_regression PASS} with the byte count matching the file size on disk (e.g.\ 62952 bytes for a 1500-frame capture).
 \end{enumerate}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \texttt{sync\_2ff} synthesizes with exactly two flip-flops per bit.
-	\item[$\square$] Oversample tick period is 54 cycles of \texttt{sysclk}.
-	\item[$\square$] Unit testbench recovers \texttt{0xA5} with a single \texttt{rx\_valid} pulse.
-	\item[$\square$] Recorded-data regression matches the source \texttt{.bin} byte-for-byte.
-	\item[$\square$] No Vivado timing warnings for the \texttt{uart\_rxd} input path.
+	\item[$\square$] \texttt{uart\_rx.vhd} edited in place to the Module~2 generic-parameterized version; LH1-H copy saved aside as a reference.
+	\item[$\square$] Two-flop synchronizer present and synthesizes to exactly two flip-flops on \texttt{rx}.
+	\item[$\square$] Oversample tick period is 54 cycles of \texttt{sysclk} at the default generics.
+	\item[$\square$] \texttt{tb\_uart\_rx} prints \texttt{PASS}.
+	\item[$\square$] \texttt{tb\_uart\_rx\_regression} prints \texttt{PASS} with zero byte mismatches over the entire capture file.
+	\item[$\square$] Re-synthesis of \texttt{ingest\_top} produces zero errors and the seven-segment display still updates on hardware.
 \end{itemize}
 
 \begin{tcolorbox}[warning={Common Pitfalls}]
 	\begin{itemize}[leftmargin=1.2em]
-		\item \textbf{Sampling at the bit edge:} the \FSM{} must sample at mid-bit (tick 8 of 16), not at tick 0 or 15.
-		\item \textbf{Missing \texttt{set\_false\_path} on the async input:} if Vivado flags a timing arc from \texttt{uart\_rxd}, add \texttt{set\_false\_path -to [get\_pins sync\_2ff/ff1*/D]} in the \texttt{.xdc}.
-		\item \textbf{Wrong bit order:} the \mbox{LSB} arrives first on the wire, not the \mbox{MSB}.
+		\item \textbf{Sampling at the bit edge:} the \FSM{} must sample at mid-bit (tick 8 of 16), not at tick 0 or 15. The listing above samples at \texttt{sub\_cnt = 7} (start-bit verification) and \texttt{sub\_cnt = 15} (post-bit settle); do not change these constants.
+		\item \textbf{Wrong file path in the regression testbench:} Vivado runs simulations from \texttt{ingest\_top.sim/sim\_1/behav/xsim/} by default, so the path to \texttt{data/} from there is \texttt{../../../../data/capture\_clean.bin} (four \texttt{..} to climb out of the \texttt{xsim/}, \texttt{behav/}, \texttt{sim\_1/}, and \texttt{ingest\_top.sim/} folders to reach the project root). Adjust the \texttt{CAPTURE\_FILE} constant if your project layout differs, or use an absolute path during initial bring-up. The regression runs against \texttt{capture\_clean.bin}; \texttt{capture\_mixed.bin} is reserved for LH2-G's end-to-end testbench, where its button-hold gaps stress the parser's re-sync logic.
+		\item \textbf{Wrong bit order:} the \mbox{LSB} arrives first on the wire, not the \mbox{MSB}. The shifter line \texttt{shifter <= rx\_sync2 \& shifter(7 downto 1)} is correct; do not invert it.
 	\end{itemize}
 \end{tcolorbox}
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-B Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{uart\_rx.vhd}, \texttt{sync\_2ff.vhd}, and \texttt{tb\_uart\_rx.vhd}.
+		\item Module~2 \texttt{uart\_rx.vhd}, \texttt{tb\_uart\_rx.vhd}, and \texttt{tb\_uart\_rx\_regression.vhd}.
+		\item Tcl console transcript or screenshot showing both testbenches printing \texttt{PASS}.
 		\item Waveform screenshot of the \texttt{0xA5} unit test.
-		\item Log file from the recorded-data regression plus a diff result confirming a byte-for-byte match.
+		\item One-paragraph note comparing the LH1-H and Module~2 \texttt{uart\_rx} files (kept aside per Step~1) --- specifically, what changed and why.
 	\end{enumerate}
 \end{tcolorbox}
 

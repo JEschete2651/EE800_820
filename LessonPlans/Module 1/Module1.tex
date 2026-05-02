@@ -155,6 +155,8 @@
 	\begin{itemize}[leftmargin=2em]
 		\item Familiarity with C/C++ embedded programming (\GPIO{}, \SPI{}, \UART{}, and \IIC{}) --- see Valvano, \textit{Embedded Systems: Real-Time Interfacing to ARM Cortex-M Microcontrollers}, for peripheral fundamentals, and the STM32L476xx Reference Manual (RM0351) for the specific peripheral registers used in this module.
 		\item Basic understanding of digital modulation (\ASK{}, \FSK{}, and LoRa \CSS{} concepts) --- Sklar, \textit{Digital Communications: Fundamentals and Applications}, covers the modulation theory; Semtech Application Note AN1200.22, ``LoRa Modulation Basics,'' is the concise primer for LoRa-specific \CSS{}.
+		
+		\newpage
 		\item Experience with \VHDL{} and the \FPGA{} synthesis flow --- Chu, \textit{\FPGA{} Prototyping by \VHDL{} Examples: Xilinx Artix-7 Edition}, is the primary recommended text; Haskell and Hanna, \textit{Digital Design Using Digilent \FPGA{} Boards: \VHDL{}\,/\,Vivado Edition}, provides a Nexys-board-specific walkthrough of the Vivado toolchain.
 		\item Introductory exposure to machine learning (supervised classification) --- a formal reference is introduced in Module~4; any standard introductory text on supervised classification is sufficient background here.
 		\item Access to the hardware listed in Section~\ref{sec:hardware}
@@ -795,7 +797,7 @@
 		\item A fully specified and tested cooperative-target subsystem (Target~A and Target~B) capable of bidirectional ping-pong operation with PAUSE behavioral response.
 		\item An interceptor (Threat) subsystem that passively captures DATA, ACK, and PAUSE traffic, maintains a per-Beacon-ID \RSSI{} observation table, and operates the button-gated PAUSE TX scheduler.
 		\item End-to-end data flow from cooperative-target transmission through interceptor to \FPGA{} frame ingestion.
-		\item Comprehensive design documentation covering the 32-byte packet format with packed DATA/ACK/PAUSE type field, the 43-byte forwarding frame, the firmware architectures for both cooperative-target and interceptor roles, and the closed-loop intercept-and-act behavior of the PAUSE protocol.
+		\item Comprehensive design documentation covering the 32-byte packet format with packed  \\ DATA/ACK/PAUSE type field, the 43-byte forwarding frame, the firmware architectures for both cooperative-target and interceptor roles, and the closed-loop intercept-and-act behavior of the PAUSE protocol.
 	\end{itemize}
 
 	Module~2 will build directly on these foundations with \FPGA{} \RTL{} design and signal processing simulation. The \UART{}/\SPI{} ingestion interface validated in Session~4 becomes the input to the \FPGA{} processing pipeline; the 32-byte radio packet format defines the data structures that the \RTL{} must parse; and the packed \texttt{Modulation Code} byte's low two bits become the \texttt{pkt\_type} field in the Module~2 feature vector, classified at the data-to-model interface in Module~4.

@@ -7,11 +7,11 @@
 \labheader{2-C}{Byte-Level Receive \FIFO{} and Session-5 Pipeline Integration}
 
 \section{Objective}
-Insert a 64$\times$8 synchronous \FIFO{} between the \UART{} receiver and the (still-to-be-written) packet parser so that downstream logic can stall without losing incoming bytes. Integrate \texttt{uart\_rx} and the \FIFO{} under \texttt{ingest\_top} and verify the combined block against a recorded Module~1 capture.
+Replace the 16-deep LH1-H \texttt{byte\_fifo} with a 64-deep version, then verify the combined \texttt{uart\_rx}~$\to$~\texttt{byte\_fifo} pipeline against a recorded Module~1 capture and an overflow stress test. By the end of this handout the project will contain a wider \FIFO{} and two new testbenches.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~2-B (\texttt{uart\_rx} verified in simulation).
+	\item Lab Handout~2-B (\texttt{uart\_rx} replaced with the Module~2 generic version and both testbenches passing).
 \end{itemize}
 
 \section{Background}
@@ -20,62 +20,254 @@ Insert a 64$\times$8 synchronous \FIFO{} between the \UART{} receiver and the (s
 	For a depth of 64 and a width of 8, Vivado infers distributed \mbox{RAM} using \mbox{LUT} primitives (about 8~\mbox{LUT}s) rather than consuming a block \mbox{RAM} tile. The Artix-7 100T has only 135 \BRAM{} tiles, and they should be reserved for the feature vector memory in Lab Handout~2-F. A distributed-\mbox{RAM} \FIFO{} of this size is essentially free against the 63{,}400-\mbox{LUT} budget.
 \end{tcolorbox}
 
-A depth of 64 is comfortably larger than the 43-byte Module~1 interceptor forwarding frame. Even if the parser stalls for a full frame time, no bytes are lost.
+A depth of 64 is comfortably larger than the 43-byte Module~1 interceptor forwarding frame. Even if the parser stalls for a full frame time, no bytes are lost. The LH1-H \FIFO{} was 16-deep, which is still functional at the bring-up stage because the simple \texttt{frame\_detector} drains continuously --- but once \texttt{pkt\_parser} (LH2-D) adds \CRC{} computation and reject handling, transient stalls become long enough that 16 bytes is no longer safe.
 
 \section{Procedure}
 
-\subsection{Step 1 --- Author the \FIFO{}}
-Create \texttt{rtl/byte\_fifo.vhd} with the interface below. Implement it with an inferred distributed-\mbox{RAM} array plus \texttt{wr\_ptr}, \texttt{rd\_ptr}, and \texttt{count} registers. Drive \texttt{full} when \texttt{count = 64} and \texttt{empty} when \texttt{count = 0}.
-\begin{verbatim}
+\subsection{Step 1 --- Save a reference copy of the LH1-H \texttt{byte\_fifo}}
+
+The Module~2 \texttt{byte\_fifo} keeps the LH1-H entity name and port list, so it is edited in place rather than removed. Before editing, copy the existing file aside for comparison:
+
+\begin{enumerate}[leftmargin=2em]
+	\item Outside Vivado, copy \texttt{ingest\_top.srcs/sources\_1/new/byte\_fifo.vhd} to a backup location (for example \texttt{ingest\_top/reference/byte\_fifo\_lh1h.vhd}). Do not add the backup to the Vivado project.
+\end{enumerate}
+
+\subsection{Step 2 --- Edit \texttt{byte\_fifo.vhd} in place}
+\begin{enumerate}[leftmargin=2em]
+	\item In Vivado's Sources panel, double-click the existing \texttt{byte\_fifo} entry under Design Sources.
+	\item Select all (\texttt{Ctrl+A}), delete the LH1-H contents, and paste the listing below verbatim. Save (\texttt{Ctrl+S}).
+\end{enumerate}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{byte\_fifo.vhd} (Module~2) --- 64-entry $\times$ 8-bit synchronous \FIFO{} with registered read output. Infers distributed \mbox{RAM} on the Artix-7. Port list matches LH1-H exactly.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
 entity byte_fifo is
     generic ( DEPTH : integer := 64 );
-    Port ( clk     : in  STD_LOGIC;
-           rstn    : in  STD_LOGIC;
-           wr_en   : in  STD_LOGIC;
-           wr_data : in  STD_LOGIC_VECTOR(7 downto 0);
-           full    : out STD_LOGIC;
-           rd_en   : in  STD_LOGIC;
-           rd_data : out STD_LOGIC_VECTOR(7 downto 0);
-           empty   : out STD_LOGIC);
+    port (
+        clk     : in  std_logic;
+        rst_n   : in  std_logic;
+        wr_en   : in  std_logic;
+        wr_data : in  std_logic_vector(7 downto 0);
+        rd_en   : in  std_logic;
+        rd_data : out std_logic_vector(7 downto 0);
+        empty   : out std_logic;
+        full    : out std_logic
+    );
 end byte_fifo;
-\end{verbatim}
 
-\subsection{Step 2 --- Wire it into \texttt{ingest\_top}}
+architecture rtl of byte_fifo is
+    type mem_t is array (0 to DEPTH - 1) of std_logic_vector(7 downto 0);
+    signal mem   : mem_t := (others => (others => '0'));
+    signal w_ptr : integer range 0 to DEPTH - 1 := 0;
+    signal r_ptr : integer range 0 to DEPTH - 1 := 0;
+    signal count : integer range 0 to DEPTH     := 0;
+begin
+    full  <= '1' when count = DEPTH else '0';
+    empty <= '1' when count = 0     else '0';
+
+    process (clk)
+        variable do_wr, do_rd : boolean;
+    begin
+        if rising_edge(clk) then
+            if rst_n = '0' then
+                w_ptr <= 0; r_ptr <= 0; count <= 0;
+            else
+                do_wr := (wr_en = '1') and (count < DEPTH);
+                do_rd := (rd_en = '1') and (count > 0);
+                if do_wr then
+                    mem(w_ptr) <= wr_data;
+                    w_ptr <= (w_ptr + 1) mod DEPTH;
+                end if;
+                if do_rd then
+                    r_ptr <= (r_ptr + 1) mod DEPTH;
+                end if;
+                if    do_wr and not do_rd then count <= count + 1;
+                elsif do_rd and not do_wr then count <= count - 1;
+                end if;
+            end if;
+            rd_data <= mem(r_ptr);    -- registered read; valid 1 cycle after rd_en
+        end if;
+    end process;
+end rtl;
+\end{lstlisting}
+
+\subsection{Step 3 --- Re-synthesize and confirm hardware still runs}
 \begin{enumerate}[leftmargin=2em]
-	\item Instantiate \texttt{uart\_rx} (from 2-B) and \texttt{byte\_fifo} inside the architecture of \texttt{ingest\_top}.
-	\item Connect \texttt{uart\_rx.rx\_valid} to \texttt{byte\_fifo.wr\_en} and \texttt{uart\_rx.rx\_data} to \texttt{byte\_fifo.wr\_data}.
-	\item Leave \texttt{rd\_en} tied low for now (the parser in 2-D will drive it). Route \texttt{byte\_fifo.empty} to \texttt{led(0)} and \texttt{full} to \texttt{led(1)} so overflow is visible on the board.
+	\item \textbf{Confirm \texttt{ingest\_top} is set as the Design Sources top.} In the Sources panel's \textit{Design Sources} tab, \texttt{ingest\_top} must appear in \textbf{bold}. If a testbench or other entity is bold instead (which can happen after Module~2 simulation runs), right-click \texttt{ingest\_top} $\to$ \textbf{Set as Top} before continuing.
+	\item Run synthesis. Expect zero errors. The \texttt{u\_fifo} red ``!'' marker should clear.
+	\item Re-program the board. The Beacon~ID display should still update --- the wider \FIFO{} is functionally equivalent to the LH1-H 16-deep version for a continuously-draining frame detector.
 \end{enumerate}
 
-\labfigure{LH2C_session5_datapath.png}{0.85\textwidth}{Session~5 datapath after integration: synchronizer $\to$ \texttt{uart\_rx} $\to$ \texttt{byte\_fifo}, with occupancy \mbox{LEDs} routed to \texttt{led(0)} and \texttt{led(1)}.}{fig:lh2c-datapath}
+\labfigure{LH2C_session5_datapath.png}{0.85\textwidth}{Session~5 datapath after integration: synchronizer $\to$ \texttt{uart\_rx} $\to$ \texttt{byte\_fifo}, with occupancy \mbox{LEDs} routed to \texttt{LED[2]} (empty) and \texttt{LED[3]} (full) in \texttt{ingest\_top}.}{fig:lh2c-datapath}
 
-\subsection{Step 3 --- Integration testbench}
-Create \texttt{sim/tb\_session5\_pipeline.vhd}:
-\begin{enumerate}[leftmargin=2em]
-	\item Instantiate \texttt{ingest\_top} and drive \texttt{uart\_rxd} by streaming every byte of a recorded Module~1 \texttt{.bin} at 115200\,baud.
-	\item Every 5\,$\mu$s, pulse \texttt{rd\_en} and record the \texttt{rd\_data} into a log.
-	\item Compare the log against the original \texttt{.bin} byte-for-byte.
-\end{enumerate}
+\subsection{Step 4 --- Unit testbench}
 
-\subsection{Step 4 --- Overflow stress test}
-\begin{enumerate}[leftmargin=2em]
-	\item Modify the testbench to \textit{never} pulse \texttt{rd\_en}. Stream 65 bytes.
-	\item Confirm that \texttt{full} asserts on byte 64 and that no byte beyond 64 corrupts the pointers --- after reset, the \FIFO{} should return to a clean state.
-\end{enumerate}
+Add a simulation-source file \texttt{tb\_byte\_fifo}. Replace its contents with the listing below. The testbench writes 16 bytes, reads them back, and asserts the read data matches the write data in order.
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_byte\_fifo.vhd} --- write-then-read unit test. Verifies one-cycle read latency and pointer wrap.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_byte_fifo is
+end tb_byte_fifo;
+
+architecture sim of tb_byte_fifo is
+    constant CLK_PERIOD : time := 10 ns;
+
+    signal clk     : std_logic := '0';
+    signal rst_n   : std_logic := '0';
+    signal wr_en   : std_logic := '0';
+    signal wr_data : std_logic_vector(7 downto 0) := (others => '0');
+    signal rd_en   : std_logic := '0';
+    signal rd_data : std_logic_vector(7 downto 0);
+    signal empty   : std_logic;
+    signal full    : std_logic;
+
+    signal mismatch_cnt : integer := 0;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    dut : entity work.byte_fifo
+        port map (clk => clk, rst_n => rst_n,
+                  wr_en => wr_en, wr_data => wr_data,
+                  rd_en => rd_en, rd_data => rd_data,
+                  empty => empty, full => full);
+
+    process
+        variable expected : std_logic_vector(7 downto 0);
+    begin
+        wait for 100 ns;
+        rst_n <= '1';
+        wait until rising_edge(clk);
+
+        -- Write 16 ascending bytes 0x10..0x1F.
+        for i in 0 to 15 loop
+            wr_data <= std_logic_vector(to_unsigned(16#10# + i, 8));
+            wr_en   <= '1';
+            wait until rising_edge(clk);
+        end loop;
+        wr_en <= '0';
+        wait until rising_edge(clk);
+
+        assert empty = '0' report "FIFO should not be empty after 16 writes" severity failure;
+        assert full  = '0' report "FIFO should not be full at depth 16 of 64" severity failure;
+
+        -- Read 16 bytes and compare. Account for 1-cycle read latency by
+        -- comparing rd_data on the cycle AFTER each rd_en pulse.
+        for i in 0 to 15 loop
+            rd_en <= '1';
+            wait until rising_edge(clk);
+            rd_en <= '0';
+            wait until rising_edge(clk);                -- registered output appears now
+            expected := std_logic_vector(to_unsigned(16#10# + i, 8));
+            if rd_data /= expected then
+                mismatch_cnt <= mismatch_cnt + 1;
+            end if;
+        end loop;
+
+        assert mismatch_cnt = 0
+            report "tb_byte_fifo: " & integer'image(mismatch_cnt) & " byte mismatch(es)"
+            severity failure;
+        assert empty = '1' report "FIFO should be empty after 16 reads" severity failure;
+        report "tb_byte_fifo PASS" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
+Set as simulation top, launch behavioral simulation. The default \texttt{1us} runtime stops short of the final assertion; in the Tcl console, type \texttt{run 5 us} (once) and press Enter. The Tcl console should print \texttt{tb\_byte\_fifo PASS} within about 1\,us of simulated time. Total wall-clock cost is a few seconds.
+
+\subsection{Step 5 --- Overflow stress testbench}
+
+Add a second simulation-source file \texttt{tb\_byte\_fifo\_overflow}. Replace its contents with the listing below.
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_byte\_fifo\_overflow.vhd} --- writes 65 bytes with no reads. Asserts \texttt{full} latches at depth and pointers do not corrupt.}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_byte_fifo_overflow is
+end tb_byte_fifo_overflow;
+
+architecture sim of tb_byte_fifo_overflow is
+    constant CLK_PERIOD : time := 10 ns;
+
+    signal clk     : std_logic := '0';
+    signal rst_n   : std_logic := '0';
+    signal wr_en   : std_logic := '0';
+    signal wr_data : std_logic_vector(7 downto 0) := (others => '0');
+    signal rd_en   : std_logic := '0';
+    signal rd_data : std_logic_vector(7 downto 0);
+    signal empty   : std_logic;
+    signal full    : std_logic;
+
+    signal full_seen_at : integer := -1;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    dut : entity work.byte_fifo
+        port map (clk => clk, rst_n => rst_n,
+                  wr_en => wr_en, wr_data => wr_data,
+                  rd_en => rd_en, rd_data => rd_data,
+                  empty => empty, full => full);
+
+    process
+    begin
+        wait for 100 ns;
+        rst_n <= '1';
+        wait until rising_edge(clk);
+
+        for i in 0 to 64 loop
+            wr_data <= std_logic_vector(to_unsigned(i, 8));
+            wr_en   <= '1';
+            wait until rising_edge(clk);
+            if full = '1' and full_seen_at = -1 then
+                full_seen_at <= i;
+            end if;
+        end loop;
+        wr_en <= '0';
+        wait until rising_edge(clk);
+
+        assert full = '1'
+            report "FIFO should still be full after 65 writes" severity failure;
+        assert full_seen_at = 64
+            report "full should first assert when count reaches 64, observed at "
+                   & integer'image(full_seen_at) severity failure;
+
+        -- Reset and confirm the pointers/count return to a clean state.
+        rst_n <= '0';
+        wait until rising_edge(clk);
+        rst_n <= '1';
+        wait until rising_edge(clk);
+        wait until rising_edge(clk);
+        assert empty = '1' report "FIFO should be empty after reset" severity failure;
+        assert full  = '0' report "FIFO should not be full after reset" severity failure;
+
+        report "tb_byte_fifo_overflow PASS" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
+Set as simulation top, launch behavioral simulation, then in the Tcl console type \texttt{run 5 us} (once) and press Enter. Confirm \texttt{tb\_byte\_fifo\_overflow PASS} prints in the Tcl console; total simulated time is well under 2\,us.
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \texttt{byte\_fifo} passes an isolated unit test (write/read of 16 bytes, in order).
-	\item[$\square$] Session~5 integration testbench matches the recorded source file byte-for-byte.
-	\item[$\square$] Overflow test asserts \texttt{full} at the correct count and recovers cleanly after reset.
+	\item[$\square$] \texttt{byte\_fifo.vhd} edited in place to the Module~2 (depth 64) version; LH1-H copy saved aside as a reference.
+	\item[$\square$] \texttt{tb\_byte\_fifo} prints \texttt{PASS}.
+	\item[$\square$] \texttt{tb\_byte\_fifo\_overflow} prints \texttt{PASS} with \texttt{full} first asserting on the 64th write.
+	\item[$\square$] Re-synthesis succeeds and the seven-segment display still updates on hardware.
 	\item[$\square$] Post-synthesis utilization shows 0 \BRAM{} tiles consumed by the \FIFO{} (distributed \mbox{RAM} inferred).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-C Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{byte\_fifo.vhd} and updated \texttt{ingest\_top.vhd}.
-		\item \texttt{tb\_session5\_pipeline.vhd} plus its output log matching the reference \texttt{.bin}.
-		\item Post-synthesis utilization screenshot annotating \FIFO{} \mbox{LUT} cost and \BRAM{} tile count.
+		\item Module~2 \texttt{byte\_fifo.vhd}, \texttt{tb\_byte\_fifo.vhd}, and \texttt{tb\_byte\_fifo\_overflow.vhd}.
+		\item Tcl console transcripts showing both testbenches \texttt{PASS}.
+		\item Post-synthesis utilization screenshot annotating \FIFO{} \mbox{LUT} cost and confirming \BRAM{} = 0.
 	\end{enumerate}
 \end{tcolorbox}
 

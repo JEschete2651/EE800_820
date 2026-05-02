@@ -41,6 +41,7 @@ Verify that Vivado's \textbf{Report CDC} shows only the expected crossing: \text
 
 \subsection{Step 4 --- Generate the bitstream}
 \begin{enumerate}[leftmargin=2em]
+	\item \textbf{Confirm \texttt{ingest\_top} is set as the Design Sources top.} In the Sources panel's \textit{Design Sources} tab, \texttt{ingest\_top} must appear in \textbf{bold}. If anything else is bold (a testbench from a recent simulation run, for example), right-click \texttt{ingest\_top} $\to$ \textbf{Set as Top} before generating the bitstream.
 	\item Click \textbf{Generate Bitstream}. The output is \texttt{ingest\_top.bit}.
 	\item Open the \textbf{Power} report. Dynamic power should be under 200\,mW for this design.
 \end{enumerate}
@@ -49,7 +50,7 @@ Verify that Vivado's \textbf{Report CDC} shows only the expected crossing: \text
 \begin{enumerate}[leftmargin=2em]
 	\item Program the Nexys A7 from Hardware Manager.
 	\item Connect the STM32 interceptor \UART{} \texttt{TX} to the Pmod JA pin declared in \texttt{ingest\_top.xdc}.
-	\item Power on the cooperative-target pair (Target~A and Target~B) plus the interceptor (Threat). The \texttt{led(0)} \FIFO{}-empty \mbox{LED} should blink as bytes arrive; \texttt{led(1)} (\FIFO{}-full) should stay dark.
+	\item Power on the cooperative-target pair (Target~A and Target~B) plus the interceptor (Threat). Per the \texttt{ingest\_top} LED map established in LH2-F: \texttt{LED(0)} (UART byte strobe) flickers rapidly, \texttt{LED(1)} (\texttt{frame\_valid}) pulses at the per-frame cadence, \texttt{LED(2)} (\FIFO{} empty) is on most of the time, \texttt{LED(3)} (\FIFO{} full) stays dark, \texttt{LED(4)} (\texttt{frame\_reject}) stays dark on a clean stream, and \texttt{LED(5)} (\texttt{feat\_busy}) flickers briefly during each feature update. \texttt{LED(15:8)} shows the selected feature byte (driven by \texttt{SW(7:0)} = row, \texttt{SW(12:8)} = byte index).
 	\item Add an \ILA{} probe on \texttt{frame\_valid} and \texttt{frame\_reject}. Confirm that \texttt{frame\_valid} pulses at roughly the Module~1 ping-pong cadence (DATA $\to$ ACK pairs) and \texttt{frame\_reject} is rare.
 \end{enumerate}
 

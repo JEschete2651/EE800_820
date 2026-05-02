@@ -54,6 +54,7 @@ Validate the AMD Vivado toolchain and the Digilent Nexys A7-100T board by synthe
 
 \labfigure{LH1E_part_selection.png}{0.85\textwidth}{Vivado ``Default Part'' dialog with \texttt{xc7a100tcsg324-1} highlighted.}{fig:lh1e-part}
 
+\newpage
 \subsection{Step 4 --- Add the \VHDL{} top module (switch-to-LED loopback)}
 \begin{enumerate}[leftmargin=2em]
 	\item In the \textit{Sources} panel, click \textbf{+} $\to$ \textit{Add or create design sources} $\to$ \textbf{Create File}.
@@ -85,6 +86,7 @@ end Behavioral;
 
 Save (\texttt{Ctrl+S}). The entity \texttt{loopback\_top} should appear as the top-level design unit in the \textit{Sources} panel with no error markers.
 
+\newpage
 \subsection{Step 5 --- Add and configure the constraint file}
 \begin{enumerate}[leftmargin=2em]
 	\item In the \textit{Sources} panel, click \textbf{+} $\to$ \textit{Add or create constraints} $\to$ \textit{Add Files}.
@@ -112,6 +114,7 @@ Save (\texttt{Ctrl+S}).
 	Leaving additional pins active causes port-mismatch errors during synthesis because the top-level entity does not declare those ports. The eight lines above are the \emph{only} ones that should be uncommented.
 \end{tcolorbox}
 
+\newpage
 \subsection{Step 6 --- Synthesize, implement, generate bitstream}
 \begin{enumerate}[leftmargin=2em]
 	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Wait for completion with zero errors.
@@ -119,8 +122,6 @@ Save (\texttt{Ctrl+S}).
 	\item Flow Navigator $\to$ \textbf{Generate Bitstream}. Output: \texttt{loopback\_top.bit}.
 	\item Open the \textbf{Utilization} report. Expect single-digit \mbox{LUT} usage out of 63{,}400. If you see more than 10 LUTs, you likely have unconstrained ports driving logic.
 \end{enumerate}
-
-\labfigure{LH1E_utilization.png}{0.85\textwidth}{Post-implementation utilization report. Single-digit LUT usage confirms the synthesizer implemented the direct assignment as trivial routing.}{fig:lh1e-util}
 
 \subsection{Step 7 --- Program and verify the switch-to-LED loopback}
 \begin{enumerate}[leftmargin=2em]
@@ -172,6 +173,7 @@ Save (\texttt{Ctrl+S}).
 	The CP2102 USB-\mbox{UART} bridge handles all framing and baud-rate generation. From the \FPGA{}'s perspective the signal is already a single-ended logic line that can be looped back without any internal logic. A proper \mbox{UART} receiver (\texttt{uart\_rx.vhd}) is built in LH2-B; this step only confirms the physical path is wired correctly.
 \end{tcolorbox}
 
+\newpage
 \subsection{Step 9 --- Constrain, synthesize, and program the UART echo design}
 \begin{enumerate}[leftmargin=2em]
 	\item Open the \texttt{.xdc} file. Comment out the eight switch/\mbox{LED} lines from Step~5 and add the following two lines instead:

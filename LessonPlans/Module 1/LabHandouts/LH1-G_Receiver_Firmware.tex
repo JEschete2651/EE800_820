@@ -13,11 +13,11 @@ Implement the third radio's firmware: the interceptor (``Threat'', Beacon~ID \te
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~1-A, 1-B, 1-C, 1-D complete.
 	\item Lab Handout~1-F (cooperative target firmware) at least partially complete --- the two Targets must be running ping-pong as a traffic source for Threat capture validation. Steps 1--6 of LH1-F (DATA/ACK ping-pong without the PAUSE listener) are the minimum required.
-	\item \textbf{Optional} for the Step~7 host-side parser validation: a 3.3\,V USB-to-UART adapter (CP2102, CH340, FT232, etc.). If one is not available, skip Step~7 and validate the forwarding stream end-to-end against the \FPGA{} in Lab Handout~1-H instead --- the same 43-byte frames are consumed by the Nexys~A7, with the seven-segment display acting as a live frame counter.
+	\item No external USB-to-UART adapter is required. Step~7's behavioral validation runs entirely against the Threat's USART2 console (the existing ST-Link \mbox{COM} port). Frame-level validation moves to LH2-A and LH2-B where the \FPGA{}'s onboard USB-UART captures the byte stream directly.
 \end{itemize}
 
 \begin{tcolorbox}[infobox={USART3 is not on the ST-Link USB Port}]
-The Nucleo's single USB-B port is the ST-Link Virtual COM Port, which is wired internally to \texttt{USART2} only (\texttt{PA2}/\texttt{PA3}). \texttt{USART3} (\texttt{PC4}/\texttt{PC5} on this project) lands on the \mbox{Morpho} header pins and is \emph{not} routed to that USB port. The Threat will print its \texttt{printf} debug log (boot banner, per-RX rows, \texttt{PAUSE -> ID=...}) on \texttt{USART2} as before, but the 43-byte binary forwarding frames only appear on the \texttt{PC4} pin --- you must either jumper that pin to a USB-UART adapter (Step~7) or to the Nexys~A7 \mbox{PMOD} (LH1-H) before any host or FPGA can see them.
+The Nucleo's single USB-B port is the ST-Link Virtual COM Port, which is wired internally to \texttt{USART2} only (\texttt{PA2}/\texttt{PA3}). \texttt{USART3} (\texttt{PC4}/\texttt{PC5} on this project) lands on the \mbox{Morpho} header pins and is \emph{not} routed to that USB port. The Threat will print its \texttt{printf} debug log (boot banner, per-RX rows, \texttt{PAUSE -> ID=...}) on \texttt{USART2} as before, but the 43-byte binary forwarding frames only appear on the \texttt{PC4} pin --- you must jumper that pin to the Nexys~A7 \mbox{PMOD} (LH1-H) before any \FPGA{} or host can see them.
 \end{tcolorbox}
 
 \labfigure{LH1G_isr_mainloop_dataflow.png}{0.9\textwidth}{Threat firmware data flow: \texttt{DIO0} $\to$ \texttt{EXTI} $\to$ \ISR{} (FIFO read, \RSSI{}/\SNR{}, timestamp, RSSI-table update) $\to$ ring buffer $\to$ main loop (frame build, \CRC{}, UART DMA out to \FPGA{}). A second main-loop poll of \texttt{B1} drives the PAUSE TX scheduler at $\sim$100\,ms cadence whenever the button is held; PAUSE TX shares the radio with RX in half-duplex.}{fig:lh1g-dataflow}
@@ -218,21 +218,27 @@ The Threat's ISR differs from the cooperative-target ISR (LH1-F Step~3) in one i
 
 Add the following inside \texttt{/* USER CODE BEGIN 4 */}, after the ring buffer code from Step~2:
 
-\begin{lstlisting}[language=C, caption={\texttt{HAL\_GPIO\_EXTI\_Callback} for the Threat. Stack-local struct, no printf, no main-loop policy. Reads RegFei[H/M/L] for the 24-bit signed frequency error and converts to int16 Hz.}]
-/* SX1276 frequency-error registers; 24-bit signed in 0x1D..0x1F.
- * fei_hz = (raw * F_XOSC / 2^24) * (BW/500e3); for BW=125 kHz at
- * F_XOSC=32 MHz the fixed multiplier is ~1.907, so fei_hz_int16 =
- * raw * 2 (clipped) gives a usable two-byte field for downstream.
+\begin{lstlisting}[language=C, caption={\texttt{HAL\_GPIO\_EXTI\_Callback} for the Threat. Stack-local struct, no printf, no main-loop policy. Reads RegFei[Msb/Mid/Lsb] (LoRa-mode addresses \texttt{0x28..0x2A}) for the 20-bit signed frequency error and converts to int16 Hz.}]
+/* SX1276 LoRa-mode frequency-error registers: 20-bit signed in
+ * RegFeiMsb (0x28, low nibble), RegFeiMid (0x29), RegFeiLsb (0x2A).
+ * (Registers 0x1D..0x1F hold FSK/OOK FEI; in LoRa mode they are
+ * RegModemConfig1/2 and must NOT be read for FEI.)
+ *
+ * fei_hz = raw * F_XOSC / 2^24 * (BW / 500 kHz).
+ * For F_XOSC=32 MHz, BW=125 kHz: fei_hz = raw * 32e6 / 2^26
+ *                                       = (raw * 32000000) >> 26.
+ * The result is small enough to fit in int16 except at extreme offsets,
+ * so we clip to the int16 range for the forwarding-frame field.
  */
 static int16_t read_fei_hz(void) {
-    uint8_t h = rfm_read_reg(0x1Du);
-    uint8_t m = rfm_read_reg(0x1Eu);
-    uint8_t l = rfm_read_reg(0x1Fu);
+    uint8_t h = rfm_read_reg(0x28u);
+    uint8_t m = rfm_read_reg(0x29u);
+    uint8_t l = rfm_read_reg(0x2Au);
     int32_t raw = ((int32_t)(h & 0x0Fu) << 16)
                 |  ((int32_t)m            <<  8)
                 |   (int32_t)l;
     if (raw & 0x00080000) raw |= 0xFFF00000;     /* sign-extend 20-bit */
-    int32_t hz = (raw * 32) / 1000;              /* coarse, BW-125 ok  */
+    int32_t hz = (int32_t)(((int64_t)raw * 32000000) >> 26);
     if (hz >  32767) hz =  32767;
     if (hz < -32768) hz = -32768;
     return (int16_t)hz;
@@ -506,154 +512,23 @@ while (ring_pop(&pkt)) {
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={Do not reuse LH1-F's \texttt{crc16\_ccitt} for the frame CRC}]
-The \emph{embedded radio-packet} CRC at bytes 30--31 of the radio packet is CRC-16/CCITT-FALSE, computed by \texttt{crc16\_ccitt} inside \texttt{build\_packet} (LH1-F). The \emph{forwarding frame} CRC at byte 42 of the 43-byte UART frame is CRC-8/ITU, computed by \texttt{crc8\_itu} above. They are different polynomials, different widths, and protect different things. The Module~2 parser checks both independently --- mixing them up will cause silent CRC failures on the FPGA.
+The \emph{embedded radio-packet} CRC at bytes 30--31 of the radio packet is CRC-16/CCITT-FALSE, computed by \texttt{crc16\_ccitt} inside \texttt{build\_packet} (LH1-F). The \emph{forwarding frame} CRC at byte 42 of the 43-byte UART frame is CRC-8/ITU, computed by \texttt{crc8\_itu} above. They are different polynomials, different widths, and protect different things. The Module~2 \texttt{pkt\_parser} checks both independently --- mixing them up will cause silent CRC failures on the FPGA.
 \end{tcolorbox}
 
-\labfigure{LH1G_python_parser_output.png}{0.85\textwidth}{Host-side \texttt{pyserial} parser output: 43-byte frames captured, start delimiter matched, frame \CRC{}-8 validated (and embedded radio-packet \CRC{}-16 independently checked), Beacon~\mbox{ID}/sequence/\RSSI{}/\SNR{}/packet-type extracted. The parser distinguishes DATA, ACK, and PAUSE rows by the low two bits of the \texttt{Modulation Code} byte.}{fig:lh1g-parser}
+\subsection{Step 7 --- Behavioral validation via the Threat's USART2 console}
 
-\subsection{Step 7 --- Validation without the \FPGA{} (optional)}
-
-This step provides an early sanity check that the Threat is producing well-formed 43-byte frames with both CRCs validating cleanly, \emph{before} you bring the \FPGA{} into the loop. It requires a USB-to-UART adapter; if you do not have one, skip directly to Lab Handout~1-H, where the same forwarding stream is validated end-to-end via the Nexys~A7 \mbox{PMOD} and the on-board seven-segment display.
-
-\begin{tcolorbox}[infobox={Wiring for Step 7 (USB-UART Adapter)}]
-\begin{itemize}[leftmargin=1.2em]
-	\item Threat \texttt{USART3 TX} = \texttt{PC4} $\to$ adapter \texttt{RX}
-	\item Threat \texttt{GND} $\to$ adapter \texttt{GND}
-	\item Adapter \texttt{TX} is unused (the Threat does not receive on \texttt{USART3}).
-	\item Logic level: 3.3\,V on both ends. Do \emph{not} use a 5\,V-only TTL adapter without a level shifter.
-	\item Baud: \texttt{115200}, 8N1, no flow control.
-	\item The adapter enumerates as a separate \mbox{COM}/tty device --- point the parser at \emph{that} port, not the Nucleo's ST-Link port.
-\end{itemize}
-\end{tcolorbox}
-
-Save this as \texttt{tools/lh1g\_parser.py} in the project root:
-
-\begin{lstlisting}[language=Python, caption={\texttt{tools/lh1g\_parser.py} --- run with \texttt{python lh1g\_parser.py COM7 115200 LH1G\_capture.csv}.}]
-"""LH1-G forwarding-frame parser.
-
-Reads 43-byte frames from a serial port, validates the frame CRC-8 (byte 42)
-and the embedded radio-packet CRC-16 (packet bytes 30..31), decodes the
-packed Modulation Code byte, and writes one CSV row per valid frame.
-"""
-import csv
-import struct
-import sys
-from pathlib import Path
-
-import serial
-
-
-def crc16_ccitt(data: bytes) -> int:
-    """CRC-16/CCITT-FALSE: poly=0x1021, init=0xFFFF, no reflect."""
-    crc = 0xFFFF
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 \
-                else (crc << 1) & 0xFFFF
-    return crc
-
-
-def crc8_itu(data: bytes) -> int:
-    """CRC-8/ITU: poly=0x07, init=0x00, no reflect."""
-    crc = 0
-    for b in data:
-        crc ^= b
-        for _ in range(8):
-            crc = ((crc << 1) ^ 0x07) & 0xFF if crc & 0x80 \
-                else (crc << 1) & 0xFF
-    return crc
-
-
-PKT_TYPE_NAMES = {0: "DATA", 1: "ACK", 2: "PAUSE", 3: "RESERVED"}
-MOD_KIND_NAMES = {1: "LoRa", 2: "FSK", 3: "OOK"}
-
-
-def parse_frame(buf: bytes) -> dict | None:
-    """Validate one 43-byte frame; return decoded fields or None on error."""
-    if len(buf) != 43 or buf[0] != 0x7E or buf[1] != 0x29:
-        return {"error": "framing"}
-    if crc8_itu(buf[1:42]) != buf[42]:
-        return {"error": "frame_crc8"}
-
-    rx_ts_ms = struct.unpack("<I", buf[2:6])[0]
-    rssi     = struct.unpack("b",  buf[6:7])[0]
-    snr_q025 = struct.unpack("b",  buf[7:8])[0]
-    freq_err = struct.unpack("<h", buf[8:10])[0]
-    radio    = buf[10:42]                      # 32-byte radio packet
-
-    if crc16_ccitt(radio[:30]) != ((radio[30] << 8) | radio[31]):
-        return {"error": "radio_crc16"}
-
-    mod_byte  = radio[6]
-    mod_kind  = (mod_byte >> 2) & 0x3F
-    pkt_type  =  mod_byte       & 0x03
-    sender    = radio[2]
-    seq       = radio[3] | (radio[4] << 8)
-
-    return {
-        "t_ms":     rx_ts_ms,
-        "sender":   f"0x{sender:02X}",
-        "pkt_type": PKT_TYPE_NAMES.get(pkt_type, "?"),
-        "mod_kind": MOD_KIND_NAMES.get(mod_kind, f"?({mod_kind})"),
-        "seq":      seq,
-        "rssi":     rssi,
-        "snr_db":   snr_q025 / 4.0,
-        "freq_err": freq_err,
-    }
-
-
-def main(port: str, baud: int, out_csv: str) -> int:
-    ser = serial.Serial(port, baud, timeout=0.2)
-    fields = ["t_ms", "sender", "pkt_type", "mod_kind",
-              "seq", "rssi", "snr_db", "freq_err"]
-    n_ok = n_bad = 0
-
-    with Path(out_csv).open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        buf = bytearray()
-        try:
-            while True:
-                buf += ser.read(64)
-                while True:
-                    # find next start delimiter
-                    i = buf.find(b"\x7E")
-                    if i < 0:
-                        buf.clear(); break
-                    if i > 0:
-                        del buf[:i]
-                    if len(buf) < 43:
-                        break
-                    frame = bytes(buf[:43])
-                    del buf[:43]
-                    decoded = parse_frame(frame)
-                    if decoded and "error" not in decoded:
-                        writer.writerow(decoded); f.flush()
-                        n_ok += 1
-                        print(decoded)
-                    else:
-                        n_bad += 1
-                        print(f"DROP {decoded}", file=sys.stderr)
-        except KeyboardInterrupt:
-            pass
-    print(f"Parsed {n_ok} ok, {n_bad} dropped")
-    return 0
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("usage: lh1g_parser.py <port> <baud> <out_csv>")
-        sys.exit(2)
-    sys.exit(main(sys.argv[1], int(sys.argv[2]), sys.argv[3]))
-\end{lstlisting}
+You will run the full system end-to-end and watch the Threat's USART2 console (the ST-Link \mbox{COM} port that already exists on every Nucleo) for evidence that the radio chain, the RSSI table, and the PAUSE TX scheduler are all behaving. This step needs no extra hardware --- the \texttt{USART3 TX} byte stream is consumed by the \FPGA{} starting in LH1-H and captured to a \texttt{.bin} file in LH2-A, so there is no need for a separate USB-to-UART adapter here.
 
 \begin{enumerate}[leftmargin=2em]
-	\item With the parser running, power up Target~A and Target~B from LH1-F. The CSV (and the live console) should fill with interleaved \texttt{0x01}/\texttt{DATA} and \texttt{0x02}/\texttt{ACK} rows at $\sim$1\,Hz, every row CRC-clean. On the Threat's USART2 console, the 1\,Hz snapshot from Step~5b should show both \texttt{\#~rssi[ID=0x01]} and \texttt{\#~rssi[ID=0x02]} lines with sub-second \texttt{age=} fields, and a \texttt{\#~target:} line naming whichever Target is currently louder.
-	\item Hold the Threat user button (B1) for 5\,s. Verify on the parser CSV: \emph{no} PAUSE rows appear in the captured stream (the Threat's own TX is half-duplex shadowed and is not received off-air by the Threat's own SX1276). Verify on the Threat's USART2 log: \texttt{PAUSE -> ID=...} lines appear at $\sim$10\,Hz cadence with the chosen ID matching the \texttt{\#~target:} line from the most recent snapshot.
-	\item Re-acquisition test: with both Targets running, physically separate Target~A from the Threat (or attenuate it with your hand) until the \texttt{\#~target:} line in the snapshot flips to \texttt{0x02}. Confirm that, with the button held, the next \texttt{PAUSE -> ID=...} entries address \texttt{0x02} and that Target~B's USART2 prints \texttt{"I'm Jammed"} (and Target~A's does not). Bring Target~A back close and confirm the \texttt{\#~target:} line flips back to \texttt{0x01} within \texttt{RSSI\_STALE\_MS} of the last \texttt{0x02} reception.
-	\item Save the CSV as \texttt{LH1G\_capture.csv} for the deliverable, and capture a $\sim$30\,s slice of the Threat USART2 log spanning the Target~A removal as \texttt{LH1G\_target\_handoff.log}.
+	\item Power up Target~A and Target~B from LH1-F. On the Threat's USART2 console, the 1\,Hz snapshot from Step~5b should show both \texttt{\#~rssi[ID=0x01]} and \texttt{\#~rssi[ID=0x02]} lines with sub-second \texttt{age=} fields, plus a \texttt{\#~target:} line naming whichever Target is currently louder.
+	\item Hold the Threat user button (B1) for 5\,s. The Threat's USART2 log should print \texttt{PAUSE -> ID=...} lines at $\sim$10\,Hz cadence with the chosen ID matching the most recent \texttt{\#~target:} line. The targeted Target's USART2 should also print \texttt{"I'm Jammed"} within 100\,ms of the press (co-validated with LH1-F).
+	\item Re-acquisition test: with both Targets running, physically separate Target~A from the Threat (or attenuate it with your hand) until the \texttt{\#~target:} line flips to \texttt{0x02}. With the button held, the next \texttt{PAUSE -> ID=...} entries should address \texttt{0x02} and Target~B's USART2 should print \texttt{"I'm Jammed"} (and Target~A's should not). Bring Target~A back close and confirm the \texttt{\#~target:} line flips back to \texttt{0x01} within \texttt{RSSI\_STALE\_MS} of the last \texttt{0x02} reception.
+	\item Capture a $\sim$30\,s slice of the Threat USART2 log spanning the Target~A removal as \texttt{LH1G\_target\_handoff.log}.
 \end{enumerate}
+
+\begin{tcolorbox}[infobox={Where frame-level \CRC{} validation moved}]
+Earlier revisions of this handout shipped a host-side Python parser that opened a USB-to-UART adapter on the Threat's \texttt{USART3 TX} pin, decoded each 43-byte frame, and verified both CRCs. The parser, its tool folder, and the adapter wiring are all retired: the same byte stream is captured in LH2-A using the Nexys A7's onboard USB-UART, and the Module~2 testbenches (LH2-B regression, LH2-D parser, LH2-E \CRC{}) verify framing and \CRC{}s in hardware against those captures. There is nothing left for you to do on the host side in this handout beyond watching the USART2 console.
+\end{tcolorbox}
 
 \newpage
 \section{Verification Checklist}
@@ -661,8 +536,6 @@ if __name__ == "__main__":
 	\item[$\square$] \texttt{RxDone} interrupt fires on every received packet (\ISR{} entry count matches expected receptions).
 	\item[$\square$] Ring buffer overflows only if you deliberately stall the main loop.
 	\item[$\square$] 43-byte frames appear on \texttt{USART3 TX} for every received DATA, ACK, and PAUSE.
-	\item[$\square$] Host Python parser validates start delimiter, byte[1]=\texttt{0x29}, frame \CRC{}-8, and embedded radio-packet \CRC{}-16 on 100\% of frames.
-	\item[$\square$] Ping-pong run: parser sees interleaved \mbox{ID}\,=\,\texttt{0x01} (DATA, type=0) and \mbox{ID}\,=\,\texttt{0x02} (ACK, type=1) frames with matching sequence numbers.
 	\item[$\square$] RSSI table populated with both Targets' entries within 1\,s of starting the ping-pong source.
 	\item[$\square$] 1\,Hz snapshot (Step~5b) prints \texttt{\#~stats}, one \texttt{\#~rssi[ID=0xNN]} line per ever-seen Beacon~\mbox{ID} with current \RSSI{} and \texttt{age=}, and a \texttt{\#~target:} line; entries past \texttt{RSSI\_STALE\_MS} are flagged \texttt{[STALE]}.
 	\item[$\square$] Re-acquisition test: \texttt{\#~target:} line flips from \texttt{0x01} to \texttt{0x02} (or back) within \texttt{RSSI\_STALE\_MS} when one Target is removed, and the very next button-held PAUSE addresses the new target.
@@ -683,8 +556,6 @@ if __name__ == "__main__":
 \begin{tcolorbox}[deliverable={Lab Handout 1-G Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item Full Threat firmware source: ring buffer, ISR, RSSI table, PAUSE TX scheduler, and frame builder.
-		\item Python parser script (one file) that validates frames from \texttt{USART3} and decodes the packed \texttt{Modulation Code} byte into separate \texttt{mod\_kind} and \texttt{pkt\_type} columns.
-		\item 5-minute ping-pong capture (\texttt{LH1G\_capture.csv}) showing zero dropped packets and zero \CRC{} failures in the parser.
 		\item Threat USART2 log of a 10-second button-hold session showing $\sim$100 \texttt{PAUSE -> ID=...} entries with the chosen ID matching the configured higher-\RSSI{} Target.
 		\item Target-handoff log (\texttt{LH1G\_target\_handoff.log}) captured during Step~7's re-acquisition test, showing the \texttt{\#~target:} line transitioning between Beacon~IDs as one Target is moved out of range and back, plus the corresponding \texttt{PAUSE -> ID=...} addressing change.
 		\item One-paragraph rationale for the ring buffer size and the RSSI staleness threshold you chose (default 5\,s; tune per Step~5b's tcolorbox), including a worst-case arrival-rate analysis.

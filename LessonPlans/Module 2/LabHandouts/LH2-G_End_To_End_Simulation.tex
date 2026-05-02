@@ -7,7 +7,7 @@
 \labheader{2-G}{End-to-End Pipeline Simulation with Recorded Interceptor Data}
 
 \section{Objective}
-Stand up a single testbench that drives the complete Module~2 pipeline --- \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{pkt\_parser} $\to$ \texttt{crc} engines $\to$ \texttt{feature\_extract} $\to$ \texttt{feature\_bram} --- using a recorded Module~1 interceptor capture (mixed DATA, ACK, and PAUSE traffic), and compare every exported feature vector against a Python reference.
+Stand up a single testbench that drives the complete Module~2 pipeline --- \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{pkt\_parser} (with \CRC{} engines) $\to$ \texttt{feature\_extract} $\to$ \texttt{feature\_bram} --- using a recorded Module~1 interceptor capture, and compare every exported feature vector against a Python reference.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -18,55 +18,326 @@ Stand up a single testbench that drives the complete Module~2 pipeline --- \text
 \section{Procedure}
 
 \subsection{Step 1 --- Scenario selection}
-Pick three test captures from Module~1:
+Pick three test captures from Module~1 and place them in \texttt{data/}:
 \begin{enumerate}[leftmargin=2em]
-	\item \textbf{Clean single-station}: only Target~A initiating DATA, no responder, no PAUSE. Validates the happy path.
-	\item \textbf{Cooperative-target mix with PAUSE bursts}: Target~A DATA + Target~B ACK ping-pong, with one or more button-hold windows producing PAUSE bursts addressed to whichever Target has the higher RSSI. Validates Beacon-ID dispatch, \BRAM{} write arbitration, and that the \texttt{pkt\_type} field correctly distinguishes DATA / ACK / PAUSE rows in the dumped \BRAM{}.
-	\item \textbf{Corrupted stream}: intentionally introduce bit flips in a small fraction of frames (pre-process the \texttt{.bin} with a short Python script). Validates the reject path.
+	\item \texttt{capture\_clean.bin} --- only Target~A initiating DATA, no responder, no PAUSE.
+	\item \texttt{capture\_mixed.bin} --- Target~A DATA + Target~B ACK ping-pong with at least one button-hold PAUSE window.
+	\item \texttt{capture\_corrupt.bin} --- generated from \texttt{capture\_mixed.bin} by the Python helper in Step~4 below; introduces bit flips in roughly 5\% of frames.
 \end{enumerate}
 
-\subsection{Step 2 --- Testbench harness}
-Create \texttt{sim/tb\_ingest\_top.vhd}:
-\begin{enumerate}[leftmargin=2em]
-	\item Generate a 100\,MHz \texttt{sysclk} and release \texttt{rstn} after 100\,ns.
-	\item Open a \texttt{.bin} file with \texttt{std.textio}. Transmit every byte over \texttt{uart\_rxd} at exactly 115200\,baud using a bit-banging process.
-	\item Snoop the parser signals \texttt{frame\_valid}/\texttt{frame\_reject}. Log each event with the simulation timestamp.
-	\item After end-of-stream, walk the \texttt{feature\_bram} read port over all 256 rows and dump the contents to a text file.
-\end{enumerate}
+\subsection{Step 2 --- Top-level testbench}
 
-\subsection{Step 3 --- Python reference}
-Write \texttt{sim/ref\_pipeline.py} that ingests the same \texttt{.bin}, applies the identical frame parser and feature rules, and produces an expected-feature dump in the same text format.
+Add a simulation source \texttt{tb\_ingest\_top}. Replace its contents with the listing below.
 
-\subsection{Step 4 --- Diff and pass criteria}
-Diff the simulation dump against the Python reference. Pass criteria:
+\begin{tcolorbox}[infobox={Enable VHDL-2008 in Vivado before adding this file}]
+The testbench uses a VHDL-2008 \emph{external name} alias to read the internal \texttt{host\_rd\_data\_int} signal inside \texttt{ingest\_top}. Vivado defaults each new file to VHDL-93, which rejects external names. Right-click \texttt{tb\_ingest\_top.vhd} in the Sources panel $\to$ \textbf{Source File Properties} $\to$ \textbf{File Type} and set it to \textbf{VHDL 2008} \emph{before} the first compile. The DUT instance label in the testbench must remain \texttt{dut} (line \texttt{dut : entity work.ingest\_top}); the external name path \texttt{.tb\_ingest\_top.dut.host\_rd\_data\_int} resolves against that label.
+\end{tcolorbox}
+
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_ingest\_top.vhd} --- file-driven end-to-end harness. Streams every byte of \texttt{CAPTURE\_FILE} at 115200~baud through \texttt{ingest\_top}, then walks the \BRAM{} read port over all 256 rows (using \texttt{SW(7:0)} as the row address) and dumps the full 256-bit row contents (read via VHDL-2008 external name) to \texttt{DUMP\_FILE}. Requires VHDL-2008 (set in Vivado's Project Settings $\to$ General).}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use STD.TEXTIO.ALL;
+
+entity tb_ingest_top is
+end tb_ingest_top;
+
+architecture sim of tb_ingest_top is
+    constant CLK_PERIOD   : time   := 10 ns;
+    constant BIT_PERIOD   : time   := 8680 ns;
+    constant CAPTURE_FILE : string := "../../../../data/capture_mixed.bin";
+    constant DUMP_FILE    : string := "../../../../data/dump_mixed.txt";
+    constant LOG_FILE     : string := "../../../../data/events_mixed.txt";
+
+    signal clk          : std_logic := '0';
+    signal cpu_resetn   : std_logic := '0';
+    signal uart_rx_pin  : std_logic := '1';
+    signal uart_rxd_out : std_logic;
+    signal sw           : std_logic_vector(15 downto 0) := (others => '0');
+
+    signal ca, cb, cc, cd, ce, cf, cg : std_logic;
+    signal dp                          : std_logic;
+    signal an                          : std_logic_vector(7 downto 0);
+    signal led                         : std_logic_vector(15 downto 0);
+
+    type charfile is file of character;
+
+    procedure send_byte (signal s : out std_logic;
+                         b : in std_logic_vector(7 downto 0)) is
+    begin
+        s <= '0'; wait for BIT_PERIOD;
+        for i in 0 to 7 loop
+            s <= b(i); wait for BIT_PERIOD;
+        end loop;
+        s <= '1'; wait for BIT_PERIOD;
+    end procedure;
+
+    -- VHDL-2008 external name reaches the internal 256-bit BRAM readback
+    -- signal inside ingest_top so the testbench can dump the full feature row.
+    alias host_rd_data_int is
+        << signal .tb_ingest_top.dut.host_rd_data_int :
+           std_logic_vector(255 downto 0) >>;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    dut : entity work.ingest_top
+        port map (CLK100MHZ => clk, CPU_RESETN => cpu_resetn,
+                  uart_rx_pin => uart_rx_pin,
+                  UART_RXD_OUT => uart_rxd_out,
+                  SW => sw,
+                  CA => ca, CB => cb, CC => cc, CD => cd,
+                  CE => ce, CF => cf, CG => cg,
+                  DP => dp, AN => an, LED => led);
+
+    -- Event log: timestamped frame_valid / frame_reject pulses.
+    -- led(1) = frame_valid, led(4) = frame_reject (per LH2-F ingest_top).
+    process
+        file     fh        : text open write_mode is LOG_FILE;
+        variable l         : line;
+        variable t_ns      : integer;
+        variable prev_fv   : std_logic := '0';
+        variable prev_fr   : std_logic := '0';
+    begin
+        loop
+            wait until rising_edge(clk);
+            if led(1) = '1' and prev_fv = '0' then
+                t_ns := now / 1 ns;
+                write(l, string'("VALID @ "));
+                write(l, t_ns);
+                writeline(fh, l);
+            end if;
+            if led(4) = '1' and prev_fr = '0' then
+                t_ns := now / 1 ns;
+                write(l, string'("REJECT @ "));
+                write(l, t_ns);
+                writeline(fh, l);
+            end if;
+            prev_fv := led(1);
+            prev_fr := led(4);
+        end loop;
+    end process;
+
+    process
+        file     fh   : charfile;
+        file     fh_d : text open write_mode is DUMP_FILE;
+        variable ch   : character;
+        variable b    : std_logic_vector(7 downto 0);
+        variable l    : line;
+        variable open_status : file_open_status;
+    begin
+        wait for 200 ns;
+        cpu_resetn <= '1';
+        wait for 1 us;
+
+        file_open(open_status, fh, CAPTURE_FILE, read_mode);
+        assert open_status = open_ok
+            report "Could not open " & CAPTURE_FILE severity failure;
+
+        while not endfile(fh) loop
+            read(fh, ch);
+            b := std_logic_vector(to_unsigned(character'pos(ch), 8));
+            send_byte(uart_rx_pin, b);
+        end loop;
+        file_close(fh);
+
+        -- Drain time: allow last frame to traverse parser + extractor + BRAM.
+        wait for 500 us;
+
+        -- Walk every row of the BRAM and dump as hex strings. SW(7:0) drives
+        -- the row address inside ingest_top; SW(12:8) is unused for the dump
+        -- (the testbench reads the full 256-bit row via the external name).
+        for row in 0 to 255 loop
+            sw(7 downto 0) <= std_logic_vector(to_unsigned(row, 8));
+            wait until rising_edge(clk);
+            wait until rising_edge(clk);             -- 1-cycle BRAM read latency
+            write(l, string'("ROW "));
+            hwrite(l, std_logic_vector(to_unsigned(row, 8)));
+            write(l, string'(" "));
+            hwrite(l, host_rd_data_int);
+            writeline(fh_d, l);
+        end loop;
+
+        report "tb_ingest_top: dump complete" severity note;
+        std.env.finish;
+    end process;
+end sim;
+\end{lstlisting}
+
+\subsection{Step 3 --- Python reference and corruption helper}
+
+Create \texttt{ref\_pipeline.py} under \texttt{Code/Tools/RefPipeline/} (alongside \texttt{RawCapture/} from LH2-A). The script: (1) pre-processes \texttt{capture\_mixed.bin} into \texttt{capture\_corrupt.bin} with random bit flips; (2) reads any of the three captures, parses frames, accumulates per-Beacon-ID feature vectors using the same rules as \texttt{feature\_extract.vhd}, and writes them in the same hex-string format as the testbench dump. Drop a one-line \texttt{requirements.txt} alongside the script for layout consistency with the other tools (the script itself uses only the Python standard library).
+
+\begin{lstlisting}[language=Python, caption={\texttt{Code/Tools/RefPipeline/ref\_pipeline.py} --- byte-for-byte reference for the Module~2 hardware pipeline.}]
+"""Module 2 reference pipeline: produces the same per-row hex dump that
+tb_ingest_top.vhd writes to data/dump_*.txt. Diff the two files for a
+byte-for-byte regression of the full pipeline."""
+import argparse, struct, random, pathlib
+
+CRC8_POLY  = 0x07
+CRC16_POLY = 0x1021
+
+def crc8(data: bytes) -> int:
+    c = 0
+    for b in data:
+        c ^= b
+        for _ in range(8):
+            c = ((c << 1) ^ CRC8_POLY) & 0xFF if c & 0x80 else (c << 1) & 0xFF
+    return c
+
+def crc16(data: bytes) -> int:
+    c = 0xFFFF
+    for b in data:
+        c ^= b << 8
+        for _ in range(8):
+            c = ((c << 1) ^ CRC16_POLY) & 0xFFFF if c & 0x8000 else (c << 1) & 0xFFFF
+    return c
+
+def corrupt(src: pathlib.Path, dst: pathlib.Path, frac: float = 0.05, seed: int = 1):
+    """Flip one random bit in roughly `frac` of frames."""
+    rng  = random.Random(seed)
+    data = bytearray(src.read_bytes())
+    i = 0
+    while i + 43 <= len(data):
+        if data[i] == 0x7E and data[i + 1] == 0x29:
+            if rng.random() < frac:
+                off = rng.randrange(2, 42)         # don't touch delimiter or length
+                bit = 1 << rng.randrange(8)
+                data[i + off] ^= bit
+            i += 43
+        else:
+            i += 1
+    dst.write_bytes(data)
+
+def parse(stream: bytes):
+    """Yield 43-byte frames whose CRCs both check out."""
+    i = 0
+    while i + 43 <= len(stream):
+        if stream[i] != 0x7E or stream[i + 1] != 0x29:
+            i += 1
+            continue
+        frame = stream[i:i + 43]
+        if crc8(frame[1:42]) != frame[42]:
+            i += 43
+            continue
+        embedded = (frame[40] << 8) | frame[41]
+        if crc16(frame[10:40]) != embedded:
+            i += 43
+            continue
+        yield frame
+        i += 43
+
+def s8(b: int)  -> int: return b - 256 if b >= 128 else b
+def s16(v: int) -> int: return v - 0x10000 if v >= 0x8000 else v
+
+def process(stream: bytes):
+    rows = {b: bytearray(32) for b in range(256)}
+    state = {}                                     # beacon -> (ts_last, rssi_last, count)
+    for f in parse(stream):
+        ts   = struct.unpack("<I", f[2:6])[0]
+        rssi = s8(f[6])
+        snr  = s8(f[7])
+        radio    = f[10:42]
+        beacon   = radio[2]
+        mod_code = radio[6]
+        sf       = radio[7]
+        pkt_type = mod_code & 0x03
+        mod_kind = mod_code >> 2
+        old_ts, old_rssi, old_count = state.get(beacon, (0, 0, 0))
+        new_count = old_count + 1
+        inter_arr = (ts - old_ts) & 0xFFFFFFFF
+        rssi_delt = (rssi - old_rssi) & 0xFFFFFFFF
+        priority  = ((rssi << 2) + snr + new_count) & 0xFFFFFFFF
+        tgt = radio[13] if pkt_type == 2 else 0    # LH1-G buf[13]
+        dur = radio[14] if pkt_type == 2 else 0    # LH1-G buf[14]
+        v = bytearray(32)
+        v[0]   = beacon
+        v[1]   = mod_kind
+        v[2]   = sf
+        v[3]   = pkt_type
+        struct.pack_into("<h", v, 4,  rssi)
+        struct.pack_into("<h", v, 6,  snr)
+        struct.pack_into("<I", v, 8,  new_count)
+        struct.pack_into("<I", v, 12, ts)
+        struct.pack_into("<I", v, 16, inter_arr)
+        struct.pack_into("<I", v, 20, rssi_delt)
+        struct.pack_into("<I", v, 24, priority)
+        v[28] = tgt
+        v[29] = dur
+        rows[beacon] = v
+        state[beacon] = (ts, rssi, new_count)
+    return rows
+
+def dump(rows, path: pathlib.Path):
+    with path.open("w") as f:
+        for r in range(256):
+            # Hardware dump prints byte 31 first (MSB of the packed 256-bit vector
+            # is byte 31). Match that ordering exactly.
+            hex_be = rows[r][::-1].hex().upper()
+            f.write(f"ROW {r:02X} {hex_be}\n")
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--capture", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--corrupt-from")
+    ap.add_argument("--seed", type=int, default=1)
+    args = ap.parse_args()
+    cap = pathlib.Path(args.capture)
+    if args.corrupt_from:
+        corrupt(pathlib.Path(args.corrupt_from), cap, seed=args.seed)
+    rows = process(cap.read_bytes())
+    dump(rows, pathlib.Path(args.out))
+    print(f"wrote {args.out}")
+\end{lstlisting}
+
+\subsection{Step 4 --- Generate captures and references}
+
+Run the helper from a PowerShell terminal at the repo root. The corrupt-from invocation produces \texttt{capture\_corrupt.bin} \emph{and} its reference dump in one shot:
+
+\begin{lstlisting}[caption={Shell commands (PowerShell-friendly single lines) to produce the corrupted capture and all three reference dumps.}]
+python "Code/Tools/RefPipeline/ref_pipeline.py" --corrupt-from "Code/ingest_top/data/capture_mixed.bin" --capture "Code/ingest_top/data/capture_corrupt.bin" --out "Code/ingest_top/data/ref_corrupt.txt"
+python "Code/Tools/RefPipeline/ref_pipeline.py" --capture "Code/ingest_top/data/capture_clean.bin" --out "Code/ingest_top/data/ref_clean.txt"
+python "Code/Tools/RefPipeline/ref_pipeline.py" --capture "Code/ingest_top/data/capture_mixed.bin" --out "Code/ingest_top/data/ref_mixed.txt"
+\end{lstlisting}
+
+\subsection{Step 5 --- Run the three simulations and diff}
+
+For each scenario, edit the \texttt{CAPTURE\_FILE} and \texttt{DUMP\_FILE} constants at the top of \texttt{tb\_ingest\_top.vhd}, set \texttt{tb\_ingest\_top} as the simulation top (right-click in Sources $\to$ Simulation Sources $\to$ \textbf{Set as Top}), and launch a behavioral simulation. The default \texttt{1us} runtime is far short of the $\sim$5.5 simulated seconds a 1500-frame capture requires (each byte takes 87\,$\mu$s at 115200 baud). Either bump \texttt{xsim.simulate.runtime} to \texttt{6sec} in \textit{Project Settings $\to$ Simulation} before launching, or after the launch finishes type \texttt{run 6 sec} (once) in the Tcl console. Wall-clock cost is roughly 4--6 minutes per scenario on a typical laptop. Then diff the dump against the reference:
+
+\begin{lstlisting}[caption={Compare each simulation dump against its Python reference. PowerShell users: substitute \texttt{Compare-Object} or use Git Bash / WSL for \texttt{diff}.}]
+diff Code/ingest_top/data/dump_clean.txt   Code/ingest_top/data/ref_clean.txt
+diff Code/ingest_top/data/dump_mixed.txt   Code/ingest_top/data/ref_mixed.txt
+diff Code/ingest_top/data/dump_corrupt.txt Code/ingest_top/data/ref_corrupt.txt
+\end{lstlisting}
+
+All three diffs must be empty.
+
+\subsection{Step 6 --- Pass criteria}
 \begin{itemize}[leftmargin=2em]
-	\item \textbf{Clean single-station}: byte-for-byte match on all non-reserved fields of row \texttt{0x01}.
-	\item \textbf{Cooperative-target mix with PAUSE bursts}: byte-for-byte match on all occupied rows. Specifically: row \texttt{0x01} has \texttt{pkt\_type} = \texttt{0x00} (DATA), row \texttt{0x02} has \texttt{pkt\_type} = \texttt{0x01} (ACK), and row \texttt{0xFF} has \texttt{pkt\_type} = \texttt{0x02} (PAUSE) with \texttt{target\_id\_if\_pause} (offset~28) matching the higher-RSSI Target's ID and \texttt{pause\_duration\_units} (offset~29) = \texttt{0x05}.
-	\item \textbf{Corrupted stream}: the number of \texttt{frame\_reject} events equals the number of frames with injected bit flips, and no corrupted frame produced a feature update.
+	\item \textbf{Clean single-station}: \texttt{diff} produces no output. Row \texttt{0x01} has \texttt{pkt\_type = 0x00}, frame count $>$ 0; all other rows are zero.
+	\item \textbf{Mixed with PAUSE}: \texttt{diff} produces no output. Rows \texttt{0x01}, \texttt{0x02}, \texttt{0xFF} occupied; \texttt{pkt\_type} = \texttt{0x00}, \texttt{0x01}, \texttt{0x02} respectively.
+	\item \textbf{Corrupted}: \texttt{diff} produces no output. The number of \texttt{REJECT} entries in \texttt{events\_mixed.txt} equals the number of bit-flipped frames produced by the helper script (the seeded RNG makes this exact and reproducible).
 \end{itemize}
 
 \labfigure{LH2G_full_pipeline.png}{0.9\textwidth}{Full Module~2 pipeline under \texttt{tb\_ingest\_top}, showing the file-driven stimulus source, \texttt{frame\_valid}/\texttt{frame\_reject} probes, and the \BRAM{} dump path.}{fig:lh2g-pipeline}
 
-\subsection{Step 5 --- Runtime and waveform capture}
-A 1000-frame capture at 115200\,baud is roughly 4\,s of wall-clock time in simulation on a modern host. Record the simulation runtime and store the waveform for the first 10 frames and for any rejected frame.
-
 \begin{tcolorbox}[warning={Simulation runtime trap}]
-	Full-waveform logging across a 4\,s simulation is slow and disk-hungry. Use Vivado's \texttt{log\_wave -r /tb\_ingest\_top/uut/*} only for targeted windows, or drop to a headless \texttt{xsim} run with waveform logging disabled for the main regression.
+	A 1000-frame capture at 115200~baud is roughly 4\,s of simulated wall-clock time. Full-waveform logging across that span is slow and disk-hungry. Disable wave logging for the regression run and re-enable it only for the first 10 frames or for a specific \texttt{REJECT} event when investigating a failure.
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Clean-capture test: pipeline dump matches Python reference with zero diffs.
-	\item[$\square$] Cooperative-target-with-PAUSE test: rows \texttt{0x01}, \texttt{0x02}, and \texttt{0xFF} match; unoccupied rows remain all-zero; \texttt{pkt\_type} field at offset~3 is correct for each row.
-	\item[$\square$] Corrupted-stream test: reject count matches injected-bit-flip count.
-	\item[$\square$] Waveform captures saved for the first 10 frames and for one rejected frame.
+	\item[$\square$] All three captures exist in \texttt{data/}; \texttt{capture\_corrupt.bin} produced by the seeded Python helper.
+	\item[$\square$] All three reference dumps exist in \texttt{data/} (\texttt{ref\_clean.txt}, \texttt{ref\_mixed.txt}, \texttt{ref\_corrupt.txt}).
+	\item[$\square$] All three simulation dumps match their reference (zero \texttt{diff} output).
+	\item[$\square$] \texttt{REJECT} count in \texttt{events\_mixed.txt} for the corrupt run equals the number of bit-flipped frames from the helper.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 2-G Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{tb\_ingest\_top.vhd} and \texttt{ref\_pipeline.py}.
-		\item Diff result files for all three scenarios.
-		\item Waveform screenshots of a valid frame sequence and a rejected frame.
+		\item \texttt{tb\_ingest\_top.vhd} (in \texttt{ingest\_top.srcs/sim\_1/new/}) and \texttt{Code/Tools/RefPipeline/ref\_pipeline.py}.
+		\item All three diff results (each empty file is acceptable; redirect \texttt{diff}'s exit code to a log).
+		\item Waveform screenshot of one valid frame and one rejected frame from the corrupt run.
 	\end{enumerate}
 \end{tcolorbox}
 

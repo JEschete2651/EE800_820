@@ -7,33 +7,41 @@
 \labheader{1-H}{\FPGA{} \UART{} Ingestion and End-to-End Data Flow}
 
 \section{Objective}
-Implement a minimal \UART{} ingestion path on the Nexys A7-100T that receives the 43-byte forwarding frames from the STM32 interceptor (LH1-G), detects the start delimiter, extracts the Beacon~\mbox{ID}, and displays it on the seven-segment display. This closes the Module~1 end-to-end data path: \textbf{cooperative target $\to$ \RF{} link $\to$ interceptor (Threat) $\to$ \FPGA{}}.
+Wire the Nexys A7-100T to the STM32 interceptor (LH1-G), configure pin constraints, write the five \VHDL{} source files for a minimal end-to-end ingestion path, synthesize and program, and validate the complete Module~1 data flow: \textbf{cooperative target $\to$ \RF{} link $\to$ interceptor (Threat) $\to$ \FPGA{}}.
+
+\begin{tcolorbox}[infobox={Scope of the \VHDL{} you write here}]
+The \VHDL{} listings in this handout are deliberately minimal --- just enough to light up the seven-segment display from a live frame stream. They are \emph{bring-up} versions: no \CRC{} checking, no reject path, no feature extraction. Module~2 (LH2-B through LH2-H) replaces every block in this handout with a fully specified production version. Most blocks (\texttt{uart\_rx}, \texttt{byte\_fifo}, \texttt{seg7\_driver}) keep the same entity and are edited in place; \texttt{frame\_detector} is genuinely deleted and replaced by a different entity (\texttt{pkt\_parser}) in LH2-D. Type the listings in verbatim --- do not skip steps trying to ``get ahead'' of the curriculum.
+\end{tcolorbox}
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~1-E (Vivado toolchain), 1-F (cooperative target firmware), and 1-G (interceptor / Threat firmware) complete.
-	\item The interceptor node from LH1-G must be producing valid frames on \texttt{USART3 TX} (\texttt{PC4}). If you skipped LH1-G Step~7 because no USB-UART adapter was available, this handout is the validation step --- the FPGA seven-segment display will count frames in lieu of the host-side parser.
+	\item The interceptor node from LH1-G must be producing valid frames on \texttt{USART3 TX} (\texttt{PC4}), with LH1-G Step~7's behavioral validation complete (USART2 console shows \texttt{\#~rssi[ID=...]} and \texttt{\#~target:} snapshots, plus \texttt{PAUSE -> ID=...} bursts on a button hold).
 	\item LH1-E loopback projects \emph{do not} need to be open; this handout creates a separate Vivado project (\texttt{ingest\_top}) that lives alongside them.
 \end{itemize}
 
+\newpage
 \section{Architecture}
 
 \begin{table}[h!]
 	\centering
+	\small
 	\begin{tabular}{l l}
 		\toprule
 		\textbf{Block} & \textbf{Function} \\
 		\midrule
 		\texttt{uart\_rx} & 115200\,8N1 \UART{} receiver (16$\times$ oversampled) \\
-		\texttt{byte\_fifo} & 16-deep $\times$ 8-bit synchronous \FIFO{} between \texttt{uart\_rx} and frame detector \\
-		\texttt{frame\_detector} & Synchronize on \texttt{0x7E} start, capture 43 bytes, expose Beacon~\mbox{ID} \\
+		\texttt{byte\_fifo} & 16-deep $\times$ 8-bit synchro. \FIFO{} between \texttt{uart\_rx} and frame detector \\
+		\texttt{frame\_detector} & Synchronize on \texttt{0x7E} start, count 43 bytes, expose Beacon~\mbox{ID} \\
 		\texttt{seg7\_driver} & Drive the four right-most digits with the Beacon~\mbox{ID} (hex) and a 16-bit frame counter \\
 		\texttt{ingest\_top} & Top-level wiring; instantiates all four blocks \\
 		\bottomrule
 	\end{tabular}
 \end{table}
 
-\labfigure{LH1H_block_diagram.png}{0.9\textwidth}{\FPGA{} ingestion block diagram: \texttt{uart\_rx} $\to$ \texttt{byte\_fifo} $\to$ \texttt{frame\_detector} $\to$ \texttt{seg7\_driver}. Key signals (\texttt{rx\_strobe}, \texttt{beacon\_id}, \texttt{new\_frame}) are labeled on the data path.}{fig:lh1h-blocks}
+\begin{tcolorbox}[infobox={What Module~2 replaces}]
+\texttt{uart\_rx} is edited in place in LH2-B (generics added, port list unchanged); \texttt{byte\_fifo} is edited in place in LH2-C (depth widened from 16 to 64); \texttt{frame\_detector} is \emph{deleted} and replaced by a different entity, \texttt{pkt\_parser}, in LH2-D; \texttt{seg7\_driver} stays unchanged through LH2-D (only \texttt{ingest\_top}'s wiring around it changes) and is finally retired in LH2-F when the seven-segment is replaced by feature-vector readout. \texttt{ingest\_top} is edited in place in LH2-D, LH2-E, and LH2-F to track the changing block lineup. Knowing in advance which files are stable across modules and which are short-lived is part of why the listings below are kept minimal.
+\end{tcolorbox}
 
 \newpage
 \section{Wiring}
@@ -57,6 +65,7 @@ Connect the Threat's \texttt{USART3 TX} pin to one of the Nexys A7 \mbox{PMOD} i
 	The STM32 drives 3.3\,V logic and the Nexys A7 PMOD pins are 3.3\,V native. No level shifter is required. \emph{Use PMOD JA, not JC} --- some Nexys A7 board revisions wire JC (the high-speed PMOD next to the FMC connector) to a different I/O bank, and the LVDS-style pin pairs there have additional series resistors that can corrupt single-ended UART. JA, JB, and JD are all safe.
 \end{tcolorbox}
 
+\newpage
 \section{Procedure}
 
 \subsection{Step 1 --- Create the Vivado project}
@@ -92,46 +101,43 @@ Connect the Threat's \texttt{USART3 TX} pin to one of the Nexys A7 \mbox{PMOD} i
 \end{enumerate}
 
 \newpage
-\subsection{Step 2 --- Add the four \VHDL{} source files}
+\subsection{Step 2 --- Create the five \VHDL{} source files}
 
-You will create five \VHDL{} files: four block files (\texttt{uart\_rx.vhd}, \texttt{byte\_fifo.vhd}, \texttt{frame\_detector.vhd}, \texttt{seg7\_driver.vhd}) and one top-level (\texttt{ingest\_top.vhd}). Create them one at a time using the same procedure.
+You will create five empty \VHDL{} files, then fill each one with the listing below. Do them in order; each later file depends on the entity declarations of the earlier ones.
 
-\subsubsection*{Step 2.1 --- Create \texttt{uart\_rx.vhd}}
+\subsubsection*{Step 2.1 --- Create empty \VHDL{} files in Vivado}
 
 \begin{enumerate}[leftmargin=2em]
-	\item In the Sources panel, click the \textbf{+} button (Add Sources). Select \textbf{Add or create design sources} and click \textbf{Next}.
-	\item Click \textbf{Create File}. In the popup:
-	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=2pt]
-		\item File type: \textbf{VHDL}
-		\item File name: \texttt{uart\_rx}
-		\item File location: \textbf{\textless Local to Project\textgreater}
-	\end{itemize}
-	Click \textbf{OK} then \textbf{Finish}. Dismiss the ``Define Module'' popup with \textbf{OK} (you will write the entity manually).
-	\item Double-click \texttt{uart\_rx.vhd} in the Sources panel to open it in the editor. Replace its entire contents with the listing below. Save with \texttt{Ctrl+S}.
+	\item In the Sources panel, click \textbf{+} $\to$ \textbf{Add or create design sources} $\to$ \textbf{Create File}.
+	\item File type: \textbf{VHDL}. File name: \texttt{uart\_rx}. Click \textbf{OK}, then \textbf{Finish}, then \textbf{OK} on the ``Define Module'' dialog without adding any ports (you will overwrite the entire file in Step~2.2). If asked ``Yes, continue'' to a warning about no ports, click \textbf{Yes}.
+	\item Repeat for the four remaining files in this exact order: \texttt{byte\_fifo}, \texttt{frame\_detector}, \texttt{seg7\_driver}, \texttt{ingest\_top}.
+	\item In the Sources panel under \textit{Design Sources} you should now see all five files.
 \end{enumerate}
 
-\begin{lstlisting}[language=VHDL, caption={\texttt{uart\_rx.vhd} --- 115200 8N1 receiver, 16$\times$ oversampled. Generic \texttt{CLK\_FREQ\_HZ} and \texttt{BAUD} let you reuse the block at other rates.}]
+\newpage
+\subsubsection*{Step 2.2 --- Fill in \texttt{uart\_rx.vhd}}
+
+Double-click \texttt{uart\_rx} in the Sources panel. Vivado opens an auto-generated stub. Select all (\texttt{Ctrl+A}), delete, and paste the listing below verbatim. Save (\texttt{Ctrl+S}).
+
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{uart\_rx.vhd} --- 115200~8N1 receiver, 16$\times$ oversampled. Bring-up version. Module~2 LH2-B replaces this with a generic-parameterized version and adds a unit testbench.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 entity uart_rx is
-    generic (
-        CLK_FREQ_HZ : integer := 100_000_000;
-        BAUD        : integer := 115_200
-    );
     port (
-        clk        : in  std_logic;
-        rst_n      : in  std_logic;
-        rx         : in  std_logic;
-        rx_data    : out std_logic_vector(7 downto 0);
-        rx_strobe  : out std_logic
+        clk        : in  std_logic;                      -- 100 MHz sysclk
+        rst_n      : in  std_logic;                      -- active-low reset
+        rx         : in  std_logic;                      -- async serial input
+        rx_data    : out std_logic_vector(7 downto 0);   -- received byte
+        rx_strobe  : out std_logic                       -- 1-cycle pulse on rx_data valid
     );
 end uart_rx;
 
 architecture rtl of uart_rx is
-    constant DIV16 : integer := CLK_FREQ_HZ / (BAUD * 16);  -- ~54 at 100 MHz
-    signal os_cnt : unsigned(15 downto 0) := (others => '0');
+    constant DIV16 : integer := 100_000_000 / (115_200 * 16);  -- = 54
+
+    signal os_cnt  : unsigned(5 downto 0) := (others => '0');
     signal os_tick : std_logic := '0';
 
     type state_t is (S_IDLE, S_START, S_DATA, S_STOP);
@@ -141,7 +147,8 @@ architecture rtl of uart_rx is
     signal shifter  : std_logic_vector(7 downto 0) := (others => '0');
     signal rx_sync1, rx_sync2 : std_logic := '1';
 begin
-    -- Two-flop synchroniser for the async rx pin
+    -- Two-flop synchronizer for the async rx pin (idle-high reset value
+    -- prevents a false start bit during reset release).
     process (clk) begin
         if rising_edge(clk) then
             rx_sync1 <= rx;
@@ -149,7 +156,7 @@ begin
         end if;
     end process;
 
-    -- 16x oversample tick generator
+    -- 16x oversample tick generator (one-cycle pulse every DIV16 sysclks).
     process (clk) begin
         if rising_edge(clk) then
             if rst_n = '0' then
@@ -165,7 +172,7 @@ begin
         end if;
     end process;
 
-    -- Receive FSM, advanced on os_tick
+    -- Receive FSM, advanced on every os_tick.
     process (clk) begin
         if rising_edge(clk) then
             rx_strobe <= '0';
@@ -176,25 +183,25 @@ begin
             elsif os_tick = '1' then
                 case state is
                     when S_IDLE =>
-                        if rx_sync2 = '0' then           -- start bit
+                        if rx_sync2 = '0' then            -- start bit edge
                             state   <= S_START;
-                            sub_cnt <= to_unsigned(0, 4);
+                            sub_cnt <= (others => '0');
                         end if;
                     when S_START =>
-                        if sub_cnt = to_unsigned(7, 4) then  -- mid-start
-                            if rx_sync2 = '0' then       -- still low
+                        if sub_cnt = to_unsigned(7, 4) then   -- mid-bit sample
+                            if rx_sync2 = '0' then
                                 state   <= S_DATA;
                                 sub_cnt <= (others => '0');
                                 bit_idx <= (others => '0');
                             else
-                                state <= S_IDLE;          -- glitch
+                                state <= S_IDLE;            -- glitch, abort
                             end if;
                         else
                             sub_cnt <= sub_cnt + 1;
                         end if;
                     when S_DATA =>
                         if sub_cnt = to_unsigned(15, 4) then
-                            shifter <= rx_sync2 & shifter(7 downto 1);
+                            shifter <= rx_sync2 & shifter(7 downto 1);  -- LSB first
                             sub_cnt <= (others => '0');
                             if bit_idx = to_unsigned(7, 3) then
                                 state <= S_STOP;
@@ -219,68 +226,72 @@ begin
 end rtl;
 \end{lstlisting}
 
-\subsubsection*{Step 2.2 --- Create \texttt{byte\_fifo.vhd}}
+\newpage
+\subsubsection*{Step 2.3 --- Fill in \texttt{byte\_fifo.vhd}}
 
-Repeat the Add Sources $\to$ Create File flow with \textbf{File name: \texttt{byte\_fifo}}. Replace contents with:
+Open \texttt{byte\_fifo}, replace its entire contents with the listing below, and save.
 
-\begin{lstlisting}[language=VHDL, caption={\texttt{byte\_fifo.vhd} --- 16-entry $\times$ 8-bit synchronous FIFO. Hand-rolled (no Xilinx primitive) so the file is portable to other parts.}]
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{byte\_fifo.vhd} --- 16-entry $\times$ 8-bit synchronous \FIFO{}. Bring-up depth is sufficient because the frame detector drains continuously. LH2-C widens to 64.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 entity byte_fifo is
-    generic (DEPTH_LOG2 : integer := 4);   -- 2**4 = 16 entries
     port (
-        clk      : in  std_logic;
-        rst_n    : in  std_logic;
-        wr_en    : in  std_logic;
-        wr_data  : in  std_logic_vector(7 downto 0);
-        rd_en    : in  std_logic;
-        rd_data  : out std_logic_vector(7 downto 0);
-        empty    : out std_logic;
-        full     : out std_logic
+        clk     : in  std_logic;
+        rst_n   : in  std_logic;
+        wr_en   : in  std_logic;
+        wr_data : in  std_logic_vector(7 downto 0);
+        rd_en   : in  std_logic;
+        rd_data : out std_logic_vector(7 downto 0);
+        empty   : out std_logic;
+        full    : out std_logic
     );
 end byte_fifo;
 
 architecture rtl of byte_fifo is
-    constant DEPTH : integer := 2**DEPTH_LOG2;
-    type   mem_t is array (0 to DEPTH - 1) of std_logic_vector(7 downto 0);
-    signal mem    : mem_t := (others => (others => '0'));
-    signal w_ptr  : unsigned(DEPTH_LOG2 downto 0) := (others => '0');
-    signal r_ptr  : unsigned(DEPTH_LOG2 downto 0) := (others => '0');
-    signal w_idx  : unsigned(DEPTH_LOG2 - 1 downto 0);
-    signal r_idx  : unsigned(DEPTH_LOG2 - 1 downto 0);
+    constant DEPTH : integer := 16;
+    type mem_t is array (0 to DEPTH - 1) of std_logic_vector(7 downto 0);
+    signal mem   : mem_t := (others => (others => '0'));
+    signal w_ptr : integer range 0 to DEPTH - 1 := 0;
+    signal r_ptr : integer range 0 to DEPTH - 1 := 0;
+    signal count : integer range 0 to DEPTH     := 0;
 begin
-    w_idx <= w_ptr(DEPTH_LOG2 - 1 downto 0);
-    r_idx <= r_ptr(DEPTH_LOG2 - 1 downto 0);
-    empty <= '1' when w_ptr = r_ptr else '0';
-    full  <= '1' when (w_ptr(DEPTH_LOG2) /= r_ptr(DEPTH_LOG2)) and (w_idx = r_idx) else '0';
+    full  <= '1' when count = DEPTH else '0';
+    empty <= '1' when count = 0     else '0';
 
-    process (clk) begin
+    process (clk)
+        variable do_wr, do_rd : boolean;
+    begin
         if rising_edge(clk) then
             if rst_n = '0' then
-                w_ptr <= (others => '0');
-                r_ptr <= (others => '0');
+                w_ptr <= 0; r_ptr <= 0; count <= 0;
             else
-                if wr_en = '1' and (w_ptr(DEPTH_LOG2) = r_ptr(DEPTH_LOG2) or w_idx /= r_idx) then
-                    mem(to_integer(w_idx)) <= wr_data;
-                    w_ptr <= w_ptr + 1;
+                do_wr := (wr_en = '1') and (count < DEPTH);
+                do_rd := (rd_en = '1') and (count > 0);
+                if do_wr then
+                    mem(w_ptr) <= wr_data;
+                    w_ptr <= (w_ptr + 1) mod DEPTH;
                 end if;
-                if rd_en = '1' and w_ptr /= r_ptr then
-                    r_ptr <= r_ptr + 1;
+                if do_rd then
+                    r_ptr <= (r_ptr + 1) mod DEPTH;
+                end if;
+                if    do_wr and not do_rd then count <= count + 1;
+                elsif do_rd and not do_wr then count <= count - 1;
                 end if;
             end if;
-            rd_data <= mem(to_integer(r_idx));
+            rd_data <= mem(r_ptr);    -- registered read; valid 1 cycle after rd_en
         end if;
     end process;
 end rtl;
 \end{lstlisting}
 
-\subsubsection*{Step 2.3 --- Create \texttt{frame\_detector.vhd}}
+\newpage
+\subsubsection*{Step 2.4 --- Fill in \texttt{frame\_detector.vhd}}
 
-Repeat the Add Sources flow with \textbf{File name: \texttt{frame\_detector}}. Replace contents with:
+Open \texttt{frame\_detector}, replace its entire contents with the listing below, and save.
 
-\begin{lstlisting}[language=VHDL, caption={\texttt{frame\_detector.vhd} --- IDLE/LEN/PAYLOAD/DONE FSM. Captures the radio-packet's Beacon~ID (frame offset 12) into \texttt{beacon\_id} and pulses \texttt{new\_frame} once per valid frame.}]
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{frame\_detector.vhd} --- bring-up frame detector. Locks on \texttt{0x7E}, captures Beacon~ID at frame byte~12 (radio packet byte~2), counts to 43, and pulses \texttt{new\_frame}. No \CRC{} check, no reject path. \textbf{Deleted in LH2-D and replaced by \texttt{pkt\_parser}.}}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -289,65 +300,74 @@ entity frame_detector is
     port (
         clk         : in  std_logic;
         rst_n       : in  std_logic;
+        -- byte_fifo read interface
         fifo_empty  : in  std_logic;
         fifo_data   : in  std_logic_vector(7 downto 0);
         fifo_rd_en  : out std_logic;
-        beacon_id   : out std_logic_vector(7 downto 0);
-        new_frame   : out std_logic
+        -- Outputs
+        beacon_id   : out std_logic_vector(7 downto 0);  -- frame byte 12
+        new_frame   : out std_logic                       -- 1-cycle pulse on full frame
     );
 end frame_detector;
 
 architecture rtl of frame_detector is
-    type state_t is (S_IDLE, S_LEN, S_PAYLOAD, S_DONE);
-    signal state    : state_t := S_IDLE;
-    signal byte_cnt : unsigned(5 downto 0) := (others => '0');  -- 0..40
-    signal id_reg   : std_logic_vector(7 downto 0) := (others => '0');
+    type state_t is (S_HUNT, S_REQ, S_WAIT, S_CAPTURE);
+    signal state     : state_t := S_HUNT;
+    signal byte_idx  : integer range 0 to 63 := 0;
+    signal beacon_r  : std_logic_vector(7 downto 0) := (others => '0');
 begin
+    beacon_id <= beacon_r;
+
     process (clk) begin
         if rising_edge(clk) then
-            fifo_rd_en <= '0';
             new_frame  <= '0';
+            fifo_rd_en <= '0';
 
             if rst_n = '0' then
-                state    <= S_IDLE;
-                byte_cnt <= (others => '0');
-            elsif fifo_empty = '0' then
-                fifo_rd_en <= '1';      -- pop one byte this cycle
+                state    <= S_HUNT;
+                byte_idx <= 0;
+                beacon_r <= (others => '0');
+            else
                 case state is
-                    when S_IDLE =>
-                        if fifo_data = x"7E" then
-                            state <= S_LEN;
+                    when S_HUNT =>
+                        -- Pop bytes one at a time until we see 0x7E.
+                        if fifo_empty = '0' then
+                            fifo_rd_en <= '1';
+                            state      <= S_WAIT;
+                            byte_idx   <= 0;
                         end if;
-                    when S_LEN =>
-                        if fifo_data = x"29" then        -- length = 41
-                            state    <= S_PAYLOAD;
-                            byte_cnt <= (others => '0');
+                    when S_REQ =>
+                        -- Issue a read for the next byte of the frame.
+                        if fifo_empty = '0' then
+                            fifo_rd_en <= '1';
+                            state      <= S_WAIT;
+                        end if;
+                    when S_WAIT =>
+                        -- One-cycle latency: rd_data is valid this cycle.
+                        state <= S_CAPTURE;
+                    when S_CAPTURE =>
+                        if byte_idx = 0 then
+                            -- Hunting for the start delimiter.
+                            if fifo_data = x"7E" then
+                                byte_idx <= 1;
+                                state    <= S_REQ;
+                            else
+                                state <= S_HUNT;          -- still hunting
+                            end if;
                         else
-                            state <= S_IDLE;             -- bad length
+                            -- Frame in progress.
+                            if byte_idx = 12 then
+                                beacon_r <= fifo_data;    -- radio packet byte 2
+                            end if;
+                            if byte_idx = 42 then
+                                new_frame <= '1';
+                                state     <= S_HUNT;
+                                byte_idx  <= 0;
+                            else
+                                byte_idx <= byte_idx + 1;
+                                state    <= S_REQ;
+                            end if;
                         end if;
-                    when S_PAYLOAD =>
-                        -- The 41 payload bytes are frame[1..41].  We have already
-                        -- consumed frame[1] (length).  We now consume the 40
-                        -- remaining bytes 2..41.  The Beacon~ID lives at frame
-                        -- offset 12 = radio-packet byte 2; the first PAYLOAD
-                        -- byte we see here is frame offset 2 (timestamp byte 0),
-                        -- so we capture when byte_cnt = 10 (12 - 2).
-                        if byte_cnt = to_unsigned(10, 6) then
-                            id_reg <= fifo_data;
-                        end if;
-                        if byte_cnt = to_unsigned(39, 6) then  -- last byte (frame[41])
-                            state <= S_DONE;
-                        else
-                            byte_cnt <= byte_cnt + 1;
-                        end if;
-                    when S_DONE =>
-                        beacon_id <= id_reg;
-                        new_frame <= '1';
-                        state     <= S_IDLE;
-                        fifo_rd_en <= '0';   -- skip the trailing CRC-8 byte? no:
-                                             -- the CRC-8 byte (frame[42]) will be
-                                             -- silently consumed next cycle by
-                                             -- IDLE-state non-0x7E discard.
                 end case;
             end if;
         end if;
@@ -355,182 +375,191 @@ begin
 end rtl;
 \end{lstlisting}
 
-\begin{tcolorbox}[infobox={Why \texttt{S\_IDLE} silently discards}]
-The frame CRC-8 byte at frame offset 42 is not validated in Module~1 --- the IDLE state's ``pop and check for 0x7E'' behavior naturally discards any byte that is not a delimiter, so a valid CRC byte that happens not to be 0x7E falls through harmlessly. If the CRC byte happens to equal 0x7E (which occurs $\sim$0.4\,\% of frames), the FSM mis-aligns by one frame; on the next bad-length byte at S\_LEN it resyncs. This cost is acceptable for the LH1-H end-to-end demo. Module~2 LH2-D adds a proper CRC check and an explicit consume-and-discard byte at the end of each frame.
-\end{tcolorbox}
+\subsubsection*{Step 2.5 --- Fill in \texttt{seg7\_driver.vhd}}
 
-\subsubsection*{Step 2.4 --- Create \texttt{seg7\_driver.vhd}}
+Open \texttt{seg7\_driver}, replace its entire contents with the listing below, and save.
 
-Repeat the Add Sources flow with \textbf{File name: \texttt{seg7\_driver}}. Replace contents with:
-
-\begin{lstlisting}[language=VHDL, caption={\texttt{seg7\_driver.vhd} --- multiplexes the four right-most digits at $\sim$1\,kHz per digit. Right two digits show the live Beacon~ID; left two digits show a 16-bit frame counter modulo 256.}]
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{seg7\_driver.vhd} --- four-digit time-multiplexed display. Right two digits show the Beacon~ID (hex); left two digits show the low byte of a 16-bit \texttt{new\_frame} counter. Active-low segments and active-low anodes (Nexys~A7 convention).}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 entity seg7_driver is
-    generic (CLK_FREQ_HZ : integer := 100_000_000);
     port (
-        clk        : in  std_logic;
+        clk        : in  std_logic;                      -- 100 MHz
         rst_n      : in  std_logic;
         beacon_id  : in  std_logic_vector(7 downto 0);
         new_frame  : in  std_logic;
-        seg        : out std_logic_vector(6 downto 0);   -- a..g, active-low
-        dp         : out std_logic;                       -- decimal point, active-low
-        an         : out std_logic_vector(7 downto 0)     -- digit anodes, active-low
+        seg        : out std_logic_vector(6 downto 0);   -- CA..CG, active low
+        dp         : out std_logic;
+        an         : out std_logic_vector(7 downto 0)    -- 8 anodes, active low
     );
 end seg7_driver;
 
 architecture rtl of seg7_driver is
-    -- 4 kHz refresh => 1 kHz per digit
-    constant REFRESH_DIV : integer := CLK_FREQ_HZ / 4_000;
-    signal ref_cnt : unsigned(15 downto 0) := (others => '0');
-    signal digit_sel : unsigned(1 downto 0) := (others => '0');
-    signal frame_ctr : unsigned(15 downto 0) := (others => '0');
-    signal nibble    : std_logic_vector(3 downto 0);
+    -- 17-bit refresh counter: top 2 bits select the digit (~750 Hz/digit at 100 MHz).
+    signal refresh_cnt : unsigned(16 downto 0) := (others => '0');
+    signal digit_sel   : unsigned(1 downto 0);
 
-    function hex7(n : std_logic_vector(3 downto 0)) return std_logic_vector is
-    begin
-        case n is
-            when x"0" => return "1000000";  when x"1" => return "1111001";
-            when x"2" => return "0100100";  when x"3" => return "0110000";
-            when x"4" => return "0011001";  when x"5" => return "0010010";
-            when x"6" => return "0000010";  when x"7" => return "1111000";
-            when x"8" => return "0000000";  when x"9" => return "0010000";
-            when x"A" => return "0001000";  when x"B" => return "0000011";
-            when x"C" => return "1000110";  when x"D" => return "0100001";
-            when x"E" => return "0000110";  when x"F" => return "0001110";
-            when others => return "1111111";
-        end case;
-    end function;
+    signal frame_cnt   : unsigned(15 downto 0) := (others => '0');
+    signal nibble      : std_logic_vector(3 downto 0);
+    signal seg_n       : std_logic_vector(6 downto 0);
 begin
-    dp <= '1';                           -- decimal point off
+    dp <= '1';                                  -- decimal point off
 
-    -- Frame counter: increments on every new_frame pulse
+    -- Refresh counter and frame counter.
     process (clk) begin
         if rising_edge(clk) then
             if rst_n = '0' then
-                frame_ctr <= (others => '0');
-            elsif new_frame = '1' then
-                frame_ctr <= frame_ctr + 1;
-            end if;
-        end if;
-    end process;
-
-    -- Digit-select counter
-    process (clk) begin
-        if rising_edge(clk) then
-            if rst_n = '0' then
-                ref_cnt <= (others => '0');
-                digit_sel <= (others => '0');
-            elsif ref_cnt = to_unsigned(REFRESH_DIV - 1, ref_cnt'length) then
-                ref_cnt <= (others => '0');
-                digit_sel <= digit_sel + 1;
+                refresh_cnt <= (others => '0');
+                frame_cnt   <= (others => '0');
             else
-                ref_cnt <= ref_cnt + 1;
+                refresh_cnt <= refresh_cnt + 1;
+                if new_frame = '1' then
+                    frame_cnt <= frame_cnt + 1;
+                end if;
             end if;
         end if;
     end process;
 
-    -- Choose nibble per digit and drive anodes
-    process (digit_sel, beacon_id, frame_ctr) begin
-        an <= (others => '1');           -- all off (active-low)
+    digit_sel <= refresh_cnt(refresh_cnt'high downto refresh_cnt'high - 1);
+
+    -- Select which 4-bit nibble drives the active digit.
+    -- AN[0] = right-most digit. Mapping:
+    --   digit_sel=0 -> AN[0] = beacon_id(3 downto 0)        (low nibble of ID)
+    --   digit_sel=1 -> AN[1] = beacon_id(7 downto 4)        (high nibble of ID)
+    --   digit_sel=2 -> AN[2] = frame_cnt(3 downto 0)        (low nibble of counter low byte)
+    --   digit_sel=3 -> AN[3] = frame_cnt(7 downto 4)        (high nibble of counter low byte)
+    process (digit_sel, beacon_id, frame_cnt) begin
         case digit_sel is
-            when "00" =>                 -- AN0: low nibble of beacon_id
-                nibble <= beacon_id(3 downto 0);
-                an(0) <= '0';
-            when "01" =>                 -- AN1: high nibble of beacon_id
-                nibble <= beacon_id(7 downto 4);
-                an(1) <= '0';
-            when "10" =>                 -- AN2: low nibble of frame_ctr
-                nibble <= std_logic_vector(frame_ctr(3 downto 0));
-                an(2) <= '0';
-            when others =>               -- AN3: next nibble of frame_ctr
-                nibble <= std_logic_vector(frame_ctr(7 downto 4));
-                an(3) <= '0';
+            when "00"   => nibble <= beacon_id(3 downto 0);
+            when "01"   => nibble <= beacon_id(7 downto 4);
+            when "10"   => nibble <= std_logic_vector(frame_cnt(3 downto 0));
+            when others => nibble <= std_logic_vector(frame_cnt(7 downto 4));
         end case;
     end process;
 
-    seg <= hex7(nibble);
+    -- Hex-to-7-segment lookup. seg_n is the active-LOW pattern (CA..CG).
+    -- Segment bit order: seg_n(6 downto 0) = G F E D C B A.
+    process (nibble) begin
+        case nibble is
+            when x"0" => seg_n <= "1000000";
+            when x"1" => seg_n <= "1111001";
+            when x"2" => seg_n <= "0100100";
+            when x"3" => seg_n <= "0110000";
+            when x"4" => seg_n <= "0011001";
+            when x"5" => seg_n <= "0010010";
+            when x"6" => seg_n <= "0000010";
+            when x"7" => seg_n <= "1111000";
+            when x"8" => seg_n <= "0000000";
+            when x"9" => seg_n <= "0010000";
+            when x"A" => seg_n <= "0001000";
+            when x"B" => seg_n <= "0000011";
+            when x"C" => seg_n <= "1000110";
+            when x"D" => seg_n <= "0100001";
+            when x"E" => seg_n <= "0000110";
+            when others => seg_n <= "0001110";  -- F
+        end case;
+    end process;
+    seg <= seg_n;
+
+    -- Anode mux: active digit pulled low; all others high.
+    process (digit_sel) begin
+        an <= (others => '1');                  -- default all off
+        case digit_sel is
+            when "00"   => an(0) <= '0';
+            when "01"   => an(1) <= '0';
+            when "10"   => an(2) <= '0';
+            when others => an(3) <= '0';
+        end case;
+    end process;
 end rtl;
 \end{lstlisting}
 
-\subsubsection*{Step 2.5 --- Create \texttt{ingest\_top.vhd} and set as top}
+\newpage
+\subsubsection*{Step 2.6 --- Fill in \texttt{ingest\_top.vhd}}
 
-Repeat the Add Sources flow one last time with \textbf{File name: \texttt{ingest\_top}}. Replace contents with:
+Open \texttt{ingest\_top}, replace its entire contents with the listing below, and save.
 
-\begin{lstlisting}[language=VHDL, caption={\texttt{ingest\_top.vhd} --- top-level wiring. After saving, right-click \texttt{ingest\_top} in the Sources panel and choose \textbf{Set as Top}; Vivado will mark it bold.}]
+\begin{lstlisting}[language=VHDL, basicstyle=\scriptsize\ttfamily, caption={\texttt{ingest\_top.vhd} --- top-level wiring. Port names match the constraint file in Step~3 exactly. \texttt{LED[0]} blinks per byte; \texttt{LED[1]} blinks per frame; \texttt{LED[2]} = \FIFO{} empty; \texttt{LED[3]} = \FIFO{} full.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
 entity ingest_top is
     port (
-        clk100  : in  std_logic;
-        cpu_resetn : in  std_logic;          -- active-low pushbutton
-        uart_rx_pin : in  std_logic;         -- from Threat USART3 TX
-        seg     : out std_logic_vector(6 downto 0);
-        dp      : out std_logic;
-        an      : out std_logic_vector(7 downto 0);
-        led     : out std_logic_vector(15 downto 0)
+        CLK100MHZ    : in  std_logic;
+        CPU_RESETN   : in  std_logic;                       -- active-low pushbutton
+        uart_rx_pin  : in  std_logic;                       -- PMOD JA pin 1 (C17)
+        CA, CB, CC, CD, CE, CF, CG : out std_logic;         -- 7-seg segments (active low)
+        DP           : out std_logic;
+        AN           : out std_logic_vector(7 downto 0);
+        LED          : out std_logic_vector(15 downto 0)
     );
 end ingest_top;
 
 architecture rtl of ingest_top is
     signal rst_n      : std_logic;
+
     signal rx_data    : std_logic_vector(7 downto 0);
     signal rx_strobe  : std_logic;
+
+    signal fifo_data  : std_logic_vector(7 downto 0);
+    signal fifo_rd_en : std_logic;
     signal fifo_empty : std_logic;
     signal fifo_full  : std_logic;
-    signal fifo_rd    : std_logic;
-    signal fifo_q     : std_logic_vector(7 downto 0);
-    signal beacon_id  : std_logic_vector(7 downto 0) := (others => '0');
-    signal new_frame  : std_logic;
-begin
-    rst_n <= cpu_resetn;
 
-    -- Heartbeat / status LEDs
-    led(0)  <= rx_strobe;
-    led(1)  <= new_frame;
-    led(2)  <= fifo_empty;
-    led(3)  <= fifo_full;
-    led(15 downto 4) <= (others => '0');
+    signal beacon_id  : std_logic_vector(7 downto 0);
+    signal new_frame  : std_logic;
+
+    signal seg_bus    : std_logic_vector(6 downto 0);
+begin
+    rst_n <= CPU_RESETN;                                    -- already active-low
 
     u_uart : entity work.uart_rx
-        generic map (CLK_FREQ_HZ => 100_000_000, BAUD => 115_200)
-        port map (
-            clk => clk100, rst_n => rst_n, rx => uart_rx_pin,
-            rx_data => rx_data, rx_strobe => rx_strobe
-        );
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  rx => uart_rx_pin,
+                  rx_data => rx_data, rx_strobe => rx_strobe);
 
     u_fifo : entity work.byte_fifo
-        port map (
-            clk => clk100, rst_n => rst_n,
-            wr_en => rx_strobe, wr_data => rx_data,
-            rd_en => fifo_rd, rd_data => fifo_q,
-            empty => fifo_empty, full => fifo_full
-        );
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  wr_en => rx_strobe, wr_data => rx_data,
+                  rd_en => fifo_rd_en, rd_data => fifo_data,
+                  empty => fifo_empty, full => fifo_full);
 
     u_det : entity work.frame_detector
-        port map (
-            clk => clk100, rst_n => rst_n,
-            fifo_empty => fifo_empty, fifo_data => fifo_q,
-            fifo_rd_en => fifo_rd,
-            beacon_id => beacon_id, new_frame => new_frame
-        );
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  fifo_empty => fifo_empty, fifo_data => fifo_data,
+                  fifo_rd_en => fifo_rd_en,
+                  beacon_id => beacon_id, new_frame => new_frame);
 
     u_seg : entity work.seg7_driver
-        generic map (CLK_FREQ_HZ => 100_000_000)
-        port map (
-            clk => clk100, rst_n => rst_n,
-            beacon_id => beacon_id, new_frame => new_frame,
-            seg => seg, dp => dp, an => an
-        );
+        port map (clk => CLK100MHZ, rst_n => rst_n,
+                  beacon_id => beacon_id, new_frame => new_frame,
+                  seg => seg_bus, dp => DP, an => AN);
+
+    -- Break out the segment bus to the named XDC ports (CA..CG).
+    CA <= seg_bus(0);
+    CB <= seg_bus(1);
+    CC <= seg_bus(2);
+    CD <= seg_bus(3);
+    CE <= seg_bus(4);
+    CF <= seg_bus(5);
+    CG <= seg_bus(6);
+
+    -- Status LEDs (the rest are forced low).
+    LED(0)            <= rx_strobe;
+    LED(1)            <= new_frame;
+    LED(2)            <= fifo_empty;
+    LED(3)            <= fifo_full;
+    LED(15 downto 4)  <= (others => '0');
 end rtl;
 \end{lstlisting}
 
+\subsubsection*{Step 2.7 --- Set top and check the hierarchy}
+
 \begin{enumerate}[leftmargin=2em]
 	\item In the Sources panel, right-click \texttt{ingest\_top} and select \textbf{Set as Top}. The entity name should now appear in bold.
-	\item Confirm the Sources hierarchy expands to show \texttt{ingest\_top} at top with \texttt{u\_uart}, \texttt{u\_fifo}, \texttt{u\_det}, \texttt{u\_seg} as children. If any of them shows a yellow ``?'' or red ``!'' marker, you have a typo in the corresponding file --- fix before continuing.
+	\item Confirm the Sources hierarchy shows \texttt{ingest\_top} at the root with \texttt{u\_uart}, \texttt{u\_fifo}, \texttt{u\_det}, and \texttt{u\_seg} as children. Any yellow ``?'' or red ``!'' marker indicates a syntax error in that file --- fix before continuing.
 \end{enumerate}
 
 \newpage
@@ -539,76 +568,35 @@ end rtl;
 \begin{enumerate}[leftmargin=2em]
 	\item In the Sources panel, click \textbf{+} $\to$ \textbf{Add or create constraints} $\to$ \textbf{Add Files}. Navigate to your \texttt{Nexys-A7-100T-Master.xdc} from LH1-E Step~2, ensure \textbf{Copy sources into project} is ticked, click \textbf{Finish}.
 	\item Double-click the copied \texttt{Nexys-A7-100T-Master.xdc} under \textit{Constraints} to open it.
-	\item Uncomment \emph{exactly} the lines below by removing the leading \texttt{\#} on each. All other lines in the master XDC must remain commented out.
+	\item Uncomment \emph{exactly} the following groups of lines by removing the leading \texttt{\#} on each. All other lines in the master XDC must remain commented out:
+	\begin{itemize}[leftmargin=1.2em, topsep=2pt, itemsep=2pt]
+		\item The \textbf{100\,MHz system clock} entry for port \texttt{CLK100MHZ} (pin \texttt{E3}) and its associated \texttt{create\_clock} line.
+		\item The \textbf{CPU reset} pushbutton entry for port \texttt{CPU\_RESETN} (pin \texttt{C12}).
+		\item The \textbf{PMOD JA pin~1} entry --- search for pin \texttt{C17}. The master XDC labels this port \texttt{JA[1]} (the file uses 1-based indexing). Uncomment the line, then change \texttt{JA[1]} to \texttt{uart\_rx\_pin} so the final uncommented line reads:\\
+		\texttt{set\_property -dict \{ PACKAGE\_PIN C17~~ IOSTANDARD LVCMOS33 \} [get\_ports \{ uart\_rx\_pin \}];}
+		\item All \textbf{seven-segment segment} entries: \texttt{CA} through \texttt{CG} (pins \texttt{T10}, \texttt{R10}, \texttt{K16}, \texttt{K13}, \texttt{P15}, \texttt{T11}, \texttt{L18}) and the \texttt{DP} line (pin \texttt{H15}).
+		\item All eight \textbf{anode} entries: \texttt{AN[0]} through \texttt{AN[7]}.
+		\item \textbf{LED[0] through LED[15]} --- all sixteen LED entries.
+	\end{itemize}
 \end{enumerate}
-
-\begin{lstlisting}[caption={Active constraint lines for \texttt{ingest\_top}. Copy these exact \texttt{set\_property} statements into your XDC.}]
-## 100 MHz clock (oscillator on E3)
-set_property -dict { PACKAGE_PIN E3   IOSTANDARD LVCMOS33 } [get_ports { clk100 }];
-create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports { clk100 }];
-
-## CPU reset pushbutton (active-low; on the red board pushbutton near the JTAG header)
-set_property -dict { PACKAGE_PIN C12  IOSTANDARD LVCMOS33 } [get_ports { cpu_resetn }];
-
-## PMOD JA pin 1 = uart_rx_pin (from Threat USART3_TX = PC4)
-set_property -dict { PACKAGE_PIN C17  IOSTANDARD LVCMOS33 } [get_ports { uart_rx_pin }];
-
-## Seven-segment display (active-low segments and anodes)
-set_property -dict { PACKAGE_PIN T10  IOSTANDARD LVCMOS33 } [get_ports { seg[0] }];
-set_property -dict { PACKAGE_PIN R10  IOSTANDARD LVCMOS33 } [get_ports { seg[1] }];
-set_property -dict { PACKAGE_PIN K16  IOSTANDARD LVCMOS33 } [get_ports { seg[2] }];
-set_property -dict { PACKAGE_PIN K13  IOSTANDARD LVCMOS33 } [get_ports { seg[3] }];
-set_property -dict { PACKAGE_PIN P15  IOSTANDARD LVCMOS33 } [get_ports { seg[4] }];
-set_property -dict { PACKAGE_PIN T11  IOSTANDARD LVCMOS33 } [get_ports { seg[5] }];
-set_property -dict { PACKAGE_PIN L18  IOSTANDARD LVCMOS33 } [get_ports { seg[6] }];
-set_property -dict { PACKAGE_PIN H15  IOSTANDARD LVCMOS33 } [get_ports { dp }];
-
-set_property -dict { PACKAGE_PIN J17  IOSTANDARD LVCMOS33 } [get_ports { an[0] }];
-set_property -dict { PACKAGE_PIN J18  IOSTANDARD LVCMOS33 } [get_ports { an[1] }];
-set_property -dict { PACKAGE_PIN T9   IOSTANDARD LVCMOS33 } [get_ports { an[2] }];
-set_property -dict { PACKAGE_PIN J14  IOSTANDARD LVCMOS33 } [get_ports { an[3] }];
-set_property -dict { PACKAGE_PIN P14  IOSTANDARD LVCMOS33 } [get_ports { an[4] }];
-set_property -dict { PACKAGE_PIN T14  IOSTANDARD LVCMOS33 } [get_ports { an[5] }];
-set_property -dict { PACKAGE_PIN K2   IOSTANDARD LVCMOS33 } [get_ports { an[6] }];
-set_property -dict { PACKAGE_PIN U13  IOSTANDARD LVCMOS33 } [get_ports { an[7] }];
-
-## Status LEDs (only led[0..3] are driven; the rest are tied low)
-set_property -dict { PACKAGE_PIN H17  IOSTANDARD LVCMOS33 } [get_ports { led[0] }];
-set_property -dict { PACKAGE_PIN K15  IOSTANDARD LVCMOS33 } [get_ports { led[1] }];
-set_property -dict { PACKAGE_PIN J13  IOSTANDARD LVCMOS33 } [get_ports { led[2] }];
-set_property -dict { PACKAGE_PIN N14  IOSTANDARD LVCMOS33 } [get_ports { led[3] }];
-set_property -dict { PACKAGE_PIN R18  IOSTANDARD LVCMOS33 } [get_ports { led[4] }];
-set_property -dict { PACKAGE_PIN V17  IOSTANDARD LVCMOS33 } [get_ports { led[5] }];
-set_property -dict { PACKAGE_PIN U17  IOSTANDARD LVCMOS33 } [get_ports { led[6] }];
-set_property -dict { PACKAGE_PIN U16  IOSTANDARD LVCMOS33 } [get_ports { led[7] }];
-set_property -dict { PACKAGE_PIN V16  IOSTANDARD LVCMOS33 } [get_ports { led[8] }];
-set_property -dict { PACKAGE_PIN T15  IOSTANDARD LVCMOS33 } [get_ports { led[9] }];
-set_property -dict { PACKAGE_PIN U14  IOSTANDARD LVCMOS33 } [get_ports { led[10] }];
-set_property -dict { PACKAGE_PIN T16  IOSTANDARD LVCMOS33 } [get_ports { led[11] }];
-set_property -dict { PACKAGE_PIN V15  IOSTANDARD LVCMOS33 } [get_ports { led[12] }];
-set_property -dict { PACKAGE_PIN V14  IOSTANDARD LVCMOS33 } [get_ports { led[13] }];
-set_property -dict { PACKAGE_PIN V12  IOSTANDARD LVCMOS33 } [get_ports { led[14] }];
-set_property -dict { PACKAGE_PIN V11  IOSTANDARD LVCMOS33 } [get_ports { led[15] }];
-\end{lstlisting}
 
 Save the XDC (\texttt{Ctrl+S}).
 
 \begin{tcolorbox}[warning={Pin numbers are board-revision specific}]
-The pin assignments above are correct for the Nexys A7-100T (Rev.~B and later, the production silkscreen). Older A7-100T prototypes and the A7-50T variant differ on a handful of pins (notably the seg7 anodes). If \emph{any} pin name above does not appear as a commented-out line in your master XDC, your master XDC is for a different board revision --- re-download from Digilent's reference page using the exact SKU printed on your board.
+	The port names listed above are correct for the Nexys A7-100T (Rev.~B and later, the production silkscreen). Older A7-100T prototypes and the A7-50T variant differ on a handful of pins (notably the seg7 anodes). If any of the ports listed above do not appear as commented-out lines in your master XDC, your master XDC is for a different board revision --- re-download from Digilent's reference page using the exact SKU printed on your board.
 \end{tcolorbox}
 
+\newpage
 \subsection{Step 4 --- Synthesize, implement, and program}
 
 \begin{enumerate}[leftmargin=2em]
-	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Wait for completion. Expect zero errors. Warnings about ``input port \texttt{rx} has no driver during simulation'' on the standalone \texttt{uart\_rx} entity are normal --- it is driven by the top.
+	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Wait for completion. Expect zero errors.
 	\item Flow Navigator $\to$ \textbf{Run Implementation}. Wait for completion. After implementation, click \textbf{Open Implemented Design $\to$ Report Timing Summary} and confirm WNS $\geq 0$\,ns and WHS $\geq 0$\,ns.
 	\item Flow Navigator $\to$ \textbf{Generate Bitstream}. Output: \texttt{ingest\_top.bit}.
 	\item Connect the Nexys A7 via USB and power it on.
 	\item Open Hardware Manager $\to$ \textbf{Open Target $\to$ Auto Connect}.
 	\item Right-click the \texttt{xc7a100t} device $\to$ \textbf{Program Device}, point at \texttt{ingest\_top.bit}, click \textbf{Program}. The DONE LED should illuminate.
 \end{enumerate}
-
-\labfigure{LH1H_timing_report.png}{0.85\textwidth}{Vivado implementation timing summary with positive WNS. Any negative slack must be resolved before programming the board.}{fig:lh1h-timing}
 
 \newpage
 \subsection{Step 5 --- End-to-end run}
@@ -627,7 +615,7 @@ The pin assignments above are correct for the Nexys A7-100T (Rev.~B and later, t
 \newpage
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Vivado project \texttt{ingest\_top} created with all five VHDL sources and one XDC; \texttt{ingest\_top} marked as Top.
+	\item[$\square$] All five \VHDL{} files created and filled with the listings in Step~2; \texttt{ingest\_top} marked as Top.
 	\item[$\square$] Synthesis, Implementation, and Bitstream generation complete with zero errors.
 	\item[$\square$] WNS $\geq 0$\,ns and WHS $\geq 0$\,ns in the implementation timing report.
 	\item[$\square$] DONE LED illuminates after programming.
@@ -640,18 +628,19 @@ The pin assignments above are correct for the Nexys A7-100T (Rev.~B and later, t
 \begin{tcolorbox}[warning={Troubleshooting}]
 	\begin{itemize}[leftmargin=1.2em]
 		\item \textbf{No display change, \texttt{LED[0]} dark:} no UART bytes are reaching the FPGA. Re-check the PMOD wire (JA pin 1, not pin 2) and the GND wire. Verify with a scope on the FPGA side of the jumper that you see 3.3\,V LVCMOS-level transitions when the Threat is transmitting.
-		\item \textbf{\texttt{LED[0]} flickers but \texttt{LED[1]} stays dark:} bytes are arriving but no frame ever assembles. Likely the FIFO write or read enable is wrong, or the FSM never sees \texttt{0x7E}. Add an ILA probe on \texttt{rx\_data} and look for \texttt{0x7E} bytes; if absent, your Threat is not actually emitting frames (re-validate LH1-G Step~7 with the Python parser).
-		\item \textbf{Display garbled / wrong digits:} segment-anode mapping inverted. The Nexys A7 segments and anodes are \emph{both active-low}; double-check your XDC and the \texttt{hex7} lookup table.
-		\item \textbf{Display flickers unreadably:} multiplex rate too slow. The default REFRESH\_DIV gives 4\,kHz total / 1\,kHz per digit; if you reduced it, raise it back.
-		\item \textbf{Frame detector stuck (\texttt{LED[1]} never pulses) but \texttt{0x7E} bytes are visible on ILA:} length byte mismatch. The Threat must be sending \texttt{0x29} as byte~1 of every frame. If you see anything else, your Threat firmware has the wrong length constant.
+		\item \textbf{\texttt{LED[0]} flickers but \texttt{LED[1]} stays dark:} bytes are arriving but no frame ever assembles. Likely the FIFO write or read enable is wrong, or the FSM never sees \texttt{0x7E}. Add an ILA probe on \texttt{rx\_data} and look for \texttt{0x7E} bytes; if absent, your Threat is not actually emitting frames (re-flash the Threat firmware and re-confirm LH1-G's USART2-console validation).
+		\item \textbf{Display garbled / wrong digits:} segment-anode mapping inverted. The Nexys A7 segments and anodes are \emph{both active-low}; double-check your XDC and the \texttt{seg\_n} lookup table.
+		\item \textbf{Display flickers unreadably:} multiplex rate too slow or too fast. The default 17-bit refresh counter gives ${\sim}750$\,Hz/digit; if you reduced the counter width below 14 bits you may see flicker or ghosting.
+		\item \textbf{Frame detector stuck (\texttt{LED[1]} never pulses) but \texttt{0x7E} bytes are visible on ILA:} length mismatch in the frame body --- if the Threat is emitting frames longer or shorter than 43 bytes, the byte counter never reaches 42. Cross-check the Threat's \texttt{build\_forwarding\_frame} from LH1-G Step~6 against the Module~1 frame format (43 bytes, length byte = \texttt{0x29}).
 	\end{itemize}
 \end{tcolorbox}
 
+\newpage
 \begin{tcolorbox}[deliverable={Lab Handout 1-H Deliverable --- and Module 1 Final Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item All five VHDL sources: \texttt{uart\_rx.vhd}, \texttt{byte\_fifo.vhd}, \texttt{frame\_detector.vhd}, \texttt{seg7\_driver.vhd}, \texttt{ingest\_top.vhd}.
+		\item All five \VHDL{} source files (\texttt{uart\_rx.vhd}, \texttt{byte\_fifo.vhd}, \texttt{frame\_detector.vhd}, \texttt{seg7\_driver.vhd}, \texttt{ingest\_top.vhd}).
 		\item Pruned \texttt{Nexys-A7-100T-Master.xdc} with only the active lines shown in Step~3 uncommented.
-		\item Vivado utilization and timing reports (the same \texttt{impl\_summary.json} format from LH2-H is fine but not required at this stage; raw \texttt{.rpt} files are acceptable).
+		\item Vivado utilization and timing reports (raw \texttt{.rpt} files are acceptable at this stage; structured \texttt{impl\_summary.json} comes in LH2-H).
 		\item Short video (30--60\,s) of the complete end-to-end system running: cooperative-target ping-pong, Threat forwarding, Nexys A7 seven-segment display updating with Beacon~IDs and the frame counter, and a button-hold demonstration showing the display going silent then resuming.
 		\item One-page Module~1 retrospective: what worked, what didn't, what you would change before Module~2.
 	\end{enumerate}
