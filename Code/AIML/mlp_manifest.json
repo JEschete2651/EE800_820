@@ -1,0 +1,142 @@
+{
+  "generated_at": "2026-05-03T21:14:26.843471+00:00",
+  "run_stamp": "20260503T211331Z",
+  "log_archive": "d:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\AIML\\Logs\\mlp_train_20260503T211331Z.log",
+  "device": "cuda",
+  "results": {
+    "sf": {
+      "test_acc": 0.9663608562691132,
+      "ci_lo": 0.9407772396361791,
+      "ci_hi": 0.9811144757709296,
+      "n_correct": 316,
+      "n_total": 327,
+      "elapsed_s": 10.162818670272827,
+      "n_features": 5,
+      "n_classes": 4,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "inter_arrival_ms",
+        "beacon_id",
+        "pkt_type"
+      ],
+      "epochs_run": 200,
+      "calibration": [
+        [
+          0.724074125289917,
+          0.5
+        ],
+        [
+          0.8194325315324884,
+          0.7368421052631579
+        ],
+        [
+          0.9924736124238157,
+          0.9836601307189542
+        ]
+      ],
+      "seed_sweep": {
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "accs": [
+          0.9663608562691132,
+          0.963302752293578,
+          0.963302752293578,
+          0.9663608562691132
+        ],
+        "mean": 0.9648318042813455,
+        "std": 0.0015290519877675934
+      }
+    },
+    "mod": {
+      "skipped": true,
+      "reason": "single class in train"
+    },
+    "beacon": {
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 1.413501501083374,
+      "n_features": 6,
+      "n_classes": 2,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "pkt_type"
+      ],
+      "epochs_run": 32,
+      "calibration": [
+        [
+          0.9999717763804514,
+          1.0
+        ]
+      ],
+      "seed_sweep": {
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "accs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "mean": 1.0,
+        "std": 0.0
+      }
+    },
+    "pkt": {
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 1.3930485248565674,
+      "n_features": 6,
+      "n_classes": 2,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "beacon_id"
+      ],
+      "epochs_run": 32,
+      "calibration": [
+        [
+          0.9999717763804514,
+          1.0
+        ]
+      ],
+      "seed_sweep": {
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "accs": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "mean": 1.0,
+        "std": 0.0
+      }
+    }
+  }
+}

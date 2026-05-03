@@ -153,7 +153,7 @@
 			\item Diagnose integration failures that span disciplinary boundaries---firmware timing errors that corrupt the \FPGA{} data stream, baud rate drift, impedance mismatches, and protocol synchronization faults---using systematic debugging techniques (\ILA{} probes, logic analyzer captures, \UART{} logging).
 			\item Measure and characterize end-to-end system performance metrics: \PER{}, end-to-end latency (radio packet TX to feature vector availability), sustained throughput, and \FIFO{} utilization under load.
 			\item Design and execute a structured data collection campaign that systematically varies cooperative-target parameters (TX power, spreading factor, modulation type, number of concurrent stations, physical distance) and includes interleaved PAUSE bursts to produce a labeled \RF{} dataset with controlled experimental conditions across all three packet types (DATA, ACK, PAUSE).
-			\item Implement a host-side Python data collection script that receives feature vectors from the \FPGA{}, attaches ground-truth labels (including the \texttt{pkt\_type} ground truth that decodes the bit-field-extracted packet type), and stores the dataset in a format ready for machine learning ingestion.
+			\item Implement a host-side Python data collection script that receives 43-byte forwarding frames through the \FPGA{} USB-\UART{} bridge, parses packet fields (including \texttt{pkt\_type} from \texttt{mod\_code}), attaches ground-truth labels, and stores the dataset in a format ready for machine learning ingestion.
 			\item Identify and articulate the operating-condition shift between clean single-station regimes and contended multi-station regimes (cooperative-target ping-pong with PAUSE bursts), understanding how real-world channel impairments, half-duplex collisions, and timing variations produce feature distributions that differ across operating conditions on the same hardware.
 		\end{enumerate}
 	\end{tcolorbox}
@@ -507,7 +507,7 @@
 
 	\begin{itemize}[leftmargin=2em]
 		\item Design a structured experimental matrix that systematically varies cooperative-target parameters and includes interleaved PAUSE bursts to produce a diverse, labeled dataset spanning all three packet types.
-		\item Implement a host-side Python script that receives feature vectors from the \FPGA{} via \UART{}, decodes the bit-field-packed \texttt{pkt\_type} column, and stores rows with ground-truth labels.
+		\item Implement a host-side Python script that receives 43-byte forwarding frames via \UART{}, parses the embedded packet fields (including decoded \texttt{pkt\_type}), and stores rows with ground-truth labels.
 		\item Execute single-variable sweep campaigns and validate dataset integrity.
 		\item Understand the concept of operating-condition shift and how feature distributions change across clean single-station, contended multi-station, and PAUSE-burst regimes on the same hardware.
 	\end{itemize}
@@ -564,41 +564,45 @@
 
 	\subsection{Host-Side Data Collection Script}
 
-	The Python collection script runs on the host PC, receives feature vectors from the \FPGA{} over the USB-\UART{} interface, attaches ground-truth labels from the experimental configuration, and writes records to a CSV file.
+	The Python collection script runs on the host PC and receives the Threat's 43-byte forwarding frames over the Nexys USB-\UART{} bridge. The \FPGA{} passthrough keeps this frame format unchanged from Modules~1--2; the script parses each frame, attaches ground-truth labels from the experimental configuration, and writes records to a CSV file.
 
 	\subsubsection{Script Architecture}
 
 	\begin{figure}[ht!]
 		\centering
-		\fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}\textit{[Diagram placeholder --- host-side data collection script architecture. USB-UART $\to$ PySerial reader $\to$ feature-vector parser $\to$ label attacher (fed by campaign-config JSON) $\to$ labeled CSV output.]}\vspace{1em}}}
-		\caption{Host-side data collection script architecture. The campaign configuration JSON provides ground-truth labels (experiment ID, sweep variable setting, physical distance) that are attached to each received feature vector.}
+		\fbox{\parbox{0.85\textwidth}{\centering\vspace{1em}\textit{[Diagram placeholder --- host-side data collection script architecture. USB-UART $\to$ PySerial reader $\to$ 43-byte forwarding-frame parser $\to$ label attacher (fed by campaign-config JSON) $\to$ labeled CSV output.]}\vspace{1em}}}
+		\caption{Host-side data collection script architecture. The campaign configuration JSON provides ground-truth labels (experiment ID, sweep variable setting, physical distance) that are attached to each parsed forwarding frame.}
 		\label{fig:collection_script}
 	\end{figure}
 
-	\subsubsection{Feature Vector Reception Protocol}
+	\subsubsection{Forwarding Frame Reception Protocol}
 
-	The \FPGA{}'s \UART{} TX export module (Session~7) transmits feature vectors using a simple framed protocol:
+	The host receives the Threat forwarding frame format unchanged through the \FPGA{} USB-\UART{} passthrough path:
 
 	\begin{table}[ht!]
 		\centering
-		\caption{\FPGA{}-to-host feature export frame (35 bytes).}
+		\caption{Threat-to-host forwarding frame (43 bytes, unchanged passthrough).}
 		\label{tab:export_frame}
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c X}
 			\toprule
 			\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 			\midrule
-			Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from the \texttt{0x7E} interceptor forwarding frame delimiter) \\
-			Feature Vector & 1 & 32\,B & Complete feature vector (Module~2 \texttt{tab:feature\_vector} format, including \texttt{pkt\_type} at offset~3 and PAUSE-only fields at offsets~28--29) \\
-			\CRC{}-8 & 33 & 1\,B & \CRC{}-8 over bytes 1--32 (transport integrity) \\
-			End Marker & 34 & 1\,B & \texttt{0xFF} (frame terminator) \\
+			Start Delimiter & 0 & 1\,B & \texttt{0x7E} \\
+			Length & 1 & 1\,B & \texttt{0x29} (41 decimal; bytes covered by \CRC{}) \\
+			\texttt{rx\_timestamp\_ms} & 2--5 & 4\,B & Threat-side \texttt{HAL\_GetTick()} at \texttt{RxDone}, little-endian uint32 \\
+			\texttt{rssi\_dbm} & 6 & 1\,B & Signed int8 dBm \\
+			\texttt{snr\_q025} & 7 & 1\,B & Signed int8 in 0.25\,dB units \\
+			\texttt{freq\_error\_hz} & 8--9 & 2\,B & Signed int16, little-endian, Hz \\
+			Radio Payload & 10--41 & 32\,B & Embedded radio packet bytes \\
+			\CRC{}-8/ITU & 42 & 1\,B & Poly \texttt{0x07}, init \texttt{0x00}, covers bytes 1--41 \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
 
 	\subsubsection{CSV Output Format}
 
-	Each row in the output CSV represents one received feature vector with its experimental context:
+	Each row in the output CSV represents one parsed forwarding frame with its experimental context:
 
 	\begin{table}[ht!]
 		\centering
@@ -610,28 +614,24 @@
 			\textbf{Column} & \textbf{Source} & \textbf{Description} \\
 			\midrule
 			\texttt{campaign\_id} & Config JSON & Experiment identifier (C1, C2, etc.) \\
+			\texttt{run\_id} & Config JSON & Unique run execution identifier \\
 			\texttt{timestamp\_host} & Host clock & Host-side reception time (ISO 8601) \\
-			\texttt{beacon\_id} & Feature vector & \FPGA{}-parsed Beacon~ID (sender) \\
-			\texttt{mod\_kind} & Feature vector & Modulation kind (offset~1; upper 6 bits of radio packet \texttt{Modulation Code} byte) \\
-			\texttt{pkt\_type} & Feature vector & Packet type (offset~3): \texttt{0}=DATA, \texttt{1}=ACK, \texttt{2}=PAUSE \\
-			\texttt{spread\_factor} & Feature vector & Spreading factor \\
-			\texttt{bw\_code} & Feature vector & Bandwidth code \\
-			\texttt{tx\_power} & Feature vector & Transmit power (dBm) \\
-			\texttt{rssi} & Feature vector & Received signal strength (dBm) \\
-			\texttt{snr} & Feature vector & Signal-to-noise ratio (dB) \\
-			\texttt{freq\_error} & Feature vector & Carrier frequency error (Hz) \\
-			\texttt{rx\_timestamp} & Feature vector & Interceptor-side timestamp (ms) \\
-			\texttt{sender\_timestamp} & Feature vector & Sender-side timestamp (ms) \\
-			\texttt{seq\_num} & Feature vector & Sequence number \\
-			\texttt{payload\_crc\_ok} & Feature vector & Radio packet \CRC{} status (1/0) \\
-			\texttt{inter\_arrival\_ms} & Feature vector & \FPGA{}-computed inter-arrival time \\
-			\texttt{rssi\_delta} & Feature vector & \FPGA{}-computed \RSSI{} change \\
-			\texttt{obs\_count} & Feature vector & \FPGA{}-computed observation count \\
-			\texttt{target\_id\_if\_pause} & Feature vector & Offset~28; PAUSE rows only: which Beacon~ID was targeted by the Threat \\
-			\texttt{pause\_duration\_units} & Feature vector & Offset~29; PAUSE rows only: hold-off in 100\,ms units \\
+			\texttt{rx\_timestamp\_ms} & Forwarding frame & Threat-side timestamp at packet interception \\
+			\texttt{tx\_timestamp\_ms} & Forwarding frame payload & Sender-side timestamp from embedded packet \\
+			\texttt{inter\_arrival\_ms} & Derived in script & Time since previous received frame in this run \\
+			\texttt{beacon\_id} & Forwarding frame payload & Sender Beacon~ID \\
+			\texttt{seq\_num} & Forwarding frame payload & Sender sequence number \\
+			\texttt{pkt\_type} & Forwarding frame payload & Packet type decoded from \texttt{mod\_code} low bits \\
+			\texttt{mod\_kind} & Forwarding frame payload & Modulation kind decoded from \texttt{mod\_code} upper bits \\
+			\texttt{spread\_factor} & Forwarding frame payload & Spreading factor \\
+			\texttt{rssi\_dbm} & Forwarding frame & Received signal strength (dBm) \\
+			\texttt{snr\_db} & Forwarding frame & Signal-to-noise ratio (dB) \\
+			\texttt{freq\_error\_hz} & Forwarding frame & Carrier frequency error (Hz) \\
+			\texttt{payload\_len} & Forwarding frame payload & Embedded radio payload length \\
 			\texttt{distance\_m} & Config JSON & Physical sender--interceptor distance (m) \\
 			\texttt{label\_sf} & Config JSON & Ground-truth spreading factor \\
 			\texttt{label\_mod} & Config JSON & Ground-truth modulation type \\
+			\texttt{mod\_kind\_label} & Config JSON & Ground-truth modulation-kind integer code \\
 			\texttt{label\_beacon} & Config JSON & Ground-truth Beacon~ID (sender identity) \\
 			\texttt{label\_pkt} & Config JSON & Ground-truth packet type (DATA / ACK / PAUSE) \\
 			\bottomrule
@@ -640,9 +640,9 @@
 
 	\begin{tcolorbox}[warning={Label Integrity}]
 		\begin{itemize}
-			\item \textbf{Self-reported vs.\ ground-truth labels:} The feature vector contains the originating station's \emph{self-reported} parameters (modulation kind, SF, TX power). The campaign config provides the \emph{experimentally controlled} ground-truth labels. In a well-functioning system these match. When they do not---a station claiming SF7 while configured for SF10---it indicates a firmware bug or configuration error. The collection script should log mismatches as warnings without discarding the record, as these mismatches are themselves informative for Module~4 analysis.
+			\item \textbf{Self-reported vs.\ ground-truth labels:} The embedded radio payload contains the originating station's \emph{self-reported} parameters (modulation kind, SF, TX power). The campaign config provides the \emph{experimentally controlled} ground-truth labels. In a well-functioning system these match. When they do not---a station claiming SF7 while configured for SF10---it indicates a firmware bug or configuration error. The collection script should log mismatches as warnings without discarding the record, as these mismatches are themselves informative for Module~4 analysis.
 			\item \textbf{Distance labels are manual:} Physical distance is measured by the student and entered in the campaign config. Measurement error is unavoidable; record distance to the nearest 0.5~m and note the measurement method.
-			\item \textbf{No label leakage:} The \texttt{label\_*} columns are derived from the experimental setup, not from the feature vector fields. In Module~4, students must be careful not to use the self-reported fields as prediction targets when the same information is also a model input---this would create trivial classification with no generalization value. The \texttt{pkt\_type} feature column is the canonical example: it is itself a label (extracted from the packet's \texttt{Modulation Code} byte) and is therefore on Module~4's forbidden-column list for the packet-type classification task.
+			\item \textbf{No label leakage:} The \texttt{label\_*} columns are derived from the experimental setup, not from parsed frame fields. In Module~4, students must be careful not to use self-reported fields as prediction targets when the same information is also a model input---this would create trivial classification with no generalization value. The \texttt{pkt\_type} field is the canonical example: it is itself a label (extracted from the packet's \texttt{mod\_code} byte) and is therefore on Module~4's forbidden-column list for the packet-type classification task.
 		\end{itemize}
 	\end{tcolorbox}
 

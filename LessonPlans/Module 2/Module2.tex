@@ -363,11 +363,10 @@
 			\textbf{Port} & \textbf{Direction} & \textbf{Width} & \textbf{Description} \\
 			\midrule
 			\texttt{clk} & in & 1 & 100~MHz system clock \\
-			\texttt{rst} & in & 1 & Synchronous active-high reset \\
-			\texttt{uart\_rxd} & in & 1 & Raw \UART{} serial input (asynchronous) \\
-			\texttt{rx\_data} & out & 8 & Received byte (valid when \texttt{rx\_valid} = `1') \\
-			\texttt{rx\_valid} & out & 1 & One-cycle pulse indicating a valid byte is available \\
-			\texttt{rx\_error} & out & 1 & Framing error (stop bit not detected) \\
+			\texttt{rst\_n} & in & 1 & Active-low reset (mapped from \texttt{CPU\_RESETN}) \\
+			\texttt{rx} & in & 1 & Raw \UART{} serial input (asynchronous) \\
+			\texttt{rx\_data} & out & 8 & Received byte (valid when \texttt{rx\_strobe} = `1') \\
+			\texttt{rx\_strobe} & out & 1 & One-cycle pulse indicating a valid byte is available \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -566,30 +565,21 @@
 			\textbf{Port} & \textbf{Dir} & \textbf{Width} & \textbf{Description} \\
 			\midrule
 			\texttt{clk} & in & 1 & 100~MHz system clock \\
-			\texttt{rst} & in & 1 & Synchronous active-high reset \\
+			\texttt{rst\_n} & in & 1 & Active-low reset \\
 			\texttt{fifo\_data} & in & 8 & Byte from receive \FIFO{} \\
 			\texttt{fifo\_empty} & in & 1 & \FIFO{} empty flag \\
-			\texttt{fifo\_rd} & out & 1 & \FIFO{} read enable (parser requests next byte) \\
-			\texttt{frame\_valid} & out & 1 & One-cycle pulse: complete frame passed \CRC{} \\
-			\texttt{frame\_reject} & out & 1 & One-cycle pulse: frame failed \CRC{} \\
-			\texttt{rx\_timestamp} & out & 32 & Receiver timestamp field \\
-			\texttt{rssi} & out & 8 & \RSSI{} field \\
-			\texttt{snr} & out & 8 & \SNR{} field \\
-			\texttt{freq\_error} & out & 16 & Frequency error field \\
-			\texttt{beacon\_id} & out & 8 & Beacon ID from embedded payload \\
-			\texttt{seq\_num} & out & 16 & Beacon sequence number \\
-			\texttt{tx\_power} & out & 8 & Sender TX power (dBm) \\
-			\texttt{mod\_kind} & out & 6 & Upper 6 bits of \texttt{Modulation Code}: modulation kind (LoRa / FSK / OOK encoded $\ll$2) \\
-			\texttt{pkt\_type} & out & 2 & Low 2 bits of \texttt{Modulation Code}: \texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE \\
-			\texttt{spread\_factor} & out & 8 & Spreading factor \\
-			\texttt{bw\_code} & out & 8 & Bandwidth code \\
-			\texttt{sender\_timestamp} & out & 32 & Sender-side timestamp \\
-			\texttt{pause\_target\_id} & out & 8 & Valid only when \texttt{pkt\_type} = \texttt{10}: target Beacon~ID being paused (radio payload byte~0) \\
-			\texttt{pause\_duration\_units} & out & 8 & Valid only when \texttt{pkt\_type} = \texttt{10}: hold-off in 100\,ms units (radio payload byte~1) \\
-			\texttt{packet\_crc\_ok} & out & 1 & Inner \CRC{}-16 verification result \\
+			\texttt{fifo\_rd\_en} & out & 1 & \FIFO{} read enable (parser requests next byte) \\
+			\texttt{feat\_busy} & in & 1 & Backpressure from feature extraction datapath \\
+			\texttt{metadata} & out & 64 & Parsed frame metadata bytes 2--9 \\
+			\texttt{payload} & out & 256 & Parsed radio packet bytes 10--41 \\
+			\texttt{rx\_crc} & out & 8 & Captured frame \CRC{}-8 byte (offset 42) \\
+			\texttt{frame\_valid} & out & 1 & One-cycle pulse: complete frame passed checks \\
+			\texttt{frame\_reject} & out & 1 & One-cycle pulse: frame failed checks \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
+
+	The implementation used in Lab Handouts~2-D through 2-F keeps the parser type-agnostic and exports packed \texttt{metadata}/\texttt{payload}; bit-field extraction (including \texttt{pkt\_type} and PAUSE-specific fields) is performed in the feature extraction stage.
 
 	\subsection{Hardware \CRC{} Implementation}
 
@@ -780,7 +770,7 @@
 
 	\begin{tcolorbox}[warning={Common Pitfalls}]
 		\begin{itemize}
-			\item \textbf{First-observation edge case:} When a station is seen for the first time (observation count = 1), there is no previous timestamp or \RSSI{}. Set Inter-Arrival Time to \texttt{0xFFFFFFFF} (sentinel) and \RSSI{} Delta to \texttt{0x0000}. The \ML{} preprocessing code in Module~4 must be aware of these sentinel values.
+			\item \textbf{First-observation edge case:} In the reference LH2 implementation, previous timestamp and RSSI initialize to zero. Therefore, first-observation Inter-Arrival Time resolves to \texttt{current\_timestamp - 0}, and \RSSI{} Delta resolves to \texttt{current\_rssi - 0}. If a sentinel scheme is preferred, it must be added consistently in both \VHDL{} and the Python reference model.
 			\item \textbf{Timestamp rollover:} The STM32 system tick is a 32-bit millisecond counter that rolls over after $\sim$49.7 days. For benchtop sessions this is not a concern, but the subtraction logic should use unsigned arithmetic to handle rollover correctly in principle.
 			\item \textbf{Signed vs.\ unsigned:} \RSSI{} (two's complement) and Freq.\ Error (signed 16-bit) are signed quantities. Ensure the \VHDL{} arithmetic uses \texttt{signed} types from \texttt{ieee.numeric\_std} for delta computations.
 		\end{itemize}
@@ -806,10 +796,10 @@
 		\end{tabularx}
 	\end{table}
 
-	With Beacon~IDs ranging from \texttt{0x01} to \texttt{0xFF} (255 possible senders), the state register file requires $255 \times 7 = 1{,}785$ bytes. This fits comfortably in a single 2~KB block RAM tile (one 18~Kb \BRAM{} configured as $256 \times 8$, or a pair of them for wider access).
+	With Beacon~IDs ranging from \texttt{0x01} to \texttt{0xFF} (255 possible senders), the logical per-station state footprint is $255 \times 7 = 1{,}785$ bytes. In the LH2 reference implementation, these state fields are stored inside each station's 32-byte feature row and updated via read-modify-write, so no separate state-RAM macro is instantiated.
 
-	\begin{tcolorbox}[infobox={Design Choice: Register File vs.\ Lookup Table}]
-		For the expected benchtop scenario of 2--3 active stations (Target~A, Target~B, and occasionally the Threat), a simple array of registers would suffice and avoid the \BRAM{} overhead. However, implementing the state as an addressable RAM indexed by Beacon~ID scales cleanly to the full 255-sender address space without modification. This is a deliberate pedagogical choice: students learn to design for the general case using parameterizable, memory-mapped structures rather than hard-coding for a specific station count. The \BRAM{} cost (1 tile out of 135) is minimal.
+	\begin{tcolorbox}[infobox={Design Choice: Logical State vs. Separate State RAM}]
+		For the expected benchtop scenario of 2--3 active stations (Target~A, Target~B, and occasionally the Threat), either a dedicated state RAM or feature-row read-modify-write can work. The LH2 implementation chooses read-modify-write on the feature \BRAM{} so state scales to the full 255-sender space without consuming additional \BRAM{} blocks beyond the feature store itself.
 	\end{tcolorbox}
 
 	\subsection{Feature Storage: Dual-Port Block RAM}
@@ -827,9 +817,9 @@
 			\midrule
 			Width & 256 bits (32 bytes) & One feature vector per address \\
 			Depth & 256 entries & One slot per possible Beacon~ID \\
-			Total Size & 8~KB & Fits in 4$\times$ 18~Kb \BRAM{} tiles (or 2$\times$ 36~Kb) \\
+			Total Size & 8~KB & Fits in 2$\times$ 36~Kb \BRAM{} tiles \\
 			Port A & Write (\FPGA{} pipeline) & Synchronous write on \texttt{frame\_valid} \\
-			Port B & Read (host interface) & Asynchronous read for data export via \UART{} \\
+			Port B & Read (host interface) & Synchronous readback for SW/LED and simulation dump paths \\
 			\bottomrule
 		\end{tabular}
 	\end{table}
@@ -838,31 +828,31 @@
 
 	When the parser asserts \texttt{frame\_valid}, the feature extraction module:
 	\begin{enumerate}[leftmargin=2em]
-		\item Reads the per-station state for the incoming Beacon~ID from the state RAM.
+		\item Reads the current feature row for the incoming Beacon~ID and uses its prior timestamp/\RSSI{}/count fields as the per-station state.
 		\item Computes the three derived features (Inter-Arrival Time, \RSSI{} Delta, Observation Count).
 		\item Extracts the bit-field-packed fields from the parser outputs: \texttt{pkt\_type} from the low 2 bits of \texttt{mod\_code}, Modulation Kind from the upper 6 bits.
 		\item Copies the PAUSE-only fields from the parser's \texttt{pause\_target\_id} and \texttt{pause\_duration\_units} outputs into feature-vector offsets~28--29 (zeroed when \texttt{pkt\_type} $\ne$ PAUSE).
 		\item Assembles the 32-byte feature vector.
 		\item Writes the feature vector to the feature \BRAM{} at address = Beacon~ID.
-		\item Updates the per-station state RAM with the current timestamp, \RSSI{}, and incremented count.
+		\item Updates the same row's state fields (timestamp, \RSSI{}, incremented count) as part of that write.
 	\end{enumerate}
 
-	This sequence completes in a small fixed number of clock cycles (state read latency + computation + write = $\sim$4--6 cycles at 100~MHz), which is negligible compared to the $\sim$3.73~ms frame arrival interval at 115200 baud.
+	This sequence completes in a small fixed number of clock cycles (row read latency + computation + write = $\sim$4--6 cycles at 100~MHz), which is negligible compared to the $\sim$3.73~ms frame arrival interval at 115200 baud.
 
 	\subsubsection{Read / Export Interface}
 
-	For Module~2, the export interface is a simple \UART{} transmitter that sends feature vectors to the host PC on demand (triggered by a pushbutton or a host-side \UART{} command). The host-side Python script stores the received feature vectors as CSV or binary records for use in Module~4. The full export protocol is finalized during Module~3 integration, but the \BRAM{} read port and a minimal \UART{} TX module should be implemented now to enable early testing.
+	For Module~2, the implemented readback path is switch/LED based on the Nexys board: \texttt{SW(7:0)} selects the Beacon-ID row, \texttt{SW(12:8)} selects one of 32 bytes within that row, and \texttt{LED(15:8)} displays the selected byte. Full-row verification in simulation uses the debug readback signal exported by \texttt{ingest\_top}. The full host export protocol is finalized during Module~3 integration.
 
 	\subsection{Station Prioritization Logic}
 
-	As a stretch goal for advanced students, implement a simple prioritization scheme that ranks active stations by signal quality. The priority score for each Beacon~ID can be computed as:
+	As a stretch goal for advanced students, implement a simple prioritization metric that ranks active stations by signal quality. In the LH2 reference implementation, the score is:
 
 	\begin{equation}
-		P^{(k)} = \alpha \cdot \text{\RSSI{}}^{(k)} + \beta \cdot \text{\SNR{}}^{(k)} - \gamma \cdot |\Delta \text{\RSSI{}}^{(k)}|
+		P^{(k)} = 4\cdot \text{\RSSI{}}^{(k)} + 1\cdot \text{\SNR{}}^{(k)} + \text{frame\_count}^{(k)}
 		\label{eq:priority}
 	\end{equation}
 
-	where $\alpha$, $\beta$, and $\gamma$ are configurable 8-bit weight registers. The station with the highest priority score is indicated on the Nexys A7 seven-segment display, providing a real-time visual indicator of the ``best'' signal source. This is also conceptually the same selection rule the Module~1 Threat firmware uses to pick its PAUSE target, evaluated here in hardware rather than firmware. This exercise introduces students to parameterized hardware arithmetic and prepares them for the concept of hardware-accelerated inference in Module~4.
+	In early Module~2 bring-up stages, seven-segment output is used for quick visual checks (continuing the LH1-H pattern). In the production LH2-F datapath, seven-segment driving is retired and readback moves to the switch/LED interface; this staged transition is intentional and part of the curriculum flow.
 
 	\subsection{Session 7 Pipeline Architecture}
 
@@ -885,31 +875,31 @@
 				\node[block, right=of fifo] (parser) {Packet\\Parser};
 				\node[block, right=of parser] (feat) {Feature\\Extraction};
 				\node[mem, right=of feat] (bram) {Feature\\BRAM\\(256$\times$32B)};
-				\node[block, right=of bram] (export) {\UART{} TX\\(Export)};
+				\node[block, right=of bram] (export) {Host\\Readback\\(SW/LED + Sim)};
 
-				% State RAM
-				\node[mem, below=1.5cm of feat] (state) {Per-Station\\State RAM};
+				% Logical prior-state fields (stored in the feature BRAM row)
+				\node[mem, below=1.5cm of feat] (state) {Prior-State\\Fields\\(in BRAM row)};
 
 				% \CRC{} modules
 				\node[block, below=1.5cm of parser] (crc8) {\CRC{}-8};
 				\node[block, right=0.8cm of crc8] (crc16) {\CRC{}-16};
 
 				% Arrows
-				\draw[arrow] ($(sync.west)+(-1,0)$) -- (sync.west) node[midway, above, elabel] {uart\_rxd};
+				\draw[arrow] ($(sync.west)+(-1,0)$) -- (sync.west) node[midway, above, elabel] {uart\_rx\_pin};
 				\draw[arrow] (sync) -- (uart);
 				\draw[arrow] (uart) -- (fifo);
 				\draw[arrow] (fifo) -- (parser);
 				\draw[arrow] (parser) -- (feat) node[midway, above, elabel] {parsed fields};
 				\draw[arrow] (feat) -- (bram) node[midway, above, elabel] {feature vector};
 				\draw[arrow] (bram) -- (export) node[midway, above, elabel] {read port};
-				\draw[arrow] (export.east) -- ++(1,0) node[right, font=\scriptsize] {To Host PC};
+				\draw[arrow] (export.east) -- ++(1,0) node[right, font=\scriptsize] {To board indicators / simulation checker};
 
 				% \CRC{} connections
 				\draw[arrow] (parser.south) -- ++(0,-0.3) -| (crc8.north) node[near end, left, elabel] {byte stream};
 				\draw[arrow] (parser.south) -- ++(0,-0.3) -| (crc16.north);
 				\draw[arrow] (crc8.east) -- ++(0.1,0) |- ($(parser.south east)+(0,0.15)$) node[near start, right, elabel] {crc\_ok};
 
-				% State RAM connections
+				% Prior-state field connections
 				\draw[arrow, <->] (feat.south) -- (state.north) node[midway, right, elabel] {read/write};
 
 				% Grouping
@@ -919,7 +909,7 @@
 				label={[font=\small\bfseries\color{stevens}]above:\FPGA{} Top-Level (Nexys A7-100T)}] {};
 			\end{tikzpicture}%
 		}
-		\caption{Complete Module~2 \FPGA{} pipeline architecture. Solid blocks are implemented across Sessions~5--7. The \UART{} TX export module enables early data extraction for \ML{} pipeline prototyping.}
+		\caption{Complete Module~2 \FPGA{} pipeline architecture. Solid blocks are implemented across Sessions~5--7. Readback in this module uses the SW/LED path and simulation dump interface; the full host export protocol is finalized in Module~3.}
 		\label{fig:full_pipeline}
 	\end{figure}
 
@@ -945,7 +935,7 @@
 		\textbf{Feature Extraction Datapath Design Document} --- A document containing:
 		\begin{enumerate}
 			\item Feature vector format specification with field descriptions, sizes, and \ML{} relevance.
-			\item \VHDL{} source code for the feature extraction module, per-station state RAM, and feature \BRAM{}.
+			\item \VHDL{} source code for the feature extraction module and feature \BRAM{} (including row-level prior-state read-modify-write behavior).
 			\item Block diagram of the complete pipeline from \UART{} input to feature \BRAM{} output.
 			\item Simulation results demonstrating correct feature computation for multi-station scenarios (cooperative-target ping-pong with interleaved PAUSE bursts), including computed features (inter-arrival time, \RSSI{} delta, observation count) and the bit-field-extracted \texttt{pkt\_type} column.
 			\item Resource estimate: anticipated \LUT{}, FF, and \BRAM{} usage for the current design.
@@ -1027,7 +1017,7 @@
 		\renewcommand{\arraystretch}{1.3}
 		\begin{tabularx}{\textwidth}{l c c c X}
 			\toprule
-			\textbf{Module} & \textbf{\LUT{}s} & \textbf{FFs} & \textbf{\BRAM{} (18Kb)} & \textbf{Notes} \\
+			\textbf{Module} & \textbf{\LUT{}s} & \textbf{FFs} & \textbf{\BRAM{} (36Kb)} & \textbf{Notes} \\
 			\midrule
 			Synchronizer & 2 & 2 & 0 & Two flip-flops \\
 			\UART{} Receiver & $\sim$80 & $\sim$50 & 0 & State machine + counters \\
@@ -1036,13 +1026,13 @@
 			\CRC{}-8 Engine & $\sim$30 & $\sim$10 & 0 & Combinational XOR network \\
 			\CRC{}-16 Engine & $\sim$50 & $\sim$20 & 0 & Combinational XOR network \\
 			Feature Extraction & $\sim$150 & $\sim$200 & 0 & Arithmetic + muxing \\
-			Per-Station State RAM & 0 & 0 & 1 & 256$\times$56 bits \\
-			Feature \BRAM{} & 0 & 0 & 4 & 256$\times$256 bits \\
-			\UART{} TX (Export) & $\sim$60 & $\sim$40 & 0 & Byte serializer \\
+			Per-Station State Storage & 0 & 0 & 0 & Stored in feature row fields (read-modify-write) \\
+			Feature \BRAM{} & 0 & 0 & 2 & 256$\times$256 bits \\
+			Readback Mux (SW/LED) & $\sim$20 & $\sim$20 & 0 & Byte-selection logic \\
 			\midrule
-			\textbf{Total Estimate} & $\sim$\textbf{600} & $\sim$\textbf{640} & \textbf{5} & \\
-			\textbf{Artix-7 100T Available} & 63,400 & 126,800 & 270 & \\
-			\textbf{Utilization} & $<$1\% & $<$1\% & $\sim$2\% & \\
+			\textbf{Total Estimate} & $\sim$\textbf{550} & $\sim$\textbf{620} & \textbf{2} & \\
+			\textbf{Artix-7 100T Available} & 63,400 & 126,800 & 135 & \\
+			\textbf{Utilization} & $<$1\% & $<$1\% & $\sim$1--2\% & \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -1127,13 +1117,13 @@
 			\toprule
 			\textbf{Signal} & \textbf{\FPGA{} Pin} & \textbf{Connector} & \textbf{Description} \\
 			\midrule
-			\texttt{uart\_rxd} (from STM32) & JA[1] & PMOD JA & Interceptor \MCU{} TX $\rightarrow$ \FPGA{} RX \\
-			\texttt{uart\_txd} (to host) & C4 & USB-\UART{} & Feature export to host PC \\
-			\texttt{clk\_100mhz} & E3 & On-board & 100~MHz system clock \\
-			\texttt{rst} & N17 & BTNC & Center pushbutton (active-high reset) \\
-			\texttt{export\_trigger} & M18 & BTNU & Upper pushbutton (trigger feature export) \\
-			\texttt{led[15:0]} & H17--V14 & On-board LEDs & Debug: frame count, \FIFO{} status, \CRC{} status \\
-			\texttt{seg[6:0]} + \texttt{an[7:0]} & Various & 7-seg display & Beacon~ID and priority display \\
+			\texttt{uart\_rx\_pin} (from STM32) & JA[1] & PMOD JA & Interceptor \MCU{} TX $\rightarrow$ \FPGA{} RX \\
+			\texttt{UART\_RXD\_OUT} (to host) & D4 & USB-\UART{} & Raw-stream passthrough / capture path \\
+			\texttt{CLK100MHZ} & E3 & On-board & 100~MHz system clock \\
+			\texttt{CPU\_RESETN} & C12 & BTNC & Center pushbutton (active-low reset) \\
+			\texttt{SW[15:0]} & J15--R17 & On-board switches & Row and byte selector for feature readback \\
+			\texttt{LED[15:0]} & H17--V14 & On-board LEDs & Debug pulses + selected feature byte on \texttt{LED(15:8)} \\
+			\texttt{CA..CG, DP, AN[7:0]} & Various & 7-seg display & Used in early bring-up checks; forced inactive in LH2-F production datapath \\
 			\bottomrule
 		\end{tabularx}
 	\end{table}
@@ -1153,7 +1143,7 @@
 			\midrule
 			\UART{} Receiver Design and Simulation Report (synchronizer, receiver, \FIFO{}, baud tolerance) & 20\% & Session 5 \\
 			Packet Parser and \CRC{} Verification Report (state machine, \CRC{}-8/16, integration simulation) & 25\% & Session 6 \\
-			Feature Extraction Datapath Design Document (feature vector with \texttt{pkt\_type} column, state RAM, \BRAM{}, multi-station) & 25\% & Session 7 \\
+			Feature Extraction Datapath Design Document (feature vector with \texttt{pkt\_type} column, row-level state tracking, \BRAM{}, multi-station) & 25\% & Session 7 \\
 			Simulation Verification and Resource Optimization Report (testbench suite, utilization, timing) & 30\% & Session 8 \\
 			\bottomrule
 		\end{tabularx}

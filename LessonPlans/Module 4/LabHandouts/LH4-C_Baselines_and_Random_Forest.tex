@@ -11,9 +11,9 @@ Establish a three-rung classical baseline for each of the four classification ta
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-B complete (\texttt{artifacts/\{sf,mod,beacon,pkt\}/} present).
-	\item \texttt{scikit-learn $\geq$ 1.3}.
-	\item \texttt{statsmodels $\geq$ 0.14} (for \texttt{proportion\_confint}; used in Step~4 Wilson CI). Install with \texttt{pip install statsmodels}. If \texttt{statsmodels} cannot be installed, use the dependency-free fallback in the Step~4 sidebar.
+	\item Lab Handout~4-B complete (\texttt{Code/AIML/artifacts/\{sf,mod,beacon,pkt\}/} present).
+	\item \texttt{scikit-learn $\geq$ 1.3} and \texttt{matplotlib} installed.
+	\item \texttt{scipy} (already required by scikit-learn) is used for the dependency-free Wilson CI in Step~4.
 \end{itemize}
 
 \section{Background: Why These Three Baselines?}
@@ -25,96 +25,68 @@ Establish a three-rung classical baseline for each of the four classification ta
 
 \section{Procedure}
 
-\subsection{Step 1 --- Load the preprocessed artifacts}
+\subsection{Step 1 --- Logging setup and the common loader}
+The script (\texttt{Code/AIML/baselines.py}) follows the same logging pattern as LH4-A and LH4-B: stdout plus a timestamped archive log and a stable \texttt{baselines\_latest.log} in \texttt{Code/AIML/Logs/}.
 
-\begin{lstlisting}[language=Python, caption={Common loader used by LH4-C through LH4-F.}]
-import numpy as np
-import joblib
+\begin{lstlisting}[language=Python, caption={Top of \texttt{baselines.py} --- imports, paths, logging, and the common loader.}]
+import json
+import logging
+import sys
+from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import norm
+from sklearn.dummy import DummyClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.tree import DecisionTreeClassifier
+
+SCRIPT_DIR    = Path(__file__).parent
+LOG_DIR       = SCRIPT_DIR / "Logs"
+ARTIFACTS_DIR = SCRIPT_DIR / "artifacts"
+FIGS_DIR      = SCRIPT_DIR / "figs"
+MANIFEST_PATH = SCRIPT_DIR / "baselines_manifest.json"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
+
+run_stamp   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+log_archive = LOG_DIR / f"baselines_{run_stamp}.log"
+log_latest  = LOG_DIR / "baselines_latest.log"
+
+log = logging.getLogger("baselines")
+log.setLevel(logging.DEBUG)
+log.handlers.clear()
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+for h in (logging.StreamHandler(sys.stdout),
+          logging.FileHandler(log_archive, mode="w", encoding="utf-8"),
+          logging.FileHandler(log_latest,  mode="w", encoding="utf-8")):
+    h.setFormatter(fmt)
+    log.addHandler(h)
+
+log.info("=== baselines.py starting ===")
+log.info(f"Run stamp: {run_stamp}")
+
+
 def load_task(task):
-    d = Path(f"artifacts/{task}")
-    X_tr = np.load(d / "X_train.npy");  y_tr = np.load(d / "y_train.npy")
-    X_va = np.load(d / "X_val.npy");    y_va = np.load(d / "y_val.npy")
-    X_te = np.load(d / "X_test.npy");   y_te = np.load(d / "y_test.npy")
+    d = ARTIFACTS_DIR / task
+    X_tr = np.load(d / "X_train.npy"); y_tr = np.load(d / "y_train.npy")
+    X_va = np.load(d / "X_val.npy");   y_va = np.load(d / "y_val.npy")
+    X_te = np.load(d / "X_test.npy");  y_te = np.load(d / "y_test.npy")
     pre  = joblib.load(d / "preprocessor.pkl")
     return X_tr, y_tr, X_va, y_va, X_te, y_te, pre
 \end{lstlisting}
 
-\subsection{Step 2 --- Dummy and decision-tree baselines}
+\subsection{Step 2 --- Wilson score confidence interval}
+Every accuracy reported in Step 3 ships with a 95\% Wilson interval, not a standard-normal interval (which can produce negative probabilities for small $n$ or extreme $p$). The implementation uses scipy only --- no external CI library required.
 
 \begin{lstlisting}[language=Python]
-from sklearn.dummy import DummyClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score, classification_report
-
-def baselines(task):
-    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
-
-    # Rung 1: Dummy
-    dum = DummyClassifier(strategy="most_frequent").fit(X_tr, y_tr)
-    acc_dum = accuracy_score(y_te, dum.predict(X_te))
-
-    # Rung 2: Single tree, depth 5
-    dt = DecisionTreeClassifier(max_depth=5, random_state=42).fit(X_tr, y_tr)
-    acc_dt = accuracy_score(y_te, dt.predict(X_te))
-
-    print(f"[{task}] Dummy acc = {acc_dum:.3f}")
-    print(f"[{task}] Tree-5 acc = {acc_dt:.3f}")
-    return dum, dt, acc_dum, acc_dt
-
-for t in ["sf", "mod", "beacon"]:
-    baselines(t)
-\end{lstlisting}
-
-Expected pattern: Dummy accuracy near $1/C$ (where $C$ is the number of classes), decision tree well above dummy but noticeably below random forest.
-
-\subsection{Step 3 --- Random forest grid search}
-Use a focused grid. Exhaustively searching a wide grid on a few thousand samples is time wasted --- the forest is relatively flat in its hyperparameter landscape.
-
-\begin{lstlisting}[language=Python]
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
-
-RF_GRID = {
-    "n_estimators":     [100, 300, 600],
-    "max_depth":        [None, 10, 20],
-    "min_samples_leaf": [1, 3],
-    "max_features":     ["sqrt", "log2"],
-}
-
-def grid_search_rf(task):
-    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
-    # Concatenate train+val for CV; test is held out.
-    X_cv = np.concatenate([X_tr, X_va]); y_cv = np.concatenate([y_tr, y_va])
-
-    rf = RandomForestClassifier(random_state=42, n_jobs=-1)
-    gs = GridSearchCV(rf, RF_GRID, cv=5, scoring="accuracy",
-                      n_jobs=-1, verbose=1)
-    gs.fit(X_cv, y_cv)
-    best = gs.best_estimator_
-    acc_te = accuracy_score(y_te, best.predict(X_te))
-    print(f"[{task}] RF best params: {gs.best_params_}")
-    print(f"[{task}] RF CV acc = {gs.best_score_:.3f}, test acc = {acc_te:.3f}")
-    return best, gs, acc_te
-
-for t in ["sf", "mod", "beacon"]:
-    grid_search_rf(t)
-\end{lstlisting}
-
-\begin{tcolorbox}[infobox={Why 5-Fold Stratified CV?}]
-	With $\sim$2{,}500 samples split 70/15/15, the validation set is only $\sim$375 rows. Hyperparameter choices tuned against a set that small are noisy. Concatenating train and val for a 5-fold stratified cross-validation averages over five independent validation folds, giving each hyperparameter combination an effective sample size of the entire non-test data. The test split remains genuinely untouched for final reporting.
-\end{tcolorbox}
-
-\subsection{Step 4 --- Wilson score confidence interval}
-Report the test accuracy with a 95\% Wilson confidence interval --- not a standard-normal interval, which can produce negative probabilities for small $n$ or extreme $p$.
-
-\begin{tcolorbox}[infobox={Dependency-Free Wilson Fallback}]
-If \texttt{statsmodels} is not available, drop in this closed-form implementation --- it matches \texttt{proportion\_confint(method="wilson")} to within numerical tolerance:
-\begin{verbatim}
-from math import sqrt
-from scipy.stats import norm  # scipy is already required by sklearn
-
 def wilson_ci(n_correct, n_total, alpha=0.05):
     if n_total == 0:
         return 0.0, 1.0
@@ -125,61 +97,143 @@ def wilson_ci(n_correct, n_total, alpha=0.05):
     half = z * sqrt(p * (1 - p) / n_total
                     + z * z / (4 * n_total * n_total)) / denom
     return max(0.0, center - half), min(1.0, center + half)
-\end{verbatim}
-\end{tcolorbox}
 
-\begin{lstlisting}[language=Python]
-from statsmodels.stats.proportion import proportion_confint
 
-def wilson_ci(n_correct, n_total, alpha=0.05):
-    lo, hi = proportion_confint(n_correct, n_total,
-                                alpha=alpha, method="wilson")
-    return lo, hi
-
-# Example for one task:
-y_pred = best.predict(X_te)
-n_correct = (y_pred == y_te).sum()
-lo, hi = wilson_ci(n_correct, len(y_te))
-print(f"Test acc {n_correct}/{len(y_te)} = {n_correct/len(y_te):.3f} "
-      f"[95% CI {lo:.3f}, {hi:.3f}]")
+def report_acc(label, y_true, y_pred):
+    n = len(y_true)
+    n_correct = int((y_pred == y_true).sum())
+    acc = n_correct / n if n else 0.0
+    lo, hi = wilson_ci(n_correct, n)
+    log.info(f"  {label}: acc = {acc:.3f}  [95% CI {lo:.3f}, {hi:.3f}]  "
+             f"({n_correct}/{n})")
+    return {"acc": acc, "ci_lo": lo, "ci_hi": hi,
+            "n_correct": n_correct, "n_total": n}
 \end{lstlisting}
 
-\subsection{Step 5 --- Feature importance from the best forest}
+\subsection{Step 3 --- Run the three baselines per task}
+For each task, fit the dummy, depth-5 decision tree, and grid-searched random forest. Single-class tasks (the \texttt{mod} task in the current C1+C2+C5 dataset is LoRa-only) are skipped because none of these classifiers are defined for a single class.
 
 \begin{lstlisting}[language=Python]
-import matplotlib.pyplot as plt
+RF_GRID = {
+    "n_estimators":     [100, 300, 600],
+    "max_depth":        [None, 10, 20],
+    "min_samples_leaf": [1, 3],
+    "max_features":     ["sqrt", "log2"],
+}
 
+results = {}
+for task in ["sf", "mod", "beacon", "pkt"]:
+    log.info(f"--- Task: {task} ---")
+    X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+    n_classes = len(np.unique(y_tr))
+    log.info(f"Train shape={X_tr.shape}, classes={n_classes}, "
+             f"features={pre['feature_cols']}")
+    if n_classes < 2:
+        log.warning(f"{task}: only {n_classes} class --- skipping baselines")
+        results[task] = {"skipped": True, "reason": "single class in train"}
+        continue
+
+    # Rung 1: Dummy
+    dum = DummyClassifier(strategy="most_frequent", random_state=42)
+    dum.fit(X_tr, y_tr)
+    dum_res = report_acc("Dummy", y_te, dum.predict(X_te))
+
+    # Rung 2: Single decision tree, depth 5
+    dt = DecisionTreeClassifier(max_depth=5, random_state=42)
+    dt.fit(X_tr, y_tr)
+    dt_res = report_acc("Tree-5", y_te, dt.predict(X_te))
+
+    # Rung 3: Random forest grid search on train+val (test is held out).
+    X_cv = np.concatenate([X_tr, X_va]); y_cv = np.concatenate([y_tr, y_va])
+    rf = RandomForestClassifier(random_state=42, n_jobs=-1)
+    gs = GridSearchCV(rf, RF_GRID, cv=5, scoring="accuracy",
+                      n_jobs=-1, verbose=0)
+    log.info(f"  RF grid search: {len(RF_GRID['n_estimators']) * "
+             f"len(RF_GRID['max_depth']) * len(RF_GRID['min_samples_leaf']) "
+             f"* len(RF_GRID['max_features'])} combos x 5 folds...")
+    gs.fit(X_cv, y_cv)
+    best = gs.best_estimator_
+    rf_res = report_acc("RF best", y_te, best.predict(X_te))
+    rf_res["cv_acc"] = float(gs.best_score_)
+    rf_res["params"] = gs.best_params_
+    log.info(f"  RF best params: {gs.best_params_}")
+    log.info(f"  RF CV acc = {gs.best_score_:.3f}")
+
+    # Save the winning forest and its metadata.
+    joblib.dump({"model": best, **rf_res},
+                ARTIFACTS_DIR / task / "rf.pkl")
+    log.info(f"  Saved {ARTIFACTS_DIR / task / 'rf.pkl'}")
+
+    results[task] = {"dummy": dum_res, "tree5": dt_res, "rf": rf_res,
+                     "feature_cols": pre["feature_cols"]}
+\end{lstlisting}
+
+\begin{tcolorbox}[infobox={Why 5-Fold Stratified CV?}]
+	With $\sim$2{,}200 samples split 70/15/15, the validation set is only $\sim$200 rows. Hyperparameter choices tuned against a set that small are noisy. Concatenating train and val for a 5-fold stratified cross-validation averages over five independent validation folds, giving each hyperparameter combination an effective sample size of the entire non-test data. The test split remains genuinely untouched for final reporting.
+\end{tcolorbox}
+
+\subsection{Step 4 --- Feature importance from the best forest}
+
+\begin{lstlisting}[language=Python]
 def plot_importance(model, feature_names, task):
     imp = model.feature_importances_
     order = np.argsort(imp)[::-1]
     plt.figure(figsize=(7, 3.5))
-    plt.bar(range(len(imp)), imp[order])
-    plt.xticks(range(len(imp)), [feature_names[i] for i in order], rotation=30)
+    plt.bar(range(len(imp)), imp[order], color="steelblue")
+    plt.xticks(range(len(imp)),
+               [feature_names[i] for i in order], rotation=30, ha="right")
     plt.ylabel("Gini importance")
     plt.title(f"Random Forest feature importance --- task: {task}")
     plt.tight_layout()
-    plt.savefig(f"figs/rf_importance_{task}.png", dpi=150)
+    out = FIGS_DIR / f"rf_importance_{task}.png"
+    plt.savefig(out, dpi=150)
+    plt.close()
+    log.info(f"  Saved {out}")
+    return [(feature_names[i], float(imp[i])) for i in order]
 
-plot_importance(best, pre["feature_cols"], t)
+
+for task, res in results.items():
+    if res.get("skipped"):
+        continue
+    rf_pkl = joblib.load(ARTIFACTS_DIR / task / "rf.pkl")
+    ranking = plot_importance(rf_pkl["model"], res["feature_cols"], task)
+    res["feature_importance"] = ranking
+    log.info(f"  Top features ({task}): "
+             f"{', '.join(f'{n}={v:.2f}' for n, v in ranking[:3])}")
 \end{lstlisting}
 
-For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. Any wildly different ordering is worth investigating.
+For the SF task in the current dataset, \texttt{snr\_db} and \texttt{rssi\_dbm} are expected to dominate (SF processing gain shows up most strongly in SNR). For emitter \mbox{ID}, \texttt{inter\_arrival\_ms} typically dominates because Target~B's \mbox{ACK} cadence is bimodal versus Target~A's clean 1\,s/2\,s tick. For packet type, \texttt{inter\_arrival\_ms} also dominates (\mbox{ACK} packets follow \mbox{DATA} packets within a tight latency window). Any wildly different ordering is worth investigating.
 
-\subsection{Step 6 --- Save the winning forests}
+\subsection{Step 5 --- Summary table and manifest}
+Print a populated summary table to the log so the deliverable is self-documenting, and write \texttt{baselines\_manifest.json} so LH4-D through LH4-F can read these numbers without re-fitting.
 
 \begin{lstlisting}[language=Python]
-import joblib
-for task in ["sf", "mod", "beacon"]:
-    best, gs, acc_te = grid_search_rf(task)
-    joblib.dump({"model": best,
-                 "test_acc": acc_te,
-                 "cv_acc":   gs.best_score_,
-                 "params":   gs.best_params_},
-                f"artifacts/{task}/rf.pkl")
+log.info("=== Baseline Summary ===")
+log.info(f"{'Task':<8} {'Dummy':>10} {'Tree-5':>10} {'RF best':>10} "
+         f"{'RF 95% CI':>20}")
+for task in ["sf", "mod", "beacon", "pkt"]:
+    res = results[task]
+    if res.get("skipped"):
+        log.info(f"{task:<8} {'(skipped)':>10}  reason: {res['reason']}")
+        continue
+    d = res["dummy"]["acc"]; t = res["tree5"]["acc"]; r = res["rf"]
+    log.info(f"{task:<8} {d:>10.3f} {t:>10.3f} {r['acc']:>10.3f} "
+             f"   [{r['ci_lo']:.3f}, {r['ci_hi']:.3f}]")
+
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run_stamp":    run_stamp,
+    "log_archive":  str(log_archive),
+    "rf_grid":      RF_GRID,
+    "results":      results,
+}
+with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2, default=str)
+log.info(f"Wrote {MANIFEST_PATH}")
+log.info("=== baselines.py done ===")
 \end{lstlisting}
 
-\subsection{Step 7 --- Baseline summary table}
-Fill in a summary table that every subsequent model must improve on:
+The summary table that the script prints is the same shape as the deliverable below; carry the populated values forward to LH4-D through LH4-F. Every model in those handouts is benchmarked against the RF column.
 
 \begin{table}[h!]
 	\centering
@@ -189,29 +243,34 @@ Fill in a summary table that every subsequent model must improve on:
 		\textbf{Task} & \textbf{Dummy} & \textbf{Tree-5} & \textbf{RF best} & \textbf{Wilson 95\% CI (RF)} \\
 		\midrule
 		SF Detection     & & & & \\
-		Modulation       & & & & \\
+		Modulation       & \multicolumn{4}{l}{(skipped --- only LoRa collected; revisit once C3 or other modulations exist)} \\
 		Emitter ID       & & & & \\
 		Packet Type      & & & & \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Baselines from Steps 2--5. Carry this table forward; every model in LH4-D through LH4-F is benchmarked against the RF column.}
+	\caption{Baselines from Steps 3--4. Fill from the script's printed summary or from \texttt{baselines\_manifest.json}.}
 \end{table}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Dummy, tree, and random-forest accuracies computed for all four tasks (SF, modulation, emitter ID, packet type).
-	\item[$\square$] Grid search complete; best parameters recorded.
-	\item[$\square$] Wilson 95\% CI reported for each random-forest test accuracy.
-	\item[$\square$] Feature importance plot generated for each task.
-	\item[$\square$] \texttt{rf.pkl} saved for each task.
+	\item[$\square$] Dummy, tree, and random-forest accuracies computed for every task with $\geq$2 classes (\texttt{sf}, \texttt{beacon}, \texttt{pkt} in the current dataset; \texttt{mod} skipped with logged reason).
+	\item[$\square$] Grid search complete; best parameters recorded in \texttt{rf.pkl} and the manifest.
+	\item[$\square$] Wilson 95\% CI reported for every accuracy (Dummy, Tree-5, RF).
+	\item[$\square$] \texttt{Code/AIML/figs/rf\_importance\_<task>.png} produced for each non-skipped task.
+	\item[$\square$] \texttt{Code/AIML/artifacts/<task>/rf.pkl} saved for each non-skipped task.
+	\item[$\square$] \texttt{Code/AIML/baselines\_manifest.json} written.
+	\item[$\square$] \texttt{Code/AIML/Logs/baselines\_<timestamp>.log} archived.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-C Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Filled baseline summary table (four rows, four accuracy columns, CI column).
-		\item Four feature-importance bar plots (one per task), each with a 2--3 sentence interpretation.
-		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/rf.pkl}: the grid-searched random forests, their CV/test accuracies, and chosen hyperparameters.
-		\item One short paragraph per task discussing whether the top-ranked features match the physical expectation (e.g., \mbox{RSSI}/\mbox{SNR} dominating SF detection; inter-arrival time dominating packet type).
+		\item \texttt{Code/AIML/baselines.py}: the runnable script.
+		\item \texttt{Code/AIML/baselines\_manifest.json}: per-task Dummy/Tree-5/RF accuracies, Wilson CIs, RF best-params, and feature-importance ranking.
+		\item Filled baseline summary table (rows for non-skipped tasks; \texttt{mod} row marked skipped).
+		\item Three feature-importance bar plots (\texttt{sf}, \texttt{beacon}, \texttt{pkt}), each with a 2--3 sentence interpretation.
+		\item \texttt{Code/AIML/artifacts/\{sf,beacon,pkt\}/rf.pkl}: the grid-searched random forests.
+		\item One short paragraph per non-skipped task discussing whether the top-ranked features match the physical expectation (e.g., \mbox{SNR} dominating SF detection; \texttt{inter\_arrival\_ms} dominating packet type and emitter \mbox{ID}).
+		\item \texttt{Code/AIML/Logs/baselines\_<timestamp>.log}: archived audit trail showing the populated summary table.
 	\end{enumerate}
 \end{tcolorbox}
 

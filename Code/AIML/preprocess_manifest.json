@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-05-03T21:05:05.632131+00:00",
+  "run_stamp": "20260503T210505Z",
+  "source_file": "D:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\Tools\\CampaignCollect\\merged_dataset.csv",
+  "log_archive": "D:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\AIML\\Logs\\preprocess_20260503T210505Z.log",
+  "rows_after_artifact_drop": 2185,
+  "tasks": {
+    "sf": {
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "inter_arrival_ms",
+        "beacon_id",
+        "pkt_type"
+      ],
+      "forbidden": [
+        "spread_factor",
+        "freq_error_hz"
+      ],
+      "label_col": "label_sf",
+      "classes": [
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "n_train": 1529,
+      "n_val": 329,
+      "n_test": 327,
+      "leakage_forbidden_only_acc": 1.0
+    },
+    "mod": {
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "beacon_id",
+        "pkt_type"
+      ],
+      "forbidden": [
+        "mod_kind",
+        "spread_factor"
+      ],
+      "label_col": "label_mod",
+      "classes": [
+        "lora"
+      ],
+      "n_train": 1529,
+      "n_val": 329,
+      "n_test": 327
+    },
+    "beacon": {
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "pkt_type"
+      ],
+      "forbidden": [
+        "beacon_id"
+      ],
+      "label_col": "label_beacon",
+      "classes": [
+        "1",
+        "2"
+      ],
+      "n_train": 1529,
+      "n_val": 329,
+      "n_test": 327,
+      "leakage_forbidden_only_acc": 1.0
+    },
+    "pkt": {
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "beacon_id"
+      ],
+      "forbidden": [
+        "pkt_type"
+      ],
+      "label_col": "label_pkt",
+      "classes": [
+        "0",
+        "1"
+      ],
+      "n_train": 1529,
+      "n_val": 329,
+      "n_test": 327,
+      "leakage_forbidden_only_acc": 1.0
+    }
+  }
+}

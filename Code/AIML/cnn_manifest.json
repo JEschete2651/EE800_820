@@ -1,0 +1,114 @@
+{
+  "generated_at": "2026-05-03T21:35:42.629357+00:00",
+  "run_stamp": "20260503T213527Z",
+  "log_archive": "d:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\AIML\\Logs\\cnn_train_20260503T213527Z.log",
+  "device": "cuda",
+  "window": 8,
+  "results": {
+    "sf": {
+      "test_acc": 0.9847094801223242,
+      "ci_lo": 0.9647112840637515,
+      "ci_hi": 0.9934515808019975,
+      "n_correct": 322,
+      "n_total": 327,
+      "elapsed_s": 6.3015546798706055,
+      "n_features": 5,
+      "n_classes": 4,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "inter_arrival_ms",
+        "beacon_id",
+        "pkt_type"
+      ],
+      "op_shift": {
+        "acc_clean_clean": 0.9777777777777777,
+        "acc_clean_contended": 0.0,
+        "delta": 0.9777777777777777,
+        "n_clean_test": 225,
+        "n_contended_test": 102,
+        "clean_train_size": 1118
+      },
+      "finetune": {
+        "acc": 0.30392156862745096,
+        "n_correct": 31,
+        "n_total": 102,
+        "n_finetune_rows": 82,
+        "fraction": 0.2,
+        "recovered": 0.30392156862745096
+      }
+    },
+    "mod": {
+      "skipped": true,
+      "reason": "single class in train"
+    },
+    "beacon": {
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 1.3943402767181396,
+      "n_features": 6,
+      "n_classes": 2,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "pkt_type"
+      ],
+      "op_shift": {
+        "acc_clean_clean": 1.0,
+        "acc_clean_contended": 0.696078431372549,
+        "delta": 0.303921568627451,
+        "n_clean_test": 225,
+        "n_contended_test": 102,
+        "clean_train_size": 1118
+      },
+      "finetune": {
+        "acc": 0.696078431372549,
+        "n_correct": 71,
+        "n_total": 102,
+        "n_finetune_rows": 82,
+        "fraction": 0.2,
+        "recovered": 0.0
+      }
+    },
+    "pkt": {
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 1.3890173435211182,
+      "n_features": 6,
+      "n_classes": 2,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "beacon_id"
+      ],
+      "op_shift": {
+        "acc_clean_clean": 1.0,
+        "acc_clean_contended": 0.696078431372549,
+        "delta": 0.303921568627451,
+        "n_clean_test": 225,
+        "n_contended_test": 102,
+        "clean_train_size": 1118
+      },
+      "finetune": {
+        "acc": 0.696078431372549,
+        "n_correct": 71,
+        "n_total": 102,
+        "n_finetune_rows": 82,
+        "fraction": 0.2,
+        "recovered": 0.0
+      }
+    }
+  }
+}

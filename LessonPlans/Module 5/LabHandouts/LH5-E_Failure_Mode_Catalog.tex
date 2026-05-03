@@ -93,7 +93,7 @@ For every failure, integration issue, or accuracy anomaly observed during the pr
 		F1 & \FIFO{} overflow under burst arrivals             & LH5-A (S1c, S1e) & M2   & \FIFO{} depth 64 insufficient for two-Target ALOHA + intermittent PAUSE peaks \\
 		F2 & \mbox{CRC} reject on valid frames                  & LH3-C            & M1/M2 & \mbox{CRC} polynomial mismatch between firmware and \mbox{RTL} \\
 		F3 & Classification collapse at low \mbox{SNR}          & LH5-B (S3d/e)    & M3/M4 & Training data did not cover $<$0\,dB \mbox{SNR} regime \\
-		F4 & Transient SF/mod misclass at SF transition         & LH5-B (S2)       & M2   & \texttt{inter\_arrival\_ms} computed against previous-SF DATA frame from same Target~ID \\
+		F4 & Transient \texttt{sf} misclass at SF transition    & LH5-B (S2)       & M2   & \texttt{inter\_arrival\_ms} computed against previous-SF DATA frame from same Target~ID \\
 		F5 & Stale RSSI table $\Rightarrow$ wrong PAUSE target  & LH5-C (S5)       & M1   & Threat RSSI table not aged; old strongest emitter selected after the link rebalances \\
 		F6 & Both Targets simultaneously jammed                 & LH5-A (S1d)      & M1   & Held-button PAUSE without RSSI tie-break selects the same Target every cadence; the other never receives a PAUSE row but is collateral-jammed by the on-air burst \\
 		F7 & Operating-condition shift (clean$\to$contended)    & LH4-F + LH5-D B5 & M3   & Training set under-samples PAUSE-active regime; classifier accuracy drops once C5 introduces PAUSE rows and contention \\
@@ -174,8 +174,8 @@ Pick one depth-2 or deeper entry from your catalog and write a one-page walkthro
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{Design decision (M3):} The Module~3 collection campaigns C1--C4 were all run in the ``clean'' regime --- no PAUSE asserted, no contention beyond the natural Target~A / Target~B ping-pong. Chosen for reproducibility and labelling simplicity at 906.5\,MHz.
 	\item \textbf{Propagation (M3 dataset):} The training set therefore has near-zero PAUSE-row examples and near-zero half-jammed feature vectors. The marginal distributions of \texttt{rssi\_delta}, \texttt{inter\_arrival\_ms}, and the packed Modulation Code byte are all skewed toward the clean-regime mode.
-	\item \textbf{Propagation (M4):} The four-task classifier learned class-conditional distributions on this clean training set. The Module~4 LH4-F operating-condition shift experiment quantified $\Delta_{\text{op-shift}}$ on a held-out C5 slice and found the largest drops on the modulation-kind and packet-type tasks.
-	\item \textbf{Observed failure (M5):} In LH5-D's B5 operating point (Target~A + Target~B + held-button PAUSE), the same drop reappears live. PAUSE rows are sometimes misclassified as DATA, and modulation-kind accuracy on the half-suppressed Target degrades by $>$5\,pp from the B4 baseline.
+	\item \textbf{Propagation (M4):} The three-task classifier suite (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) learned class-conditional distributions on this clean training set. The Module~4 LH4-F operating-condition shift experiment quantified $\Delta_{\text{op-shift}}$ on a held-out C5 slice and found the largest drops on the \texttt{sf} and \texttt{pkt} tasks (the \texttt{beacon} task is byte-decoded and stays at $\sim$1.0 throughout).
+	\item \textbf{Observed failure (M5):} In LH5-D's B5 operating point (Target~A + Target~B + held-button PAUSE), the same drop reappears live. PAUSE rows are sometimes misclassified as DATA, and \texttt{sf} accuracy on the half-suppressed Target degrades by $>$5\,pp from the B4 baseline.
 	\item \textbf{Fix candidates (M3 retrofit):} Add a dedicated C5-style collection campaign with intermittent PAUSE asserted, or apply targeted oversampling/fine-tuning on the small contended slice (the LH4-F fine-tuning recipe).
 \end{enumerate}
 

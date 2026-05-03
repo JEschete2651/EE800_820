@@ -11,8 +11,8 @@ Train an \texttt{SVC} classifier (with both linear and \mbox{RBF} kernels) for e
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-B complete (scaled feature matrices available). \mbox{SVM}s \emph{require} scaling --- do not attempt to train on unscaled features.
-	\item Lab Handout~4-C complete (random-forest numbers available for comparison).
+	\item Lab Handout~4-B complete (\texttt{Code/AIML/artifacts/\{sf,mod,beacon,pkt\}/} with scaled feature matrices). \mbox{SVM}s \emph{require} scaling --- do not attempt to train on unscaled features.
+	\item Lab Handout~4-C complete (\texttt{baselines\_manifest.json} and per-task \texttt{rf.pkl} available for comparison in Step~4).
 \end{itemize}
 
 \section{Background: Why Both Kernels?}
@@ -26,132 +26,286 @@ The linear kernel gives you interpretable coefficients (one per feature per one-
 
 \section{Procedure}
 
-\subsection{Step 1 --- Grid search}
+\subsection{Step 1 --- Logging, loader, and grid search}
+The script (\texttt{Code/AIML/svm\_train.py}) follows the same logging pattern as LH4-A through LH4-C: stdout plus a timestamped archive log and \texttt{svm\_train\_latest.log} in \texttt{Code/AIML/Logs/}. Single-class tasks (\texttt{mod} in the current LoRa-only dataset) are skipped because \texttt{SVC.fit} requires $\geq 2$ classes.
 
-\begin{lstlisting}[language=Python, caption={\texttt{train\_svm.py} --- SVM grid search for all four tasks.}]
-import numpy as np, joblib
-from sklearn.svm import SVC
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import accuracy_score, classification_report
+\begin{lstlisting}[language=Python, caption={Top of \texttt{svm\_train.py} --- imports, paths, logging, loader, Wilson CI.}]
+import json
+import logging
+import sys
+import time
+from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import norm, spearmanr
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,
+                             classification_report, confusion_matrix)
+from sklearn.model_selection import GridSearchCV
+from sklearn.svm import SVC
+
+SCRIPT_DIR    = Path(__file__).parent
+LOG_DIR       = SCRIPT_DIR / "Logs"
+ARTIFACTS_DIR = SCRIPT_DIR / "artifacts"
+FIGS_DIR      = SCRIPT_DIR / "figs"
+MANIFEST_PATH = SCRIPT_DIR / "svm_manifest.json"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
+
+run_stamp   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+log_archive = LOG_DIR / f"svm_train_{run_stamp}.log"
+log_latest  = LOG_DIR / "svm_train_latest.log"
+
+log = logging.getLogger("svm_train")
+log.setLevel(logging.DEBUG)
+log.handlers.clear()
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+for h in (logging.StreamHandler(sys.stdout),
+          logging.FileHandler(log_archive, mode="w", encoding="utf-8"),
+          logging.FileHandler(log_latest,  mode="w", encoding="utf-8")):
+    h.setFormatter(fmt)
+    log.addHandler(h)
+
+log.info("=== svm_train.py starting ===")
+log.info(f"Run stamp: {run_stamp}")
+
+
 def load_task(task):
-    d = Path(f"artifacts/{task}")
-    X_tr = np.load(d / "X_train.npy");  y_tr = np.load(d / "y_train.npy")
-    X_va = np.load(d / "X_val.npy");    y_va = np.load(d / "y_val.npy")
-    X_te = np.load(d / "X_test.npy");   y_te = np.load(d / "y_test.npy")
+    d = ARTIFACTS_DIR / task
+    X_tr = np.load(d / "X_train.npy"); y_tr = np.load(d / "y_train.npy")
+    X_va = np.load(d / "X_val.npy");   y_va = np.load(d / "y_val.npy")
+    X_te = np.load(d / "X_test.npy");  y_te = np.load(d / "y_test.npy")
     pre  = joblib.load(d / "preprocessor.pkl")
     return X_tr, y_tr, X_va, y_va, X_te, y_te, pre
 
+
+def wilson_ci(n_correct, n_total, alpha=0.05):
+    if n_total == 0:
+        return 0.0, 1.0
+    p = n_correct / n_total
+    z = norm.ppf(1 - alpha / 2)
+    denom = 1 + z * z / n_total
+    center = (p + z * z / (2 * n_total)) / denom
+    half = z * sqrt(p * (1 - p) / n_total
+                    + z * z / (4 * n_total * n_total)) / denom
+    return max(0.0, center - half), min(1.0, center + half)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={SVM grid search per task with single-class skip and elapsed-time logging.}]
 SVM_GRID = [
     {"kernel": ["linear"], "C": [0.1, 1, 10]},
     {"kernel": ["rbf"],    "C": [0.1, 1, 10, 100],
-                            "gamma": ["scale", 0.01, 0.1, 1.0]},
+                           "gamma": ["scale", 0.01, 0.1, 1.0]},
 ]
 
-def grid_search_svm(task):
+results = {}
+for task in ["sf", "mod", "beacon", "pkt"]:
+    log.info(f"--- Task: {task} ---")
     X_tr, y_tr, X_va, y_va, X_te, y_te, pre = load_task(task)
+    n_classes = len(np.unique(y_tr))
+    log.info(f"  Train shape={X_tr.shape}, classes={n_classes}, "
+             f"features={pre['feature_cols']}")
+    if n_classes < 2:
+        log.warning(f"  {task}: only {n_classes} class --- skipping (SVC needs >=2)")
+        results[task] = {"skipped": True, "reason": "single class in train"}
+        continue
+
     X_cv = np.concatenate([X_tr, X_va]); y_cv = np.concatenate([y_tr, y_va])
-
-    gs = GridSearchCV(SVC(random_state=42, probability=True),
+    t0 = time.time()
+    gs = GridSearchCV(SVC(random_state=42),
                       SVM_GRID, cv=5, scoring="accuracy",
-                      n_jobs=-1, verbose=1)
+                      n_jobs=-1, verbose=0)
     gs.fit(X_cv, y_cv)
-    best = gs.best_estimator_
-    acc_te = accuracy_score(y_te, best.predict(X_te))
-    print(f"[{task}] best params: {gs.best_params_}")
-    print(f"[{task}] CV acc: {gs.best_score_:.3f}  test acc: {acc_te:.3f}")
-    joblib.dump({"model": best, "cv_acc": gs.best_score_,
-                 "test_acc": acc_te, "params": gs.best_params_},
-                f"artifacts/{task}/svm.pkl")
-    return best, X_te, y_te, pre
+    elapsed = time.time() - t0
+    log.info(f"  Grid search complete in {elapsed:.1f}s; "
+             f"best params: {gs.best_params_}")
 
-for t in ["sf", "mod", "beacon"]:
-    grid_search_svm(t)
+    best = gs.best_estimator_
+    y_pred = best.predict(X_te)
+    n_correct = int((y_pred == y_te).sum())
+    acc_te = n_correct / len(y_te)
+    lo, hi = wilson_ci(n_correct, len(y_te))
+    log.info(f"  CV acc = {gs.best_score_:.3f}  test acc = {acc_te:.3f}  "
+             f"[95% CI {lo:.3f}, {hi:.3f}]")
+
+    joblib.dump({"model": best, "cv_acc": float(gs.best_score_),
+                 "test_acc": acc_te, "ci": [lo, hi],
+                 "params": gs.best_params_, "elapsed_s": elapsed},
+                ARTIFACTS_DIR / task / "svm.pkl")
+    results[task] = {
+        "kernel":   gs.best_params_.get("kernel"),
+        "C":        gs.best_params_.get("C"),
+        "gamma":    gs.best_params_.get("gamma"),
+        "cv_acc":   float(gs.best_score_),
+        "test_acc": acc_te, "ci_lo": lo, "ci_hi": hi,
+        "n_correct": n_correct, "n_total": len(y_te),
+        "elapsed_s": elapsed,
+        "feature_cols": pre["feature_cols"],
+    }
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={\mbox{SVM} Training Time}]
-	At $n=2{,}500$ samples and full grid search, expect $\sim$2--5 minutes per task on a laptop. If you see one combination hanging for $>$30 minutes, interrupt it --- usually $\gamma = 1.0$ with $C = 100$ on a scaled feature set can produce an extremely slow fit due to near-singular kernel matrix. Remove that corner from the grid and rerun.
+	At $n \approx 2{,}000$ samples with the full grid (linear: 3 combos; \mbox{RBF}: 16 combos; both with 5-fold \mbox{CV}), expect roughly 30\,s--3\,min per task on a laptop with \texttt{n\_jobs=-1}. If one combination hangs for $>$30 minutes, interrupt it --- $\gamma = 1.0$ with $C = 100$ on a scaled feature set can produce an extremely slow fit due to a near-singular kernel matrix. Remove that corner from the grid and rerun. The script logs per-task elapsed time so this is easy to spot.
 \end{tcolorbox}
 
 \subsection{Step 2 --- Classification report and confusion matrix}
 
 \begin{lstlisting}[language=Python]
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-
-for task in ["sf", "mod", "beacon"]:
-    d = joblib.load(f"artifacts/{task}/svm.pkl")
-    svm = d["model"]
+for task, res in results.items():
+    if res.get("skipped"):
+        continue
+    pkl = joblib.load(ARTIFACTS_DIR / task / "svm.pkl")
+    svm = pkl["model"]
     _, _, _, _, X_te, y_te, pre = load_task(task)
     y_pred = svm.predict(X_te)
-    print(f"\n=== {task} SVM classification report ===")
-    print(classification_report(y_te, y_pred,
-          target_names=[str(c) for c in pre["encoder"].classes_]))
+    log.info(f"--- {task} SVM classification report ---")
+    report = classification_report(y_te, y_pred,
+        target_names=[str(c) for c in pre["encoder"].classes_])
+    for line in report.splitlines():
+        log.info(line)
+
     cm = confusion_matrix(y_te, y_pred)
-    disp = ConfusionMatrixDisplay(cm,
-           display_labels=[str(c) for c in pre["encoder"].classes_])
-    disp.plot(cmap="Blues", values_format="d")
-    plt.title(f"Confusion matrix --- SVM --- {task}")
-    plt.tight_layout()
-    plt.savefig(f"figs/cm_svm_{task}.png", dpi=150)
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ConfusionMatrixDisplay(cm,
+        display_labels=[str(c) for c in pre["encoder"].classes_]
+    ).plot(cmap="Blues", values_format="d", ax=ax, colorbar=False)
+    ax.set_title(f"Confusion matrix --- SVM --- {task}")
+    fig.tight_layout()
+    out = FIGS_DIR / f"cm_svm_{task}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    log.info(f"  Saved {out}")
 \end{lstlisting}
 
-Look at off-diagonal structure: a confusion matrix where errors cluster on SF7$\leftrightarrow$SF8 (adjacent spreading factors) is physically expected; a matrix where SF7$\leftrightarrow$SF12 dominates is not.
+Look at off-diagonal structure: a confusion matrix where errors cluster on SF7$\leftrightarrow$SF8 (adjacent spreading factors) is physically expected; a matrix where SF7$\leftrightarrow$SF10 dominates is not.
 
 \subsection{Step 3 --- Permutation importance}
 Gini importance from a forest can attribute all the signal to whichever of two correlated features the tree split on first. Permutation importance is model-agnostic and directly measures ``how much does test accuracy drop if I shuffle this column?''
 
 \begin{lstlisting}[language=Python]
-from sklearn.inspection import permutation_importance
-
 def perm_importance(model, X_te, y_te, feature_names, task, n_repeats=20):
     r = permutation_importance(model, X_te, y_te,
                                n_repeats=n_repeats, random_state=42,
                                n_jobs=-1)
     order = np.argsort(r.importances_mean)[::-1]
-    plt.figure(figsize=(7, 3.5))
-    plt.boxplot(r.importances[order].T, labels=[feature_names[i] for i in order])
-    plt.xticks(rotation=30)
-    plt.ylabel("accuracy drop when shuffled")
-    plt.title(f"Permutation importance --- SVM --- {task}")
-    plt.tight_layout()
-    plt.savefig(f"figs/perm_importance_svm_{task}.png", dpi=150)
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+    ax.boxplot(r.importances[order].T,
+               tick_labels=[feature_names[i] for i in order])
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    ax.set_ylabel("accuracy drop when shuffled")
+    ax.set_title(f"Permutation importance --- SVM --- {task}")
+    fig.tight_layout()
+    out = FIGS_DIR / f"perm_importance_svm_{task}.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    log.info(f"  Saved {out}")
+    ranking = []
     for i in order:
-        print(f"  {feature_names[i]:20s}  "
-              f"mean={r.importances_mean[i]:+.3f}  "
-              f"std={r.importances_std[i]:.3f}")
+        log.info(f"    {feature_names[i]:20s}  "
+                 f"mean={r.importances_mean[i]:+.3f}  "
+                 f"std={r.importances_std[i]:.3f}")
+        ranking.append((feature_names[i], float(r.importances_mean[i]),
+                        float(r.importances_std[i])))
+    return ranking
 
-for task in ["sf", "mod", "beacon"]:
-    d = joblib.load(f"artifacts/{task}/svm.pkl")
+
+for task, res in results.items():
+    if res.get("skipped"):
+        continue
+    pkl = joblib.load(ARTIFACTS_DIR / task / "svm.pkl")
     _, _, _, _, X_te, y_te, pre = load_task(task)
-    perm_importance(d["model"], X_te, y_te, pre["feature_cols"], task)
+    log.info(f"--- {task} permutation importance (SVM) ---")
+    res["perm_importance"] = perm_importance(
+        pkl["model"], X_te, y_te, pre["feature_cols"], task)
 \end{lstlisting}
 
 \subsection{Step 4 --- Cross-check against random forest}
-Rank the features by permutation importance (SVM, from Step~3) and by Gini importance (RF, from LH4-C). If the top two features agree across both rankings, you have high confidence they are the physically meaningful signal. A sharp disagreement is informative:
+Rank the features by permutation importance (SVM, Step~3) and by Gini importance (RF, from \texttt{baselines\_manifest.json}). Compute Spearman rank correlation between the two rankings: $\rho > 0.8$ is strong agreement, $\rho < 0.5$ is informative disagreement (typically caused by correlated features that the two models split differently).
 
-\begin{itemize}[leftmargin=2em]
-	\item \textbf{RF ranks A highest, SVM ranks B highest:} A and B are correlated; the forest grabs one per split, the SVM weighs whichever correlates with the decision boundary.
-	\item \textbf{Both rankings agree:} the feature genuinely carries discriminative information.
-	\item \textbf{A feature near the bottom of both rankings:} candidate for removal in a compressed feature set (discussed in LH4-H).
-\end{itemize}
+\begin{lstlisting}[language=Python]
+baseline_manifest = SCRIPT_DIR / "baselines_manifest.json"
+if baseline_manifest.exists():
+    with open(baseline_manifest) as f:
+        rf_manifest = json.load(f)["results"]
+else:
+    log.warning("baselines_manifest.json not found --- "
+                "skipping RF cross-check (run LH4-C first)")
+    rf_manifest = {}
 
-\subsection{Step 5 --- Head-to-head summary}
+for task, res in results.items():
+    if res.get("skipped") or task not in rf_manifest \
+            or rf_manifest[task].get("skipped"):
+        continue
+    rf_rank = [(name, gini) for (name, gini)
+               in rf_manifest[task]["feature_importance"]]
+    svm_rank = res.get("perm_importance", [])
+    common = [c for c, _, _ in svm_rank
+              if c in dict(rf_rank)]
+    if len(common) < 2:
+        log.warning(f"  {task}: too few shared features for rank correlation")
+        continue
+    rf_ord  = {c: r for r, (c, _) in enumerate(rf_rank)  if c in common}
+    svm_ord = {c: r for r, (c, _, _) in enumerate(svm_rank) if c in common}
+    rho, _ = spearmanr([rf_ord[c]  for c in common],
+                       [svm_ord[c] for c in common])
+    log.info(f"  {task}: RF Gini vs SVM perm rank correlation rho = {rho:+.2f}")
+    res["rank_correlation_vs_rf"] = float(rho)
+\end{lstlisting}
+
+\subsection{Step 5 --- Head-to-head summary and manifest}
+
+\begin{lstlisting}[language=Python]
+log.info("=== RF vs SVM Summary ===")
+log.info(f"{'Task':<8} {'RF acc':>8} {'SVM acc':>8} {'delta':>8} "
+         f"{'kernel':>8} {'rho_imp':>8}")
+for task in ["sf", "mod", "beacon", "pkt"]:
+    res = results[task]
+    if res.get("skipped"):
+        log.info(f"{task:<8} (skipped)")
+        continue
+    rf_acc = (rf_manifest.get(task, {}).get("rf", {}) or {}).get("acc")
+    delta = res["test_acc"] - rf_acc if rf_acc is not None else None
+    rho = res.get("rank_correlation_vs_rf")
+    log.info(f"{task:<8} "
+             f"{rf_acc:>8.3f}" if rf_acc is not None else f"{task:<8} {'n/a':>8} "
+             f"{res['test_acc']:>8.3f} "
+             f"{(f'{delta:+.3f}' if delta is not None else 'n/a'):>8} "
+             f"{str(res['kernel']):>8} "
+             f"{(f'{rho:+.2f}' if rho is not None else 'n/a'):>8}")
+
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run_stamp":    run_stamp,
+    "log_archive":  str(log_archive),
+    "svm_grid":     SVM_GRID,
+    "results":      results,
+}
+with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2, default=str)
+log.info(f"Wrote {MANIFEST_PATH}")
+log.info("=== svm_train.py done ===")
+\end{lstlisting}
 
 \begin{table}[h!]
 	\centering
 	\renewcommand{\arraystretch}{1.4}
-	\begin{tabularx}{\textwidth}{l c c c X}
+	\begin{tabularx}{\textwidth}{l c c c c X}
 		\toprule
-		\textbf{Task} & \textbf{RF test acc} & \textbf{SVM test acc} & \textbf{$\Delta$} & \textbf{Winner \& notes} \\
+		\textbf{Task} & \textbf{RF acc} & \textbf{SVM acc} & \textbf{$\Delta$} & \textbf{Kernel} & \textbf{Importance $\rho$ (RF vs SVM)} \\
 		\midrule
-		SF Detection     & & & & \\
-		Modulation       & & & & \\
-		Emitter ID       & & & & \\
+		SF Detection     & & & & & \\
+		Modulation       & \multicolumn{5}{l}{(skipped --- only LoRa collected)} \\
+		Emitter ID       & & & & & \\
+		Packet Type      & & & & & \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Classical-model head-to-head. Carry this forward into LH4-E so the neural-network results are benchmarked against the stronger of the two.}
+	\caption{Classical-model head-to-head. Carry this forward into LH4-E so the neural-network results are benchmarked against the stronger of the two. Fill from the script's printed summary or from \texttt{svm\_manifest.json}.}
 \end{table}
 
 \begin{tcolorbox}[infobox={When the Linear Kernel Wins}]
@@ -160,20 +314,25 @@ Rank the features by permutation importance (SVM, from Step~3) and by Gini impor
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \mbox{SVM} grid search complete for all four tasks.
+	\item[$\square$] \mbox{SVM} grid search complete for every task with $\geq 2$ classes (\texttt{sf}, \texttt{beacon}, \texttt{pkt} in the current dataset; \texttt{mod} skipped with logged reason).
+	\item[$\square$] Wilson 95\% CI reported for each \mbox{SVM} test accuracy.
 	\item[$\square$] Confusion matrix generated and inspected for physical plausibility.
 	\item[$\square$] Permutation importance computed with $\geq$20 repeats per task.
-	\item[$\square$] Cross-check against RF Gini importance performed.
-	\item[$\square$] Head-to-head summary table filled.
-	\item[$\square$] \texttt{svm.pkl} saved for each task.
+	\item[$\square$] Spearman rank correlation between RF Gini and \mbox{SVM} permutation rankings logged per task.
+	\item[$\square$] \texttt{Code/AIML/artifacts/<task>/svm.pkl} saved for each non-skipped task.
+	\item[$\square$] \texttt{Code/AIML/svm\_manifest.json} written.
+	\item[$\square$] \texttt{Code/AIML/Logs/svm\_train\_<timestamp>.log} archived.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-D Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/svm.pkl}: saved models, CV/test accuracies, chosen hyperparameters.
-		\item Confusion matrix figure per task.
-		\item Permutation-importance plot per task.
-		\item Head-to-head RF vs.\ SVM summary table with the winner annotated and a one-paragraph discussion of feature-importance agreement/disagreement.
+		\item \texttt{Code/AIML/svm\_train.py}: the runnable script.
+		\item \texttt{Code/AIML/svm\_manifest.json}: per-task best params, accuracies (with Wilson CI), elapsed time, permutation importance, and rank correlation versus RF.
+		\item \texttt{Code/AIML/artifacts/\{sf,beacon,pkt\}/svm.pkl}: the saved models.
+		\item \texttt{Code/AIML/figs/cm\_svm\_<task>.png}: confusion matrix per non-skipped task.
+		\item \texttt{Code/AIML/figs/perm\_importance\_svm\_<task>.png}: permutation importance per non-skipped task.
+		\item Filled head-to-head RF vs.\ \mbox{SVM} summary table with the winner annotated and a one-paragraph discussion of feature-importance agreement/disagreement (using the logged Spearman~$\rho$ values).
+		\item \texttt{Code/AIML/Logs/svm\_train\_<timestamp>.log}: archived audit trail.
 	\end{enumerate}
 \end{tcolorbox}
 

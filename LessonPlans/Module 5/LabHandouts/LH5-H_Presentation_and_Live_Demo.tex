@@ -7,7 +7,7 @@
 \labheader{5-H}{Final Presentation, Live Demonstration, and Capstone Submission}
 
 \section{Objective}
-Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A) that communicates the system architecture, experimental results, and lessons learned; include a live demonstration of real-time four-task classification and the button-gated PAUSE behavioural response; and submit the complete curriculum package. This is the final handout of the capstone --- all prior deliverables feed this one.
+Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A) that communicates the system architecture, experimental results, and lessons learned; include a live demonstration of real-time three-task classification (\texttt{sf}, \texttt{beacon}, \texttt{pkt} --- the \texttt{mod} task is single-class in the dataset and not deployed) and the button-gated PAUSE behavioural response; and submit the complete curriculum package. This is the final handout of the capstone --- all prior deliverables feed this one.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -28,7 +28,7 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 		Duration   & 20 minutes presentation $+$ 10 minutes \mbox{Q\&A} \\
 		Audience   & Project advisor, program committee, peers \\
 		Format     & Slide deck (PowerPoint, Beamer, Google Slides) \\
-		Live demo  & 3--4 minute live real-time classification + PAUSE button-hold demo, with a backup video \\
+		Live demo  & 3--4 minute live real-time three-task classification + PAUSE button-hold demo, with a backup video \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
@@ -48,8 +48,8 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 		2 & Motivation \& goals   & 2 & Why this framework? What cross-domain skills does it teach? \\
 		3 & System architecture   & 2 & Full system diagram (Target~A, Target~B, Threat); hardware photo; data-flow overview \\
 		4 & Module highlights     & 5 & 1 slide per module: key decision, key result, link to next module \\
-		5 & Live demo             & 1 + live & Real-time four-task classification; PAUSE button-hold behavioural response \\
-		6 & Key results           & 3 & System spec table; per-task classification accuracy; stress-test findings; PAUSE response/recovery latency \\
+		5 & Live demo             & 1 + live & Real-time three-task classification (\texttt{sf}, \texttt{beacon}, \texttt{pkt}); PAUSE button-hold behavioural response \\
+		6 & Key results           & 3 & System spec table; per-task classification accuracy (three deployed tasks); stress-test findings; PAUSE response/recovery latency \\
 		7 & Lessons learned       & 2 & Cross-domain dependencies; operating-condition shift; redesign choices \\
 		8 & Conclusion \& future  & 1 & Summary, next steps \\
 		9 & \mbox{Q\&A}           & 1 & Contact info, acknowledgments \\
@@ -62,7 +62,7 @@ Prepare and deliver the 20-minute capstone presentation (plus 10 minutes of Q\&A
 The five module-highlight slides are the hardest to get right. For each one:
 \begin{itemize}[leftmargin=2em]
 	\item Pick the \emph{single} most compelling figure or table from that module.
-	\item State in one phrase (on the slide) the key design decision: e.g., ``32-B packet, packed Modulation Code byte'', ``feature vector with packet-type at offset 3'', ``5 sweep campaigns, regime-stratified split'', ``four-task classifier suite at 100\,MHz'', ``button-gated PAUSE for behavioural response''.
+	\item State in one phrase (on the slide) the key design decision: e.g., ``32-B packet, packed Modulation Code byte'', ``feature vector with packet-type at offset 3'', ``5 sweep campaigns, regime-stratified split'', ``three-task classifier suite (CNN/SVM/SVM) selected by LH4-H rubric'', ``button-gated PAUSE for behavioural response''.
 	\item State the key result in a sentence or a number.
 	\item \emph{In your script}: end with a sentence that transitions to the next module (``this packed Modulation Code is what Module~2's parser splits into \texttt{mod\_kind} and \texttt{pkt\_type}'').
 \end{itemize}
@@ -97,14 +97,14 @@ The live demonstration is the most impactful part of the presentation and also t
 Write and rehearse a verbatim script for the live demo. Have three terminals visible: the host four-task inference, Target~A's USART2 console, and Target~B's USART2 console.
 
 \begin{enumerate}[leftmargin=2em]
-	\item \emph{``On screen is the live output of our inference script. Each line represents one packet classified on four independent tasks: spreading factor, modulation kind, emitter ID, and packet type.''}
-	\item \emph{``You can see Target~A and Target~B in a steady DATA/ACK ping-pong, both at SF7, both LoRa, with the correct emitter IDs (0x01 and 0x02), and the packet-type column alternating DATA/ACK as expected.''}
+	\item \emph{``On screen is the live output of our inference script. Each line represents one packet classified on three independent tasks: spreading factor (\texttt{sf}), beacon ID (\texttt{beacon}), and packet type (\texttt{pkt}). The dataset is single-class on modulation kind, so that task was dropped during Module~3.''}
+	\item \emph{``You can see Target~A and Target~B in a steady DATA/ACK ping-pong at SF7, with the correct beacon IDs (0x01 and 0x02), and the packet-type column alternating DATA/ACK as expected.''}
 	\item (Reconfigure Target~A to SF10; wait for the next DATA frame.)
 	\item \emph{``I've just reconfigured Target~A to SF10. Watch Target~A's row switch on its next DATA frame --- there --- while Target~B's ACKs remain at SF7.''}
 	\item (Return Target~A to SF7. Wait for the link to settle for at least 5\,s.)
 	\item \emph{``Now I will hold the PAUSE button on the Threat interceptor. The Threat reads its RSSI table, picks the strongest target, and emits a 32-byte PAUSE row addressed to that ID at a 100\,ms cadence.''}
 	\item (Press and hold the user button on the Threat for $\sim$3 seconds.)
-	\item \emph{``Watch the targeted Target's USART2 console: there --- it just printed `I'm Jammed' as soon as it decoded the first PAUSE row addressed to its ID. The classifier on the host also tagged that frame as packet-type PAUSE.''}
+	\item \emph{``Watch the targeted Target's USART2 console: there --- it just printed `I'm Jammed' as soon as it decoded the first PAUSE row addressed to its beacon ID. The classifier on the host also tagged that frame's \texttt{pkt} task as PAUSE.''}
 	\item (Release the button.)
 	\item \emph{``The Target waits out its 500\,ms hold-off and the ping-pong resumes --- there. The end-to-end button-to-acknowledgement latency you just saw is roughly the LH5-C S5 number on the slide.''}
 \end{enumerate}
@@ -123,7 +123,7 @@ Two full rehearsals, ideally on different days:
 The 10-minute \mbox{Q\&A} is often where the final impression is made. Prepare one-sentence answers to at least the following likely questions:
 
 \begin{itemize}[leftmargin=2em]
-	\item Why did you choose a random forest (or whichever model won) on the packet-type task? Cite the LH4-H rubric.
+	\item Why did you choose CNN for \texttt{sf} and SVM for \texttt{beacon} and \texttt{pkt}? Cite the LH4-H rubric: SVM has the lowest median latency (\textasciitilde{}0.35\,ms) and ties on accuracy when the task is byte-decoded; CNN wins on \texttt{sf} because the 8-frame sequence buffer captures temporal context the row-models cannot. RF was over the latency budget (median \textasciitilde{}186\,ms) so it was disqualified despite high interpretability.
 	\item What is the operating-condition shift $\Delta_{\text{op-shift}}$ and what causes it? Cite LH4-F + LH5-D B5.
 	\item Is the PAUSE protocol FCC-compliant? (Yes: it is a directed protocol message at the same +14\,dBm and 906.5\,MHz as the cooperative DATA/ACK traffic, only emitted when the operator presses the button, with a 100\,ms cadence and 500\,ms hold-off --- not a wide-band jammer.)
 	\item If you had to pick one thing to redo, what would it be? Use the LH5-G Discussion answer.

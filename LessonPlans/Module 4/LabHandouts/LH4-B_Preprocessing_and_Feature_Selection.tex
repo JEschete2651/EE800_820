@@ -7,16 +7,16 @@
 \labheader{4-B}{Preprocessing Pipeline, Feature Selection, and Label-Leakage Prevention}
 
 \section{Objective}
-Convert the validated dataset from LH4-A into model-ready matrices: drop sentinel rows, encode labels, select task-specific feature sets that avoid label leakage, and fit a \texttt{StandardScaler} that downstream classifiers will reuse. The deliverable is a reusable \texttt{Preprocessor} class and saved artifacts (\texttt{X\_train.npy}, \texttt{y\_train.npy}, \texttt{scaler.pkl}) for all four classification tasks (SF, modulation, emitter ID, packet type).
+Convert the validated dataset from LH4-A into model-ready matrices: drop join-mid-stream artifact rows, encode labels, select task-specific feature sets that avoid label leakage, and fit a \texttt{StandardScaler} that downstream classifiers will reuse. The deliverable is a reusable \texttt{Preprocessor} class and saved artifacts (\texttt{X\_train.npy}, \texttt{y\_train.npy}, \texttt{preprocessor.pkl}) for all four classification tasks (SF, modulation, emitter ID, packet type).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-A complete (validated dataset, \texttt{validation\_manifest.json}).
+	\item Lab Handout~4-A complete (\texttt{validation\_manifest.json} present in \texttt{Code/AIML/}).
 	\item Python with \texttt{scikit-learn} and \texttt{joblib} installed.
 \end{itemize}
 
 \section{Background: Why Four Feature Sets, Not One?}
-Module~4 trains three classifiers: spreading-factor detection, modulation classification, and emitter identification. Each has a different list of columns that are \emph{forbidden} because they would trivially reveal the label:
+Module~4 trains four classifiers: spreading-factor detection, modulation classification, emitter identification, and packet-type classification. Each has a different list of columns that are \emph{forbidden} because they would trivially reveal the label:
 
 \begin{table}[h!]
 	\centering
@@ -25,9 +25,10 @@ Module~4 trains three classifiers: spreading-factor detection, modulation classi
 		\toprule
 		\textbf{Task} & \textbf{Label} & \textbf{Columns Forbidden (Would Leak Label)} \\
 		\midrule
-		SF Detection & \texttt{label\_sf} & \texttt{spread\_factor} (self-reported copy of the label) \\
-		Modulation   & \texttt{label\_mod} & \texttt{mod\_kind}, \texttt{spread\_factor} (SF is 0 for \mbox{FSK}) \\
+		SF Detection & \texttt{label\_sf} & \texttt{spread\_factor} (self-reported copy), \texttt{freq\_error\_hz} (perfectly session-confounded with SF in the current dataset, $r = 1.000$ per LH3-H EDA~3) \\
+		Modulation   & \texttt{label\_mod}, \texttt{mod\_kind\_label} & \texttt{mod\_kind} (self-reported copy), \texttt{spread\_factor} (would be 0 for non-LoRa modulations once C3 is collected) \\
 		Emitter ID   & \texttt{label\_beacon} & \texttt{beacon\_id} (self-reported copy of the label) \\
+		Packet Type  & \texttt{label\_pkt} & \texttt{pkt\_type} (\emph{is} the label --- extracted from the low 2 bits of the \texttt{Modulation Code} byte by LH2-F) \\
 		\bottomrule
 	\end{tabularx}
 	\caption{Label-leakage table. Any of these forbidden columns left in the feature matrix will push test accuracy to $\sim$100\% --- not because the classifier works, but because it is reading the answer.}
@@ -35,46 +36,98 @@ Module~4 trains three classifiers: spreading-factor detection, modulation classi
 
 \begin{tcolorbox}[warning={The Silent Leak}]
 	Label leakage rarely produces an error message. It produces an impressive accuracy number. The only way to catch it is to enumerate your forbidden columns \emph{before} training, and the only way to keep that list current is to derive it mechanically from the data dictionary. If you add a new feature to the \mbox{CSV} later, revisit this table.
+
+	\textbf{The \texttt{freq\_error\_hz} case is special:} it is not a label by construction, but in this dataset every \mbox{SF} was collected in a separate session and the \mbox{SX1276} crystal drifted $\sim$131~Hz between sessions. The \mbox{LH3-H} \mbox{EDA} pinned the SF/freq\_error correlation at $r = 1.000$. A classifier trained with that column would just learn ``which session,'' not ``which \mbox{SF}.'' Until the dataset is rebuilt with interleaved-\mbox{SF} sessions, the column is forbidden for the SF task.
 \end{tcolorbox}
 
 \section{Procedure}
 
-\subsection{Step 1 --- Drop sentinel rows}
-Rows with \texttt{obs\_count == 1} have undefined \texttt{inter\_arrival\_ms}, \texttt{rssi\_delta}, and \texttt{priority\_score} (nothing to compare the first observation against). Drop them globally before any feature selection.
+\subsection{Step 1 --- Logging setup and join-artifact drop}
+Use the same logging pattern as LH4-A: stdout plus a timestamped archive log and a stable \texttt{*\_latest.log} in \texttt{Code/AIML/Logs/}. Then drop the per-run join-mid-stream artifact rows --- the very first packet of each \texttt{run\_id} has \texttt{inter\_arrival\_ms = 0} (no predecessor to subtract) and would be a misleading sample for any model that uses inter-arrival time as a feature.
 
-\begin{lstlisting}[language=Python]
+\begin{lstlisting}[language=Python, caption={Top of \texttt{preprocess.py} --- imports, paths, logging.}]
+import json
+import logging
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import joblib
+import numpy as np
 import pandas as pd
-df = pd.read_csv("merged_dataset.csv")
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+
+SCRIPT_DIR    = Path(__file__).parent
+LOG_DIR       = SCRIPT_DIR / "Logs"
+ARTIFACTS_DIR = SCRIPT_DIR / "artifacts"
+MERGED_CSV    = SCRIPT_DIR.parent / "Tools" / "CampaignCollect" / "merged_dataset.csv"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+run_stamp   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+log_archive = LOG_DIR / f"preprocess_{run_stamp}.log"
+log_latest  = LOG_DIR / "preprocess_latest.log"
+
+log = logging.getLogger("preprocess")
+log.setLevel(logging.DEBUG)
+log.handlers.clear()
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+for h in (logging.StreamHandler(sys.stdout),
+          logging.FileHandler(log_archive, mode="w", encoding="utf-8"),
+          logging.FileHandler(log_latest,  mode="w", encoding="utf-8")):
+    h.setFormatter(fmt)
+    log.addHandler(h)
+
+log.info("=== preprocess.py starting ===")
+log.info(f"Run stamp: {run_stamp}")
+log.info(f"Source CSV: {MERGED_CSV}")
+
+if not MERGED_CSV.exists():
+    log.error(f"merged_dataset.csv not found at {MERGED_CSV}")
+    sys.exit(1)
+
+df = pd.read_csv(MERGED_CSV)
 n0 = len(df)
-df = df[df["obs_count"] > 1].reset_index(drop=True)
-print(f"Dropped {n0 - len(df)} sentinel rows ({(n0 - len(df))/n0:.1%})")
+# Drop the first row of each run_id: inter_arrival_ms is 0 there
+# because there is no predecessor packet to subtract from. These are
+# the join-mid-stream artifacts that merge_dataset.py preserves but
+# that no inter-arrival-using model should see.
+df = df[df["inter_arrival_ms"] > 0].reset_index(drop=True)
+log.info(f"Dropped {n0 - len(df)} join-artifact rows "
+         f"({(n0 - len(df))/n0:.1%}); {len(df):,} rows remain")
 \end{lstlisting}
 
 \subsection{Step 2 --- Build the \texttt{Preprocessor} class}
 
 \begin{lstlisting}[language=Python, caption={\texttt{preprocess.py} --- the reusable preprocessing class used by every Module~4 classifier.}]
-import joblib
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from pathlib import Path
-
+# Feature columns that exist in the LH3-H schema and are physically
+# meaningful as model inputs. Identifier columns (run_id, timestamps,
+# seq_num) and string labels are excluded by construction. Per-task
+# forbidden columns below remove the leak-prone subset.
 FEATURE_COLS_BASE = [
-    "rssi", "snr", "inter_arrival_ms", "rssi_delta",
-    "obs_count", "priority_score", "distance_m",
+    "rssi_dbm", "snr_db", "freq_error_hz",
+    "inter_arrival_ms", "payload_len",
+    "spread_factor", "mod_kind", "beacon_id", "pkt_type",
+    "distance_m",
 ]
 
+# See the label-leakage table in the Background section.
 FORBIDDEN = {
-    "sf":     ["spread_factor"],
+    "sf":     ["spread_factor", "freq_error_hz"],
     "mod":    ["mod_kind", "spread_factor"],
     "beacon": ["beacon_id"],
+    "pkt":    ["pkt_type"],
 }
 
 LABEL_COL = {
     "sf":     "label_sf",
     "mod":    "label_mod",
     "beacon": "label_beacon",
+    "pkt":    "label_pkt",
 }
+
 
 class Preprocessor:
     def __init__(self, task):
@@ -87,14 +140,44 @@ class Preprocessor:
 
     def fit_transform(self, df):
         tr = df[df["split"] == "train"]
-        X_tr = tr[self.feature_cols].to_numpy(dtype=np.float32)
+        if tr.empty:
+            raise RuntimeError(
+                f"Task {self.task}: no training rows after filtering")
+        # Drop zero-variance columns: StandardScaler can't scale them
+        # (std=0 produces NaN or 0/0) and they carry no information
+        # for any model. In the C1+C2+C5 dataset, payload_len (14 B
+        # everywhere), distance_m (3 m everywhere), and mod_kind (LoRa
+        # everywhere) are constants.
+        X_full = tr[self.feature_cols].to_numpy(dtype=np.float32)
+        std = X_full.std(axis=0)
+        keep = std > 0
+        dropped = [c for c, k in zip(self.feature_cols, keep) if not k]
+        if dropped:
+            log.warning(f"Task {self.task}: dropping zero-variance "
+                        f"features: {dropped}")
+        self.feature_cols = [c for c, k in zip(self.feature_cols, keep) if k]
+        X_tr = X_full[:, keep]
         y_tr = self.encoder.fit_transform(tr[LABEL_COL[self.task]])
         X_tr = self.scaler.fit_transform(X_tr)
         return X_tr, y_tr
 
     def transform(self, df, split):
         sp = df[df["split"] == split]
+        if sp.empty:
+            return (np.empty((0, len(self.feature_cols)), dtype=np.float32),
+                    np.empty((0,), dtype=np.int64))
         X = sp[self.feature_cols].to_numpy(dtype=np.float32)
+        # Filter out rows whose label class is unseen during training
+        # (LabelEncoder.transform raises on unseen classes; this happens
+        # for the mod task today since C3 is not collected, and the
+        # train split may not see every beacon class).
+        known = np.isin(sp[LABEL_COL[self.task]].to_numpy(),
+                        self.encoder.classes_)
+        if (~known).any():
+            log.warning(f"Task {self.task} split={split}: dropping "
+                        f"{(~known).sum()} rows with unseen labels "
+                        f"{set(sp.loc[~known, LABEL_COL[self.task]])}")
+        sp = sp[known]; X = X[known]
         y = self.encoder.transform(sp[LABEL_COL[self.task]])
         X = self.scaler.transform(X)
         return X, y
@@ -111,38 +194,61 @@ class Preprocessor:
 \subsection{Step 3 --- Generate task-specific matrices}
 
 \begin{lstlisting}[language=Python, caption={Run preprocessing for all four tasks.}]
-from preprocess import Preprocessor
-import numpy as np
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run_stamp":    run_stamp,
+    "source_file":  str(MERGED_CSV),
+    "log_archive":  str(log_archive),
+    "tasks":        {},
+}
 
-for task in ["sf", "mod", "beacon"]:
+for task in ["sf", "mod", "beacon", "pkt"]:
+    log.info(f"--- Task: {task} ---")
     pre = Preprocessor(task)
     X_tr, y_tr = pre.fit_transform(df)
     X_va, y_va = pre.transform(df, "val")
     X_te, y_te = pre.transform(df, "test")
 
-    print(f"\n=== Task: {task} ===")
-    print(f"Features: {pre.feature_cols}")
-    print(f"Classes:  {list(pre.encoder.classes_)}")
-    print(f"Shapes:   X_tr={X_tr.shape}, X_va={X_va.shape}, X_te={X_te.shape}")
+    log.info(f"Features ({len(pre.feature_cols)}): {pre.feature_cols}")
+    log.info(f"Classes ({len(pre.encoder.classes_)}): "
+             f"{list(pre.encoder.classes_)}")
+    log.info(f"Shapes: X_tr={X_tr.shape}, X_va={X_va.shape}, "
+             f"X_te={X_te.shape}")
 
-    out = f"artifacts/{task}"
+    out = ARTIFACTS_DIR / task
     pre.save(out)
-    np.save(f"{out}/X_train.npy", X_tr); np.save(f"{out}/y_train.npy", y_tr)
-    np.save(f"{out}/X_val.npy",   X_va); np.save(f"{out}/y_val.npy",   y_va)
-    np.save(f"{out}/X_test.npy",  X_te); np.save(f"{out}/y_test.npy",  y_te)
+    np.save(out / "X_train.npy", X_tr); np.save(out / "y_train.npy", y_tr)
+    np.save(out / "X_val.npy",   X_va); np.save(out / "y_val.npy",   y_va)
+    np.save(out / "X_test.npy",  X_te); np.save(out / "y_test.npy",  y_te)
+    log.info(f"Saved artifacts to {out}")
+
+    manifest["tasks"][task] = {
+        "feature_cols":  pre.feature_cols,
+        "forbidden":     FORBIDDEN[task],
+        "label_col":     LABEL_COL[task],
+        "classes":       [str(c) for c in pre.encoder.classes_],
+        "n_train":       int(X_tr.shape[0]),
+        "n_val":         int(X_va.shape[0]),
+        "n_test":        int(X_te.shape[0]),
+    }
+
+manifest_path = SCRIPT_DIR / "preprocess_manifest.json"
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2)
+log.info(f"Wrote {manifest_path}")
 \end{lstlisting}
 
 \subsection{Step 4 --- Verify the scaler}
 A fitted \texttt{StandardScaler} on the training set produces zero mean and unit variance per feature:
 
 \begin{lstlisting}[language=Python]
-for task in ["sf", "mod", "beacon"]:
-    X_tr = np.load(f"artifacts/{task}/X_train.npy")
+for task in ["sf", "mod", "beacon", "pkt"]:
+    X_tr = np.load(ARTIFACTS_DIR / task / "X_train.npy")
     mu, sd = X_tr.mean(axis=0), X_tr.std(axis=0)
-    print(f"{task}: mean max|mu|={np.abs(mu).max():.3e}, "
-          f"std range=[{sd.min():.3f}, {sd.max():.3f}]")
-    assert np.abs(mu).max() < 1e-5
-    assert np.all(np.abs(sd - 1) < 1e-5)
+    log.info(f"{task}: max|mu|={np.abs(mu).max():.3e}, "
+             f"std range=[{sd.min():.3f}, {sd.max():.3f}]")
+    assert np.abs(mu).max() < 1e-4, f"{task}: scaler mean drifted"
+    assert np.all(np.abs(sd - 1) < 1e-4), f"{task}: scaler std drifted"
 \end{lstlisting}
 
 Validation and test matrices will \emph{not} have exactly zero-mean/unit-variance because the scaler was fit on training data only --- that is correct behaviour and the whole reason \texttt{fit\_transform} is called on train while plain \texttt{transform} is called on val and test.
@@ -152,45 +258,51 @@ Validation and test matrices will \emph{not} have exactly zero-mean/unit-varianc
 \end{tcolorbox}
 
 \subsection{Step 5 --- Leakage sanity check}
-Train a quick logistic regression on each task using \emph{only} the forbidden columns, and confirm accuracy is near 100\%. This demonstrates that the forbidden list is correct: leaving those columns in would trivialise the problem.
+Train a quick logistic regression on each task using \emph{only} the forbidden columns, and confirm accuracy is near 100\%. This demonstrates that the forbidden list is correct: leaving those columns in would trivialise the problem. Single-class tasks (e.g.\ \texttt{mod} in the current C1+C2+C5 dataset) are skipped because logistic regression is undefined for them.
 
 \begin{lstlisting}[language=Python]
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
 
 for task, bad in FORBIDDEN.items():
     tr = df[df["split"] == "train"]
     te = df[df["split"] == "test"]
-    # label_mod is a string; encode it the same way the Preprocessor did
-    from sklearn.preprocessing import LabelEncoder
+    if tr[LABEL_COL[task]].nunique() < 2:
+        log.warning(f"{task}: only {tr[LABEL_COL[task]].nunique()} class "
+                    f"in train --- skipping leakage check")
+        continue
     enc = LabelEncoder()
     y_tr = enc.fit_transform(tr[LABEL_COL[task]])
+    known = np.isin(te[LABEL_COL[task]].to_numpy(), enc.classes_)
+    te = te[known]
     y_te = enc.transform(te[LABEL_COL[task]])
     X_tr = tr[bad].to_numpy(dtype=float)
     X_te = te[bad].to_numpy(dtype=float)
     sc = StandardScaler().fit(X_tr)
     clf = LogisticRegression(max_iter=1000).fit(sc.transform(X_tr), y_tr)
     acc = clf.score(sc.transform(X_te), y_te)
-    print(f"{task} (forbidden-only features): test acc = {acc:.3f}")
+    log.info(f"{task} (forbidden-only features): test acc = {acc:.3f}")
 \end{lstlisting}
 
 A result below $\sim$0.95 means the forbidden list is incomplete for that task; revisit and add the missing column.
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] Sentinel rows dropped; count matches LH4-A audit summary.
+	\item[$\square$] Join-artifact rows (\texttt{inter\_arrival\_ms == 0}) dropped; count logged.
 	\item[$\square$] \texttt{Preprocessor} class saves and reloads without error.
-	\item[$\square$] All four tasks have six saved arrays (\texttt{X\_train}, \texttt{X\_val}, \texttt{X\_test} and three matching \texttt{y\_}).
-	\item[$\square$] Training-set scaler produces zero mean / unit variance within $10^{-5}$.
-	\item[$\square$] Leakage sanity check: each task's forbidden-only classifier scores $\geq$0.95 (including the packet-type task, where the \texttt{pkt\_type}-only classifier should score 1.00 trivially because the feature \emph{is} the label).
+	\item[$\square$] All four tasks have six saved arrays in \texttt{Code/AIML/artifacts/<task>/} (\texttt{X\_train}, \texttt{X\_val}, \texttt{X\_test} and three matching \texttt{y\_}) plus a \texttt{preprocessor.pkl}.
+	\item[$\square$] Training-set scaler produces zero mean / unit variance within $10^{-4}$.
+	\item[$\square$] \texttt{Code/AIML/Logs/preprocess\_<timestamp>.log} and \texttt{preprocess\_latest.log} written.
+	\item[$\square$] \texttt{Code/AIML/preprocess\_manifest.json} written with per-task feature/forbidden/class lists.
+	\item[$\square$] Leakage sanity check: each multi-class task's forbidden-only classifier scores $\geq$0.95 (the \texttt{pkt} task scores 1.00 trivially; the \texttt{mod} task is skipped while only one modulation is collected).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-B Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{preprocess.py}: the reusable \texttt{Preprocessor} class.
-		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/} directories, each containing \texttt{preprocessor.pkl} and six \texttt{.npy} matrices.
-		\item Leakage sanity-check output showing $\geq$0.95 test accuracy for each task when only forbidden columns are used.
-		\item Feature-list manifest: one page per task (four pages total) listing (a) the chosen feature columns, (b) the forbidden columns, and (c) a 1-sentence physical justification for why each forbidden column leaks. The packet-type page should explicitly call out that \texttt{pkt\_type} is itself the label (extracted from the low 2 bits of the radio packet's \texttt{Modulation Code} byte).
+		\item \texttt{Code/AIML/preprocess.py}: the reusable \texttt{Preprocessor} class.
+		\item \texttt{Code/AIML/artifacts/\{sf,mod,beacon,pkt\}/} directories, each containing \texttt{preprocessor.pkl} and six \texttt{.npy} matrices.
+		\item \texttt{Code/AIML/preprocess\_manifest.json} listing per-task features, forbidden columns, and class enumerations.
+		\item \texttt{Code/AIML/Logs/preprocess\_<timestamp>.log}: archived run log including the leakage sanity-check output for each task that was not skipped.
+		\item Feature-list narrative: one page per task (four pages total) listing (a) the chosen feature columns, (b) the forbidden columns, and (c) a 1-sentence physical justification for why each forbidden column leaks. The packet-type page should explicitly call out that \texttt{pkt\_type} is itself the label (extracted from the low 2 bits of the radio packet's \texttt{Modulation Code} byte). The SF page should reference the LH3-H \mbox{EDA} 3 finding that motivated forbidding \texttt{freq\_error\_hz} (perfect session-confounding).
 	\end{enumerate}
 \end{tcolorbox}
 

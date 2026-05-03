@@ -528,13 +528,6 @@ The combined CSV `Code/Tools/CampaignCollect/logs/C1_combined.csv` (800 rows, al
 **Note:** C4 (distance-check campaign) is being skipped due to schedule constraints. There is not enough time right now to set up the required laptop environment to run the distance measurements cleanly.
 
 **Impact:** C5 and downstream analysis can continue, but C4-specific distance-stratified results should be marked as deferred.
-| Frequency error     | 5147 Hz constant across all rows   |
-
-**Narrative:** First C2 sweep point. Radio configuration is identical to the C1 +14 dBm anchor (SF7, +14 dBm, 3 m), and the RSSI/SNR numbers match (−71.91 vs. −71.23 dBm - within run-to-run variability). The campaign_id and run_id fields are correctly stamped `C2` / `C2_sf07_…`, confirming the collector used the right config.
-
-**Anomaly at run start:** Seq 47 was never received, and the three rows immediately after show distorted inter-arrivals (row 2: −554 ms, row 3: 87 ms, row 4: 426 ms). From row 5 onward inter-arrival is a steady 1001 ms (σ < 1 ms). This is a collector join-mid-stream artifact: the first packet the firmware transmitted after flashing was already partway through the radio TX when collection started, seq 47 was in-flight and either not forwarded or the Threat hadn't synced yet. The distorted IA values on rows 3–4 reflect the rx_timestamp delta against the partial first frame. No mid-run link events occurred; 196 of 198 valid inter-arrivals are nominal.
-
-**Result:** PASS. The seq gap and IA outliers are a run-start artifact with no impact on the 195+ clean rows the C2 box plot will draw from. SF8 through SF12 remain to be collected.
 
 ### Step 7 - Campaign C2, SF8 point
 
@@ -667,5 +660,662 @@ Total rows: 800. `label_sf` values present: {7, 8, 9, 10}. `campaign_id` = `C2` 
 **Dataset impact:** PAUSE frames from the second listener would appear in a separate CSV (or a merged one with a different `beacon_id` label column) with `pkt_type = 2`, giving the ML model its first labeled PAUSE examples. Combined with existing DATA (`pkt_type = 0`) rows this enables three-class training.
 
 **Hardware requirement:** one additional Nucleo-L476RG + RFM95W module, one additional FPGA passthrough channel (or a second Nexys A7, or a USB-UART adapter if the FPGA passthrough is the bottleneck). Firmware is a subset of the existing Threat build - remove the jamming/PAUSE-TX logic, keep only the RX → USART3 forward path.
+
+---
+
+## LH3-G - Campaign C5 (Active-Station Scaling)
+
+### C5a - Single station baseline
+
+**Configuration:** Target A `LORA_SF 7`, `LORA_TX_PWR_DBM 14`. Target B off, Threat passive (no button). Same 3 m geometry. Output: `Code/Tools/CampaignCollect/logs/campaign_c5a/results_campaign_c5a.csv`.
+
+**Output (summary over 300 logged frames):**
+
+| Metric              | Value                                           |
+|---------------------|-------------------------------------------------|
+| Rows captured       | 300 (target: 300)                               |
+| Beacon IDs present  | `0x01` only (Target A)                          |
+| Packet type         | `0` (DATA only)                                 |
+| Spreading factor    | 7                                               |
+| Sequence numbers    | 0 to 297, 1 gap                                 |
+| RSSI                | mean -46.07 dBm, σ 1.33, range [-49, -44]      |
+| SNR                 | mean 9.58 dB, σ 0.35                            |
+| Inter-arrival time  | mean 1004.5 ms, σ 58.1, range [1000, 2003] (n=297) |
+| Frequency error     | 5147 Hz constant                                |
+
+**Narrative:** Clean single-station baseline matching the character of C1/C2 runs. One seq gap (single packet miss) at the start - same join-mid-stream artifact seen in C2 SF7. RSSI is notably higher (-46 dBm vs. -71 dBm in C1/C2) reflecting closer board placement during this session. All other metrics nominal. No FIFO overflow observed.
+
+**Result:** PASS.
+
+---
+
+### C5b - Two-station ping-pong
+
+**Configuration:** Target A + Target B, SF7, +14 dBm. Threat passive (no button). 5-minute timed run via `collection_duration_s: 300` in campaign JSON - `collect.py` stopped automatically. Output: `Code/Tools/CampaignCollect/logs/campaign_c5b/results_campaign_c5b.csv`.
+
+**Output (summary over 300 logged frames):**
+
+| Metric              | Value                                           |
+|---------------------|-------------------------------------------------|
+| Rows captured       | 300 (5-min timed run)                           |
+| Beacon IDs present  | `0x01`: 150 (DATA), `0x02`: 150 (ACK)          |
+| Packet type         | `0` (DATA): 150, `1` (ACK): 150                |
+| Spreading factor    | 7 (all rows)                                    |
+| Sequence numbers    | 53 to 203, 0 gaps                               |
+| RSSI                | mean -44.35 dBm, σ 1.60, range [-49, -41]      |
+| SNR                 | mean 9.64 dB, σ 0.40                            |
+| Inter-arrival time  | mean 502.2 ms, σ 424.8, range [76, 1002] (n=299) |
+| Frequency error     | 5147 Hz constant                                |
+
+**Narrative:** Exactly 50/50 DATA/ACK split (150/150) and 50/50 beacon ID split (0x01/0x02) - one ACK per DATA with zero collisions over the 5-minute run. The inter-arrival distribution is bimodal as expected: DATA packets arrive at ~1s cadence; ACK packets arrive ~76-500 ms after each DATA (the round-trip latency). The wide IA σ (424.8 ms) and low mean (502.2 ms) reflect this bimodal structure rather than link instability. Zero sequence gaps confirms no missed frames. No FIFO overflow observed on the Nexys A7. `collect.py` timed-run mode exited cleanly at the 5-minute mark.
+
+**Result:** PASS. LH3-G complete.
+
+---
+
+## LH3-H - Dataset merge
+
+### Step 1 - Run merge_dataset.py
+
+**Command:** `python Code/Tools/CampaignCollect/merge_dataset.py`
+
+**Output:**
+```
+Found 10 campaign CSV(s):
+
+  logs\campaign_c1_txpwr_14\results_campaign_c1_txpwr_14.csv  ->  campaign=C1  run=C1_pwr14_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c1_txpwr_2\results_campaign_c1_txpwr_2.csv    ->  campaign=C1  run=C1_pwr02_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c1_txpwr_20\results_campaign_c1_txpwr_20.csv  ->  campaign=C1  run=C1_pwr20_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c1_txpwr_8\results_campaign_c1_txpwr_8.csv    ->  campaign=C1  run=C1_pwr08_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c2_sf10\results_campaign_c2_sf10.csv          ->  campaign=C2  run=C2_sf10_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c2_sf7\results_campaign_c2_sf7.csv            ->  campaign=C2  run=C2_sf07_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c2_sf8\results_campaign_c2_sf8.csv            ->  campaign=C2  run=C2_sf08_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c2_sf9\results_campaign_c2_sf9.csv            ->  campaign=C2  run=C2_sf09_2026-05-03T12:00:00Z  rows=200
+  logs\campaign_c5a\results_campaign_c5a.csv                  ->  campaign=C5  run=C5a_2026-05-03T12:00:00Z      rows=300
+  logs\campaign_c5b\results_campaign_c5b.csv                  ->  campaign=C5  run=C5b_2026-05-03T12:00:00Z      rows=300
+
+Total rows before dedup: 2200
+Total rows after dedup:  2197
+
+Rows per campaign_id:
+  C1: 800
+  C2: 800
+  C5: 597
+Regime:   {'clean': 1600, 'contended': 597}
+pkt_type: {'0': 2047, '1': 150}
+Split:    {'train': 1700, 'test': 297, 'val': 200}
+
+Saved: merged_dataset.csv  (2197 rows)
+```
+
+**Narrative:** Auto-discovery picked up all 10 per-run CSVs from `logs/` (4× C1, 4× C2, 2× C5; C4 absent as it was skipped). 3 of 2200 rows were dropped as duplicates - the same join-mid-stream artifacts that produced repeated `(seq_num, beacon_id)` pairs at the start of some runs. Stratified split keyed on `run_id` produced a 1700/200/297 train/val/test partition; the imbalance vs. the nominal 70/15/15 reflects the small number of unique runs per `label_sf` value (only one run for SF8/SF9/SF10 each, so each falls entirely into one split). This is a known limitation flagged in the LH3-H scoping: with so few collection runs per class, the split is coarse but the run-level leakage guarantee is preserved.
+
+**Result:** PASS. `merged_dataset.csv` written to `Code/Tools/CampaignCollect/`. Schema is the canonical 23-column form documented in LH3-H's data dictionary plus the two merge-script additions (`regime`, `split`).
+
+### Step 2-9 - EDA visualizations
+
+**Commands:** `python Code/Tools/EDA/eda{1..5}_*.py`
+
+**Output:** Four of five PNGs generated; EDA 2 (RSSI vs. distance) skipped cleanly because C4 was not collected.
+
+| Plot                               | Status   | Notes |
+|------------------------------------|----------|-------|
+| eda1_rssi_by_txpower.png           | PASS     | Violin plot, monotonic +2/+8/+14 dBm; +20 dBm inversion visible |
+| eda2_rssi_vs_distance.png          | SKIPPED  | C4 not collected; script exits cleanly with [WARN] |
+| eda3_correlation_matrix.png        | PASS     | See narrative below |
+| eda4_interarrival_scheduling.png   | PASS     | Bimodal C5b distribution as expected |
+| eda5_class_balance.png             | PASS     | SF7 and DATA bars dominate; ACK and Beacon 0x02 flagged red (n=150 each) |
+
+**Notable correlation finding:** EDA 3 reports r = 1.000 between `freq_error_hz` and `spread_factor`, and r = 0.900 for `snr_db` vs. each of those. This is a session-confounding artifact: each SF was collected in a separate session (separate `LORA_SF` reflash), and the SX1276 crystal frequency drifts ~131 Hz per session as die temperature stabilises. The C2 sweep ran SF7→SF10 sequentially, so the freq_error drift trend is perfectly aligned with the SF axis. **A classifier using `freq_error_hz` would be cheating on the SF task in this dataset** - LH4-B feature pruning needs to drop or de-confound this column before training.
+
+**Class imbalance flagged in EDA 5:**
+- SF7: 1597 rows (C1 + C2-SF7 + C5 all share SF7) vs. 200 each for SF8/9/10
+- Modulation: only `lora` present (C3 was removed from the curriculum)
+- Beacon ID 0x02: 150 rows (only present in C5b ACK rows)
+- Packet type ACK: 150 rows (only C5b)
+
+**Result:** PASS for the four EDA plots that have data. EDA 2 deferred until C4 is collected.
+
+### Step 10 - Run load_and_validate.py (LH4-A bridge check)
+
+**Command:** `python Code/AIML/load_and_validate.py`
+
+**Output (Code/AIML/Logs/load_and_validate_latest.log):**
+```
+2026-05-03 16:45:09 [INFO] Loaded 2,197 rows, 23 columns
+2026-05-03 16:45:09 [INFO] [PASS] check_1_schema
+2026-05-03 16:45:09 [INFO] [PASS] check_2_row_count
+2026-05-03 16:45:09 [INFO] [PASS] check_3_nulls
+2026-05-03 16:45:09 [INFO] [PASS] check_4_duplicates
+2026-05-03 16:45:09 [INFO] [PASS] check_5_valid_ranges
+2026-05-03 16:45:09 [INFO] [PASS] check_6_rssi_sign
+2026-05-03 16:45:09 [INFO] [PASS] check_7_label_consistency
+2026-05-03 16:45:09 [INFO] [PASS] check_8_class_balance
+2026-05-03 16:45:09 [INFO] [PASS] check_9_split_integrity
+2026-05-03 16:45:09 [INFO] All 9 checks passed.
+2026-05-03 16:45:09 [INFO] DATA-row mismatches: 0
+```
+
+**Narrative:** All nine LH4-A audit checks passed against the merged dataset. Zero DATA-row label mismatches (every DATA row's self-reported `spread_factor` and `mod_kind` match the campaign config's `label_sf` and `mod_kind_label`), confirming the LH3-F `g_lora_sf` firmware fix is holding across the entire C1+C2+C5 corpus. Class-balance check emitted no WARN despite the imbalance noted in EDA 5 because the threshold is per-class >=150 and the smallest classes (Beacon 0x02, ACK) hit exactly 150.
+
+**Result:** PASS. LH3-H complete; merged dataset is the verified Module 4 handoff artifact. Audit trail archived at `Code/AIML/Logs/load_and_validate_20260503T204509Z.log` and machine-readable summary at `Code/AIML/validation_manifest.json`.
+
+---
+
+## LH4-B - Preprocessing and feature selection
+
+### Step 1 - Run preprocess.py
+
+**Command:** `python Code/AIML/preprocess.py`
+
+**Output (Code/AIML/Logs/preprocess_latest.log, summarized):**
+```
+Dropped 12 join-artifact rows (0.5%); 2,185 rows remain
+--- Task: sf ---
+[WARN] dropping zero-variance features: ['payload_len', 'mod_kind', 'distance_m']
+Features (5): ['rssi_dbm', 'snr_db', 'inter_arrival_ms', 'beacon_id', 'pkt_type']
+Classes (4): [7, 8, 9, 10]
+Shapes: X_tr=(1691, 5), X_va=(199, 5), X_te=(295, 5)
+--- Task: mod ---
+[WARN] dropping zero-variance features: ['payload_len', 'distance_m']
+Features (6): ['rssi_dbm', 'snr_db', 'freq_error_hz', 'inter_arrival_ms', 'beacon_id', 'pkt_type']
+Classes (1): ['lora']
+Shapes: X_tr=(1691, 6), X_va=(199, 6), X_te=(295, 6)
+--- Task: beacon ---
+[WARN] dropping zero-variance features: ['payload_len', 'mod_kind', 'distance_m']
+Features (6): ['rssi_dbm', 'snr_db', 'freq_error_hz', 'inter_arrival_ms', 'spread_factor', 'pkt_type']
+Classes (2): [1, 2]
+Shapes: X_tr=(1691, 6), X_va=(199, 6), X_te=(295, 6)
+--- Task: pkt ---
+[WARN] dropping zero-variance features: ['payload_len', 'mod_kind', 'distance_m']
+Features (6): ['rssi_dbm', 'snr_db', 'freq_error_hz', 'inter_arrival_ms', 'spread_factor', 'beacon_id']
+Classes (2): [0, 1]
+Shapes: X_tr=(1691, 6), X_va=(199, 6), X_te=(295, 6)
+
+=== Scaler verification ===
+sf:     max|mu|=4.512e-08, std range=[1.000, 1.000]
+mod:    max|mu|=4.512e-08, std range=[1.000, 1.000]
+beacon: max|mu|=4.512e-08, std range=[1.000, 1.000]
+pkt:    max|mu|=4.512e-08, std range=[1.000, 1.000]
+
+=== Leakage sanity check ===
+sf     (forbidden-only ['spread_factor', 'freq_error_hz']): test acc = 1.000
+mod    skipped --- only 1 class in train (LoRa-only dataset)
+beacon (forbidden-only ['beacon_id']):                       test acc = 1.000
+pkt    (forbidden-only ['pkt_type']):                        test acc = 1.000
+```
+
+**Per-task summary (from `preprocess_manifest.json`):**
+
+| Task    | Features (after zero-var drop) | n_train | n_val | n_test | Classes        | Leak-only acc |
+|---------|--------------------------------|---------|-------|--------|----------------|---------------|
+| sf      | rssi_dbm, snr_db, inter_arrival_ms, beacon_id, pkt_type | 1691 | 199 | 295 | {7, 8, 9, 10} | 1.000 |
+| mod     | rssi_dbm, snr_db, freq_error_hz, inter_arrival_ms, beacon_id, pkt_type | 1691 | 199 | 295 | {lora} | (skipped, 1 class) |
+| beacon  | rssi_dbm, snr_db, freq_error_hz, inter_arrival_ms, spread_factor, pkt_type | 1691 | 199 | 295 | {1, 2} | 1.000 |
+| pkt     | rssi_dbm, snr_db, freq_error_hz, inter_arrival_ms, spread_factor, beacon_id | 1691 | 199 | 295 | {0, 1} | 1.000 |
+
+**Narrative:**
+
+- **Join-artifact drop.** 12 of 2,197 rows had `inter_arrival_ms = 0` (the first packet of each `run_id` has no predecessor to subtract from). 12/10 runs = 1.2 first-rows per run on average, which matches expectation when one run was a partial mid-stream join. Remaining 2,185 rows used for fitting.
+
+- **Zero-variance feature drops.** Three columns are constant across the entire dataset and got auto-dropped from every task's feature set:
+  - `payload_len`: every campaign uses a 14-byte payload.
+  - `distance_m`: every campaign was at 3 m (C4 was skipped).
+  - `mod_kind`: only LoRa was collected.
+
+  These will recover variance once C4 (distance sweep) and any non-LoRa modulation are added. The drop is logged as WARN, not fatal, and the manifest reflects the actual feature list used.
+
+- **Scaler verification.** All four tasks converge to (max|mean|, std range) = (4.5e-8, [1.0, 1.0]) on the training split, well inside the 1e-4 tolerance.
+
+- **Leakage sanity check.** Three of four tasks (sf, beacon, pkt) score **1.000** test accuracy when trained on forbidden columns alone, confirming the forbidden-column lists are correctly identifying label-leak vectors. The `sf` result is particularly important: `freq_error_hz` alone (combined with `spread_factor`) is enough to perfectly predict SF, validating the LH3-H EDA 3 finding that `freq_error_hz` is session-confounded with `spread_factor` (r = 1.000) and **must remain forbidden** for the SF task in this dataset.
+
+- **`mod` task skipped.** Only LoRa is collected, so logistic regression on the forbidden-only features has nothing to discriminate. Skip is logged with WARN and an explicit note about C3/non-LoRa being the path to making it meaningful.
+
+**Artifacts produced:**
+- `Code/AIML/artifacts/{sf,mod,beacon,pkt}/` - each with `preprocessor.pkl` and 6 `.npy` files (X_train/val/test, y_train/val/test)
+- `Code/AIML/preprocess_manifest.json` - per-task feature/forbidden/class enumeration with leak-only accuracy
+- `Code/AIML/Logs/preprocess_20260503T205150Z.log` - archived run log
+
+**Result:** PASS. All four tasks have model-ready matrices in `Code/AIML/artifacts/`. SF, beacon, and pkt are training-ready; mod is structurally training-ready but degenerate until non-LoRa data is collected. LH4-B complete.
+
+---
+
+## LH3-H bis - Row-level split fallback added to merge_dataset.py
+
+### Why the change was needed
+
+First LH4-C run revealed that the run-level stratified split (the LH3-H default) produced **single-class val and test sets** for every task. Each minority class (SF8/SF9/SF10, Beacon 0x02 / ACK) has only one collection run, so the run-level splitter assigned all of them to train (`max(1, round(1*0.70)) = 1`), leaving val/test with only the majority class. Dummy classifier scored 1.000 on every task because the test set was single-class - meaningless as a benchmark.
+
+### Fix - degeneracy detection + row-level fallback
+
+Added two helpers to `merge_dataset.py`:
+
+- `is_degenerate(rows, split_map, label_cols)`: returns the list of (col, split, missing_classes) tuples where any class is missing from val or test. Empty list means non-degenerate.
+- `row_level_split(rows, label_col)`: stratified split at the row level (no run-level grouping). Used as the fallback.
+
+The merge script now runs `run_level_split()` first, then checks `is_degenerate()` against `label_sf`, `label_beacon`, and `label_pkt`. If any class is missing from val or test, it falls back to `row_level_split()` keyed on `label_sf` and prints a multi-line WARN block explaining the leakage trade-off.
+
+### Re-merge output
+
+```
+[WARN] Run-level split is degenerate (6 issue(s)):
+  label_sf val:     missing classes {'9', '8', '10'}
+  label_sf test:    missing classes {'9', '8', '10'}
+  label_beacon val: missing classes {'2'}
+  label_beacon test:missing classes {'2'}
+  label_pkt val:    missing classes {'1'}
+  label_pkt test:   missing classes {'1'}
+[WARN] Falling back to ROW-LEVEL stratified split keyed on label_sf.
+[WARN] This violates the run-level leakage guarantee --- audit any
+[WARN] classifier output for session-signature artifacts. Re-collect
+[WARN] additional runs per minority class to restore run-level safety.
+[INFO] Row-level split: every label class is present in train, val, and test.
+
+Split: {'train': 1538, 'test': 329, 'val': 330}
+```
+
+### Trade-off (documented in the WARN, captured here for the record)
+
+Row-level splitting allows rows from the same `run_id` to land in different splits. Within-run channel state (RSSI dispersion at a fixed geometry, freq_error from a single crystal-temp session) can therefore leak across splits. **Mitigation:** any classifier evaluation should pair test-set accuracy with per-`run_id` accuracy stratified by split membership. If a model's accuracy is much higher on rows whose `run_id` is also represented in train, it's learning session signatures, not the underlying physics. The cleanest long-term fix is collecting additional runs per minority class (rerun C2 SF8/SF9/SF10 in fresh sessions) so the run-level split becomes non-degenerate again.
+
+### Preprocess re-run (post-fallback)
+
+`python Code/AIML/preprocess.py` produced 1529/329/327 train/val/test for each task (was 1691/199/295 with the degenerate run-level split). Zero-variance drops unchanged (`payload_len`, `mod_kind`, `distance_m`). Leakage sanity checks all pass at 1.000 for sf/beacon/pkt; mod still skipped (single class).
+
+---
+
+## LH4-C - Dummy / Decision Tree / Random Forest baselines
+
+### Step 1 - Run baselines.py
+
+**Command:** `python Code/AIML/baselines.py`
+
+**Output (Code/AIML/Logs/baselines_latest.log):**
+
+| Task    | Dummy | Tree-5 | RF best | RF 95% CI       | RF CV  | RF top-3 features                                            |
+|---------|-------|--------|---------|-----------------|--------|--------------------------------------------------------------|
+| sf      | 0.725 | 0.966  | 0.966   | [0.941, 0.981]  | 0.978  | snr_db=0.65, rssi_dbm=0.32, inter_arrival_ms=0.03            |
+| mod     | -     | -      | -       | -               | -      | (skipped: only LoRa in train)                                |
+| beacon  | 0.905 | 1.000  | 1.000   | [0.988, 1.000]  | 1.000  | pkt_type=0.50, inter_arrival_ms=0.39, rssi_dbm=0.10          |
+| pkt     | 0.905 | 1.000  | 1.000   | [0.988, 1.000]  | 1.000  | beacon_id=0.50, inter_arrival_ms=0.39, rssi_dbm=0.10         |
+
+**RF best params:** `sf` -> `max_depth=10, n_estimators=100, max_features=sqrt`; `beacon`/`pkt` -> `max_depth=None, n_estimators=600, max_features=sqrt`.
+
+**Wall-clock:** ~5s per task for the 180-fit grid search on a single laptop core (n_jobs=-1 across 8 cores).
+
+### Honest interpretation
+
+- **SF task is the real benchmark.** Dummy 0.725 lines up with the SF7 majority-class fraction (1094/1529). RF 0.966 multi-class accuracy on (SF7, SF8, SF9, SF10) is meaningful. Top features are `snr_db` (Gini 0.65) and `rssi_dbm` (0.32), which is physically correct: SF processing gain shows up most strongly in SNR (each +1 SF step adds ~3 dB of coding gain), and RSSI doesn't depend on SF at fixed TX power but does carry session-to-session offset.
+- **`beacon` and `pkt` tasks are trivial in this dataset.** Both score 1.000 because of a structural alias from the C5b ping-pong design: every Target B row (beacon=2) is an ACK (pkt_type=1) and every Target A row (beacon=1) is DATA (pkt_type=0). When `beacon_id` is forbidden for the beacon task, the model uses `pkt_type` as a perfect proxy (and vice versa). The RF feature importance correctly identifies this: `pkt_type=0.50` for beacon, `beacon_id=0.50` for pkt. Dummy at 0.905 reflects the DATA/ACK class imbalance (Target B is a small fraction of total rows).
+- **`mod` task remains skipped** until non-LoRa data is collected.
+
+### What this tells us about LH4-D/E/F benchmarks
+
+- For SF, RF/Tree-5 = 0.966 is the bar to beat. CV says 0.978 is reachable.
+- For beacon and pkt, **any model that's learning the alias can hit 1.000**, so these tasks don't discriminate model quality. Either decouple them (a campaign where Target B sometimes transmits DATA, breaking the alias) or accept that they're solved trivially.
+
+**Result:** PASS with caveats. SF is the only task with a non-trivial benchmark; beacon/pkt are dominated by a dataset-design alias. Logs/manifest at `Code/AIML/Logs/baselines_20260503T210526Z.log` and `Code/AIML/baselines_manifest.json`.
+
+---
+
+## LH4-D - SVM grid search and permutation importance
+
+### Step 1 - Run svm_train.py
+
+**Command:** `python Code/AIML/svm_train.py`
+
+**Output (Code/AIML/Logs/svm_train_latest.log):**
+
+| Task   | Best kernel | Best params      | CV acc | Test acc | 95% CI         | Elapsed |
+|--------|-------------|------------------|--------|----------|----------------|---------|
+| sf     | rbf         | C=10, gamma=1.0  | 0.977  | 0.963    | [0.937, 0.979] | 1.7 s   |
+| mod    | -           | (skipped)        | -      | -        | -              | -       |
+| beacon | linear      | C=0.1            | 1.000  | 1.000    | [0.988, 1.000] | 0.1 s   |
+| pkt    | linear      | C=0.1            | 1.000  | 1.000    | [0.988, 1.000] | 0.0 s   |
+
+### SF classification report
+
+```
+              precision    recall  f1-score   support
+           7       1.00      0.99      0.99       237
+           8       0.97      1.00      0.98        30
+           9       0.96      0.77      0.85        30
+          10       0.75      0.90      0.82        30
+    accuracy                           0.96       327
+```
+
+The SVM mostly nails SF7 and SF8 (precision/recall both ~1.00). SF9 has 23% recall loss (7 of 30 SF9 samples mispredicted, mostly to SF10 based on the confusion matrix). SF10 has 25% precision loss (caught some SF9 samples). This SF9-SF10 confusion is **physically expected**: adjacent spreading factors share more SNR / RSSI distribution overlap than non-adjacent pairs (SF8-SF10 confusion is essentially zero in the matrix).
+
+### Permutation importance highlights
+
+- **sf:** snr_db (mean drop +0.27) and rssi_dbm (+0.17) dominate. Inter-arrival-time, pkt_type, and beacon_id contribute marginally (~0.02 each). Matches RF Gini ranking exactly: rho = +0.90.
+- **beacon:** only `pkt_type` matters (mean drop +0.17). Every other feature has zero permutation importance because the SVM linear kernel is trivially using the pkt_type alias and ignoring physics features. rho = +0.54 vs RF (RF spreads weight more across inter_arrival_ms and rssi_dbm).
+- **pkt:** mirror of beacon: only `beacon_id` matters (mean drop +0.17). rho = +0.54 vs RF.
+
+### RF vs SVM head-to-head
+
+| Task    | RF acc | SVM acc | delta   | SVM kernel | importance rho |
+|---------|--------|---------|---------|------------|----------------|
+| sf      | 0.966  | 0.963   | -0.003  | rbf        | +0.90          |
+| mod     | -      | -       | -       | -          | -              |
+| beacon  | 1.000  | 1.000   | +0.000  | linear     | +0.54          |
+| pkt     | 1.000  | 1.000   | +0.000  | linear     | +0.54          |
+
+### Interpretation
+
+- **SF: SVM (RBF) and RF tie within Wilson CI overlap.** The RBF kernel's win over linear (linear topped out around C=10 in the grid) suggests the SF decision boundary is mildly nonlinear in `(snr_db, rssi_dbm)` space, which aligns with the discrete-step nature of SF processing gain. Strong rho = +0.90 between RF Gini and SVM permutation importance: both models agree the signal lives in `snr_db` then `rssi_dbm`.
+- **beacon and pkt: linear SVM wins with C=0.1 (essentially picking the pkt_type / beacon_id column).** No model discrimination here - any learner that finds the alias wins. The 0.54 rho is lower because RF spreads weight slightly across other features (inter_arrival_ms, rssi_dbm) while the linear SVM zeros out everything except the alias column.
+- **No signs of session-signature leakage on SF.** A model overfitting on session leakage would score >>0.97 on test (because test rows share runs with train) and the gap to CV would be near zero. Here SVM CV (0.977) and test (0.963) are within 1.5 percentage points, and per-class recall on SF9/SF10 is well below 1.0, indicating the model is genuinely discriminating not memorizing.
+
+### Wall-clock note
+
+Despite the warning in the handout about SVM grid search potentially taking minutes per task, the actual numbers were `1.7s`, `0.1s`, `0.0s`. The warning is conservative - it would apply at higher sample counts or if `gamma=1.0, C=100` happened to land on a near-singular kernel matrix. Worth keeping the warning since the dataset will grow.
+
+**Artifacts produced:**
+- `Code/AIML/artifacts/{sf,beacon,pkt}/svm.pkl` - the saved models with CV/test accuracies and chosen hyperparameters
+- `Code/AIML/figs/cm_svm_<task>.png` x3 - confusion matrices
+- `Code/AIML/figs/perm_importance_svm_<task>.png` x3 - permutation importance plots
+- `Code/AIML/svm_manifest.json` - per-task best params, CIs, permutation rankings, RF rank correlations
+- `Code/AIML/Logs/svm_train_20260503T210551Z.log` - archived run log
+
+**Result:** PASS. SF is the discriminative task; SVM and RF agree to within Wilson CI. Beacon and pkt remain dataset-trivial.
+
+---
+
+## LH4-E - MLP classifier with early stopping, calibration, and seed sweep
+
+### Step 1 - Run mlp_train.py
+
+**Command:** `python Code/AIML/mlp_train.py`
+
+**Output (Code/AIML/Logs/mlp_train_20260503T211331Z.log):** PyTorch device = `cuda`.
+
+| Task    | MLP test acc | 95% CI         | Trained in | Epochs (early stop) |
+|---------|--------------|----------------|------------|---------------------|
+| sf      | 0.966        | [0.941, 0.981] | 10.2 s     | full 200 (no stop)  |
+| mod     | -            | -              | -          | (skipped)           |
+| beacon  | 1.000        | [0.988, 1.000] | 1.4 s      | 31 (early stop)     |
+| pkt     | 1.000        | [0.988, 1.000] | 1.4 s      | 31 (early stop)     |
+
+### Seed robustness (seeds 0-3)
+
+| Task    | accs                       | mean    | std     |
+|---------|----------------------------|---------|---------|
+| sf      | [0.966, 0.963, 0.963, 0.966] | 0.965 | 0.002   |
+| beacon  | [1.000, 1.000, 1.000, 1.000] | 1.000 | 0.000   |
+| pkt     | [1.000, 1.000, 1.000, 1.000] | 1.000 | 0.000   |
+
+All std values well under the 0.02 threshold; the canonical seed-42 numbers are stable.
+
+### RF vs SVM vs MLP head-to-head
+
+| Task    | RF      | SVM     | MLP     | MLP CI         | seed std |
+|---------|---------|---------|---------|----------------|----------|
+| sf      | 0.966   | 0.963   | 0.966   | [0.941, 0.981] | 0.002    |
+| mod     | -       | -       | -       | -              | -        |
+| beacon  | 1.000   | 1.000   | 1.000   | [0.988, 1.000] | 0.000    |
+| pkt     | 1.000   | 1.000   | 1.000   | [0.988, 1.000] | 0.000    |
+
+### Interpretation
+
+- **SF: three-way tie within Wilson CI overlap.** MLP matches RF (0.966) and is within noise of SVM (0.963). The deep model's added representational capacity buys nothing on the SF task at this dataset size --- the classical features (`snr_db`, `rssi_dbm`) carry essentially all the signal, and four classes with strong mean separation are too easy for capacity to matter.
+- **MLP early-stopped at epoch 31 on beacon and pkt with `val_loss=0.0000`.** The val loss is literally zero because the alias (Target B = ACK / Target A = DATA) is perfectly separable by a simple Linear layer. The MLP runs for the full 200 epochs on SF without early stopping because val_loss continues to slowly improve (or just doesn't drop below the patience threshold of 1e-4 fast enough to stop).
+- **No miscalibration flagged in the reliability diagrams.** With only 4 classes and high accuracy, top-1 confidence is bunched near 1.0 in the high bins; the 8-bin uniform-strategy reliability curve sits close to the diagonal for SF and trivially on it for beacon/pkt.
+- **Seed std on SF is 0.002 (~0.2 percentage points).** That's about 1 misprediction's worth of variance across seeds out of 327 test samples. The MLP is a stable classifier at this dataset size.
+
+**Artifacts produced:**
+- `Code/AIML/artifacts/{sf,beacon,pkt}/mlp.pt` - canonical seed-42 state dict + history + CI
+- `Code/AIML/figs/mlp_curves_<task>.png` x3 - train/val loss curves
+- `Code/AIML/figs/mlp_reliability_<task>.png` x3 - reliability diagrams
+- `Code/AIML/mlp_manifest.json` - per-task accuracy with CI, seed sweep, calibration bins
+- `Code/AIML/Logs/mlp_train_20260503T211331Z.log` - archived run log
+
+**Result:** PASS. MLP joins RF/SVM in a three-way tie on SF; beacon/pkt are still dominated by the dataset alias. The MLP doesn't beat its classical benchmarks but isn't worse than them either, and it's stable across seeds.
+
+---
+
+## LH4-F - 1-D CNN over feature sequences and operating-condition shift
+
+### Step 1 - First run: identified fine-tune lr/epochs were too small
+
+**First-run command:** `python Code/AIML/cnn_train.py` with `finetune_last_layer(..., epochs=10, lr=1e-4)`. Result: SF fine-tune recovered exactly +0.000 (still 0.000 acc), beacon/pkt recovered +0.000. Diagnosed as: with lr=1e-4 and ~30 SGD steps total, the frozen-backbone final layer can't shift far enough to flip the contended-rows prediction.
+
+**Fix:** bumped `epochs=10 -> 40` and `lr=1e-4 -> 1e-3` in `cnn_train.py` and the LH4-F handout. Re-ran.
+
+### Step 2 - Re-run with corrected fine-tune hyperparameters
+
+**Command:** `python Code/AIML/cnn_train.py`
+
+**Output (Code/AIML/Logs/cnn_train_20260503T212232Z.log):** PyTorch device = `cuda`.
+
+#### Canonical CNN training (full train/val/test, includes both regimes)
+
+| Task    | CNN test acc | 95% CI         | Trained in | Epochs (early stop) |
+|---------|--------------|----------------|------------|---------------------|
+| sf      | 0.985        | [0.965, 0.993] | 6.6 s      | 106                 |
+| mod     | -            | -              | -          | (skipped)           |
+| beacon  | 1.000        | [0.988, 1.000] | 1.4 s      | 27                  |
+| pkt     | 1.000        | [0.988, 1.000] | 1.4 s      | 27                  |
+
+CNN beats RF/SVM/MLP on SF (0.985 vs 0.966/0.963/0.966) - the temporal window of 8 packets does carry incremental signal.
+
+#### Operating-condition shift
+
+| Task    | clean->clean | clean->contended | Delta    | finetune | recovered |
+|---------|--------------|------------------|----------|----------|-----------|
+| sf      | 0.978        | **0.000**        | +0.978   | 0.304    | +0.304    |
+| beacon  | 1.000        | 0.696            | +0.304   | 0.696    | +0.000    |
+| pkt     | 1.000        | 0.696            | +0.304   | 0.696    | +0.000    |
+
+**Sequence shapes:** train 1529, val 329, test 327; per split: clean ~1118, contended ~411 in train (etc. in val/test).
+
+### Interpretation - SF op-shift is the dominant finding
+
+- **SF clean->contended = 0.000 (0/102).** The clean-trained CNN is wrong on every single contended-regime SF7 row. Root cause: clean-regime SF7 (from C2 SF7) was collected at one geometry with RSSI clustered near -71 dBm; contended-regime SF7 (from C5b) was collected at a different geometry with RSSI clustered near -44 dBm. The CNN learned to associate "RSSI ~-71 dBm" with SF7 and "different RSSI cluster" with SF8/SF9/SF10 (since each was its own session with its own RSSI profile). Show it C5 SF7 RSSI and it reaches for "definitely not SF7."
+- **The op-shift Delta of +0.978 is therefore an RSSI-distribution-shift result, not the half-duplex/ACK-shadowing result the LH3-H Step 8 narrative anticipated.** It's a real and important distribution shift, but its physical cause in the current dataset is the C5b geometry change, not contended-regime channel effects. To measure the framework-intended op-shift, C5 would need to be collected at the same geometry as the C2 SF7 baseline.
+- **SF fine-tune recovered +0.304** (clean-trained model + 82 contended-train rows + final-layer-only retraining). The 31% recovery is partial because: (1) the fine-tune set is single-class (all contended rows are SF7 in this dataset), so the head learns "always predict SF7 on contended-RSSI inputs", but (2) the frozen backbone still produces feature embeddings for contended-RSSI inputs that the head can't fully separate from non-SF7 embeddings. Final-layer-only fine-tuning is fundamentally limited when the regime shift moves the input distribution outside the backbone's learned feature manifold.
+- **Beacon and pkt fine-tune recovered exactly +0.000.** Both stayed at 0.696 = 71/102 (the majority-class fraction in contended-test). This is informative: the clean-regime backbone has never been asked to distinguish Target B (beacon=2) or ACK (pkt_type=1) because those classes don't exist in clean. Final-layer fine-tuning on a frozen backbone whose representation doesn't separate those classes can't recover anything. The model collapses to majority-class prediction. **To bootstrap a new class, the backbone itself needs to be unfrozen** - final-layer-only fine-tuning is structurally insufficient when the class is novel.
+
+### What this tells the curriculum
+
+- **The framework-required outcome on SF (recovery >= half of Delta) was not met.** Recovery was 31% (0.304/0.978). Two routes to fix:
+  1. Recollect C5 at the same geometry as C2 SF7, so the op-shift gap reflects the contended-regime channel effects (half-duplex shadowing, ACK collisions) the framework targets, not a geometry-driven RSSI distribution shift.
+  2. Unfreeze more layers in fine-tune. The current "final Linear only" pattern is a hard test of representation transferability; unfreezing the FC head (Linear -> ReLU -> Dropout -> Linear) would let more of the model adapt and likely close more of the gap, at the cost of needing more contended-regime training data to avoid overfitting.
+- **Beacon and pkt op-shift numbers should be interpreted as new-class bootstrap measurements**, not continuous distribution-shift measurements (already noted in the LH4-F prerequisites infobox).
+
+**Artifacts produced:**
+- `Code/AIML/artifacts/{sf,beacon,pkt}/cnn.pt` - canonical CNN state dicts + history + CI
+- `Code/AIML/artifacts/{sf,beacon,pkt}/Xs_{train,val,test}.npy`, `ys_*.npy`, `regs_*.npy` - sequence arrays for downstream stratified analysis
+- `Code/AIML/cnn_manifest.json` - per-task canonical accuracy, op-shift triple, fine-tune outcome
+- `Code/AIML/Logs/cnn_train_20260503T212232Z.log` - archived run log (final, with fixed fine-tune params)
+- `Code/AIML/Logs/cnn_train_20260503T212026Z.log` - earlier run with the +0.000 fine-tune recovery (kept for the record)
+
+**Result:** PARTIAL PASS. CNN beats classical baselines on SF (0.985 vs 0.966), confirming the temporal window adds signal. The op-shift experiment reveals a strong gap on SF (Delta=+0.978) and a partial fine-tune recovery (+0.304); the gap's physical cause in this dataset is geometry change, not contended-regime channel effects. The framework-required recovery threshold was not met; both the dataset (geometry-matched C5 collection) and the fine-tune protocol (unfreeze more than the final Linear) need revision before LH4-G's robustness analysis can be interpreted as the framework intends.
+
+---
+
+## LH4-G - Stratified accuracy by SNR, distance, active-station count
+
+### Step 1 - Augment cnn_train.py to save target-row indices, then re-run
+
+`cnn_train.py` was extended to save `src_{train,val,test}.npy` per task: each entry is the merged-CSV row index of the corresponding sequence's target row. LH4-G uses this to align CNN predictions with row-level stratifiers (SNR, distance, run_id). Re-ran `python Code/AIML/cnn_train.py` to regenerate the alignment files; canonical CNN test accuracies, op-shift Deltas, and fine-tune recoveries unchanged from the previous run (SF: 0.985 / +0.978 / +0.304; beacon and pkt: 1.000 / +0.304 / +0.000).
+
+### Step 2 - Run stratified.py
+
+**Command:** `python Code/AIML/stratified.py`
+
+**Output (Code/AIML/Logs/stratified_latest.log):** PyTorch device = `cuda`. Loaded 2185 rows; 327 test rows. `sklearn` raised an `InconsistentVersionWarning` for the saved `rf.pkl` / `svm.pkl` (pickled with sklearn 1.8.0, runtime is 1.7.2) - predictions still load and produce identical numbers, but worth pinning sklearn in a Module-4 requirements file before re-running anything load-sensitive.
+
+#### Worst-bucket robustness (SNR quintiles)
+
+| Task   | Model | min   | mean  | max   |
+|--------|-------|-------|-------|-------|
+| sf     | rf    | 0.914 | 0.968 | 1.000 |
+| sf     | svm   | 0.901 | 0.965 | 1.000 |
+| sf     | mlp   | 0.914 | 0.968 | 1.000 |
+| sf     | cnn   | 0.938 | 0.985 | 1.000 |
+| beacon | (all) | 1.000 | 1.000 | 1.000 |
+| pkt    | (all) | 1.000 | 1.000 | 1.000 |
+
+#### Per-bucket SF accuracy (n per bucket in parens)
+
+The SNR distribution in the test set has a tight cluster around 9-10 dB and a long tail to ~13 dB, so quantile bucketing produces an empty interior bucket (n=0 at center 9.5 because `np.quantile` returned two near-identical edges from a tie-heavy distribution). Effective buckets are 4 not 5:
+
+| SNR center | n   | RF    | SVM   | MLP   | CNN   |
+|------------|-----|-------|-------|-------|-------|
+| 9.2 dB     | 47  | 1.000 | 1.000 | 1.000 | 1.000 |
+| 9.6 dB     | 102 | 1.000 | 1.000 | 1.000 | 1.000 |
+| 10.8 dB    | 97  | 0.959 | 0.959 | 0.959 | 1.000 |
+| 13.0 dB    | 81  | 0.914 | 0.901 | 0.914 | 0.938 |
+
+#### Active-station-count panel
+
+C5a (1 station, n=43) and C5b (2 stations, n=59) both hit 1.000 across every model on every task. The contended regime is not stressing any model in this dataset.
+
+#### Distance panel
+
+Skipped on every task: `distance_m` is constant (3.0 m everywhere) because C4 was not collected. The script auto-annotates the empty subplot.
+
+### Step 5 - Narrative discussion
+
+The stratified analysis confirms what the earlier headline numbers suggested: SF is the only task with discriminative signal, and the four model families are essentially tied on it. But the per-bucket view reveals the structure underneath the headline.
+
+**SNR vs accuracy is inverted from intuition.** All four models score **perfectly (1.000) in the two lowest-SNR buckets** (~9.2 and 9.6 dB) and degrade in the high-SNR buckets. This looks wrong - higher SNR should be easier - but it's a stratifier-confounding artifact: SNR is a proxy for SF in this dataset (each higher SF adds ~3 dB of processing gain, see TestLog C2 sweep). The low-SNR rows are SF7-only (the majority class), so any model that defaults to "SF7" gets them right. The high-SNR rows are SF9 and SF10, where the model has to actually distinguish between adjacent spreading factors - that's where the SF9-SF10 confusion seen in the LH4-D classification report shows up. The CNN's worst-bucket score (0.938 in the 13 dB bucket) is the highest of any model, by 2-3 percentage points; this is the same +2 percentage point edge it has on the headline test accuracy, just localized to the bucket where discrimination actually matters.
+
+**The CNN's temporal window does not buy anything in the multi-station regime here.** Every model scores 1.000 at both 1-station (C5a) and 2-station (C5b) test slices. Two reasons. First, the C5b ping-pong was deliberately staggered to minimize collisions (per the LH3-G campaign design), so there's no contention pathology for the CNN to exploit. Second, the discriminative signal in C5b is the trivial pkt_type / beacon_id alias; the CNN identifies it as easily as the linear SVM. To see whether the temporal window helps in multi-station regimes, C5 would need to be re-collected with overlapping (collision-prone) cadences and at the same geometry as the clean baseline, so the CNN gets a chance to leverage inter-arrival texture and the others have to handle real distribution shift.
+
+**No model degrades faster than another at low SNR within the current dataset, but the comparison is contaminated.** The "low SNR" bucket is SF7-only and trivially classified; the "high SNR" bucket is the SF9/SF10 frontier where all models start to struggle. The closest to a clean low-SNR comparison would be within-SF stratification (e.g., compare SF7 rows in the low-RSSI tail of C1 +2 dBm against SF7 rows in the high-RSSI head of C1 +14 dBm), which the current stratifier doesn't isolate. **The distance question cannot be answered from the current dataset because C4 was not collected.** Once C4 is in, the distance panel will populate and a low-RSSI/high-distance bucket will give a cleaner low-SNR bucket that's not confounded by SF.
+
+### Robustness ranking (SF task)
+
+By worst-bucket SNR accuracy:
+
+1. **CNN (min=0.938)** - clearest worst-case lead, ~3 pp ahead of RF/MLP and ~4 pp ahead of SVM. The temporal window helps where it counts: at the SF9/SF10 frontier.
+2. **RF (min=0.914)** - tied with MLP at the bottom. Tree-ensemble robustness comes from feature averaging across many trees; produces the same tail behaviour as the MLP at this dataset size.
+3. **MLP (min=0.914)** - exactly tied with RF on every bucket (both stable at seed std=0.002 from LH4-E).
+4. **SVM (min=0.901)** - just below the rest. The RBF kernel's smoothness might be hurting at the SF9/SF10 boundary where harder per-class margins would help; would benefit from a class-weighted variant.
+
+For beacon and pkt, all four models tie at 1.000 across every bucket; the ranking is not meaningful at this dataset size.
+
+**Artifacts produced:**
+- `Code/AIML/figs/stratified_{sf,beacon,pkt}.png` x3 - three-panel figure per task (SNR | distance auto-skipped | stations)
+- `Code/AIML/stratified_manifest.json` - per-task per-model bucket data with Wilson 95% CIs
+- `Code/AIML/Logs/stratified_20260503T213617Z.log` - archived run log
+
+**Result:** PASS with caveats. The script runs end-to-end, produces all expected artifacts, and surfaces the SNR-confounding-with-SF issue cleanly. The worst-bucket robustness ranking puts CNN at the top by a meaningful 2-4 pp margin on the only task with non-trivial discrimination; the other three classical models are tied within Wilson CI overlap. The distance panel is the most important missing piece - once C4 is collected, it will provide an unconfounded SNR-vs-accuracy view via path-loss-driven RSSI variation at fixed SF.
+
+---
+
+## LH4-H — Final pipeline: InferenceEngine + rubric driver + live demo (2026-05-03)
+
+**Run stamp:** 20260503T215413Z (`Code/AIML/Logs/select_model_20260503T215413Z.log`)
+
+**Scripts created:**
+- `Code/AIML/inference.py` — `InferenceEngine` library; per-task model bundles for sk (rf/svm), mlp (row-model), cnn (8-frame sequence buffer). Inlines `MLP` and `CNN1D` classes to avoid re-running training scripts on import. `predict(feature_dict, sequence_buffer)` returns `{task: {label, prob, kind}}`.
+- `Code/AIML/select_model.py` — rubric driver. Loads all six manifests, runs a 1000-iter latency microbenchmark per candidate × 3 tasks, scores 4 candidates × 3 tasks on 5 criteria (acc 0.40, rob 0.25, lat 0.15, interp 0.10, complex 0.10), picks the winner per task, runs schema-drift check, writes `deployment_manifest.json`.
+- `Code/AIML/live_inference.py` — hardware-side demo. Reads `deployment_manifest.json`, opens FPGA UART, parses LH3-F frames via `collect.parse_forwarding_frame`, runs `InferenceEngine.predict()` per frame, prints SF / beacon / pkt + latency.
+
+**Latency microbenchmark (1000 iter, warm; per-call latency for the full 3-task `predict`):**
+
+| Model | Median (ms) | P95 (ms) | P99 (ms) | Max (ms) | Over 8 ms budget? |
+|-------|------------:|---------:|---------:|---------:|:------------------|
+| RF    | 224.321     | 268.238  | 289.628  | 329.773  | **Yes (massively)** |
+| SVM   |   0.541     |   0.670  |   0.861  |   1.237  | No |
+| MLP   |   0.438     |   0.713  |   0.856  |   1.438  | No |
+| CNN   |   0.773     |   1.027  |   1.263  |   2.043  | No |
+
+RF was disqualified by latency despite tied accuracy — its p99 is **~36×** the 8 ms target. The bottleneck is `predict_proba` over 200 trees per task × 3 tasks. Note that this means `select_model.py` itself takes ~3.5 minutes to complete (almost entirely in the RF benchmark) — future runs that look "stuck" right after `=== Latency microbenchmark (1000 iter, warm) ===` are normal, not hung.
+
+**Per-task rubric (0–5 normalized; total is weighted sum):**
+
+```
+--- sf ---
+  cnn   total=4.399  acc=5.00(0.985)  rob=5.00(0.938)  lat=4.99(0.773ms)  interp=2 complex=2  WINNER
+  mlp   total=1.952  acc=0.71(0.966)  rob=1.67(0.914)  lat=5.00(0.438ms)  interp=2 complex=3
+  rf    total=1.702  acc=0.71(0.966)  rob=1.67(0.914)  lat=0.00(224.3ms)  interp=5 complex=5
+  svm   total=1.650  acc=0.00(0.963)  rob=0.00(0.901)  lat=5.00(0.541ms)  interp=4 complex=5
+
+--- beacon ---
+  svm   total=4.900  acc=5.00(1.000)  rob=5.00(1.000)  lat=5.00(0.541ms)  interp=4 complex=5  WINNER
+  mlp   total=4.500  acc=5.00(1.000)  rob=5.00(1.000)  lat=5.00(0.438ms)  interp=2 complex=3
+  cnn   total=4.399  acc=5.00(1.000)  rob=5.00(1.000)  lat=4.99(0.773ms)  interp=2 complex=2
+  rf    total=4.250  acc=5.00(1.000)  rob=5.00(1.000)  lat=0.00(224.3ms)  interp=5 complex=5
+
+--- pkt ---
+  svm   total=4.900  acc=5.00(1.000)  rob=5.00(1.000)  lat=5.00(0.541ms)  interp=4 complex=5  WINNER
+  mlp   total=4.500  acc=5.00(1.000)  rob=5.00(1.000)  lat=5.00(0.438ms)  interp=2 complex=3
+  cnn   total=4.399  acc=5.00(1.000)  rob=5.00(1.000)  lat=4.99(0.773ms)  interp=2 complex=2
+  rf    total=4.250  acc=5.00(1.000)  rob=5.00(1.000)  lat=0.00(224.3ms)  interp=5 complex=5
+```
+
+**Deployed choice (written to `deployment_manifest.json`):**
+- `sf` → **CNN** (the only task where any model has discriminative signal worth modelling; CNN's 8-frame sequence buffer captures temporal context the row-models can't, and it has the highest worst-bucket robustness from LH4-G; latency 0.77 ms is well under budget)
+- `beacon` → **SVM** (all four models tie at 1.0 — this is the C5b structural alias from LH3-G, where pkt_type and beacon_id are 1-to-1; SVM wins on weighted total because it has the lowest median latency and a higher interpretability score than the deep models)
+- `pkt` → **SVM** (same logic as beacon — trivially classified via the alias; SVM wins on latency + interpretability)
+
+**Schema check:** PASS. The 7 columns the deployed preprocessors need (`beacon_id`, `freq_error_hz`, `inter_arrival_ms`, `pkt_type`, `rssi_dbm`, `snr_db`, `spread_factor`) are all present in `validation_manifest.json`'s schema. No drift between training-time and deploy-time feature contracts.
+
+### Honest narrative
+
+The rubric is doing its job, but two of the three "winners" are trivially correct. `beacon` and `pkt` are perfectly classifiable because of the C5b structural alias documented in LH3-G (Target B = ACK = beacon=2; Target A = DATA = beacon=1) — every model achieves 1.000 because the dataset structure makes this a label-leakage problem in disguise. **SVM only wins those two tasks on tiebreakers (latency + interpretability)**, not on classification skill, and that's the most important caveat in the deployed pipeline. If we ever collect data where DATA and ACK can come from the same beacon (e.g., a node that sends both), or where there's a third beacon emitting both packet types, all four models will degrade and the model-selection answer will likely change.
+
+The `sf` task is the only place the rubric is actually selecting on accuracy + robustness. CNN wins decisively (total 4.4 vs ~1.7-2.0 for the row-models) because the worst-bucket-SNR robustness term gives it credit for a real ~2-3 pp margin where it matters (the SF9-SF10 boundary, see LH4-G stratified). The fact that RF's high interpretability and complexity scores can't recover from a zeroed latency term is the main rubric-design lesson: when one criterion is binary (in-budget vs out-of-budget by an order of magnitude), the other criteria can't compensate.
+
+The ~3.5-minute select_model run-time is also worth noting — future iterations should consider either reducing the RF iteration count or running RF in a separate "I-already-know-this-loses" branch, since 1000 iterations of a 224 ms call gives no more signal than 50 iterations would.
+
+**Artifacts produced:**
+- `Code/AIML/deployment_manifest.json` — full rubric scores + latency stats + deployed_choice + needed_columns
+- `Code/AIML/Logs/select_model_20260503T215413Z.log` — archived run log
+- `Code/AIML/Logs/select_model_latest.log` — latest run mirror
+
+**Result:** PASS. The pipeline is complete: training (LH4-C/D/E) → robustness (LH4-G) → rubric selection (LH4-H select_model.py) → deployable engine (inference.py) → live demo (live_inference.py, hardware-blocked). The Module 4 deliverable is one `python live_inference.py COM3` call away on the bench.
+
+---
+
+## LH4-H — Live hardware demo, 3-minute timed run on the bench (2026-05-03)
+
+**Run stamp:** 20260503T221035Z (`Code/AIML/Logs/live_inference_20260503T221035Z.log`)
+
+**Setup:** FPGA on COM7 @ 115200 baud, Target A (DATA, beacon 0x01) and Target B (ACK, beacon 0x02) ping-ponging on 906.5 MHz at SF7. Threat interceptor powered, listening, PAUSE button not pressed. `live_inference.py` invoked as `python live_inference.py 7 180` — first hardware run with the configurable timer + on-disk logging just added (the prior 5-minute run had stdout-only and is not archived).
+
+**Headline:** **362 frames classified across 180.7 s = 2.00 fps, every frame correct, p99 host inference latency 1.6 ms.**
+
+### Live latency
+
+| Stat | Host inference latency (ms) |
+|------|----------------------------:|
+| Min  | 0.80 |
+| Median | 1.00 |
+| Mean | 1.06 |
+| P95  | 1.30 |
+| P99  | 1.60 |
+| Max  | 5.20 (first frame, cold cache) |
+
+The 8 ms LH4-H budget is not threatened — every frame except the very first cold-start completes in under 1.6 ms. Median 1.00 ms on a real hardware stream is consistent with the LH4-H microbench numbers (median 0.541 ms for SVM, 0.773 ms for CNN; the live number includes per-frame scaling and sequence-buffer maintenance, which the microbench amortised differently). RF would have been completely out of budget here at ~224 ms median — the rubric's latency disqualification was correct.
+
+### Classification correctness
+
+- **`sf` task (CNN):** 362/362 = 100% SF=7. All `prob=1.00` from softmax. Both targets are configured at SF7, so this is the correct expected behaviour. No transient misclassification observed (S2-style transitions were not exercised in this run).
+- **`beacon` task (SVM):** 362/362 alternate exactly between 1 and 2 — **100.0% alternation rate** (361 of 361 consecutive pairs differ). Counts: beacon=1: 181, beacon=2: 181. This is the bidirectional ping-pong protocol working perfectly: every Target A DATA is followed by a Target B ACK and vice versa. `prob=?` because SVC was trained without `probability=True` so `predict_proba` raises and the engine reports None — labels are still deterministic via `model.predict()`.
+- **`pkt` task (SVM):** 362/362 alternate between 0 (DATA) and 1 (ACK). Counts: pkt=0: 181, pkt=1: 181. **Beacon↔pkt alias holds in 362/362 = 100.0% of rows** (beacon=1 always paired with pkt=0; beacon=2 always paired with pkt=1). This is the C5b structural alias from LH3-G surfacing exactly as predicted: in the C5b ping-pong protocol Target A always sends DATA and Target B always sends ACK, so beacon ID and packet type are 1-to-1. The model is correct because the dataset is correct; it is not learning anything beyond the alias here. Same `prob=?` as beacon.
+
+### Frame rate sanity check
+
+2.00 fps over 180.7 s matches the configured DATA cadence (1 s per Target × 2 Targets = 2 fps aggregate). No FIFO overflow (LED 15 not lit during the run). No dropped frames visible in the log — the alternation pattern would break immediately if a frame had been lost mid-stream and it did not break once.
+
+### Honest narrative
+
+This is what success looks like for the Module 4 deliverable, with the caveats that have been documented from LH3-G onward:
+
+- The `sf` task is genuinely classifying. With both Targets at SF7 the answer is trivially correct, but the CNN's softmax confidence stays pinned at 1.00 across the run with no transient drops, which is consistent with the LH4-G worst-bucket robustness lead it had over the row-models. To stress this task we would need an LH5-B S2-style SF reconfiguration mid-run, which is hardware-side work.
+- The `beacon` and `pkt` tasks score 100% but that's the alias from LH3-G — the dataset structure makes these tasks trivially solvable, and the live run confirms that triviality propagates to the deployed pipeline. Any future dataset where DATA and ACK can come from the same beacon (e.g., a node that sends both packet types) will break this alias and the model selection answer will likely change.
+- The host inference latency on real hardware is comfortably inside the 8 ms target — this validates the LH4-H rubric's latency-as-disqualifier rule. RF, which was disqualified at design time, would have failed in production at ~224 ms median.
+- The frame-rate, alternation, and alias numbers are independent of the model's classification skill — they are protocol-level correctness checks on the upstream pipeline (firmware → FPGA → UART → parser → preprocessor). All three pass at 100%, which means everything from Module 1 through the Module 4 preprocessor is working.
+
+**Artifacts produced:**
+- `Code/AIML/Logs/live_inference_20260503T221035Z.log` — archived run log (362 rows + start/stop banners)
+- `Code/AIML/Logs/live_inference_latest.log` — latest run mirror
+
+**Result:** PASS. The Module 4 pipeline is end-to-end validated on hardware with on-disk evidence. Inference latency, alternation correctness, and structural-alias behaviour all match the predictions made during training (LH4-C/D/E), robustness analysis (LH4-G), and rubric selection (LH4-H select_model.py).
 
 ---

@@ -11,13 +11,13 @@ Produce the three stratified-accuracy curves that describe how each classifier \
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handouts~4-C through~4-F complete (RF, \mbox{SVM}, \mbox{MLP}, \mbox{CNN} all trained for each task).
-	\item Campaign metadata present in \texttt{merged\_dataset.csv} (\texttt{distance\_m} column filled for C4 rows, \texttt{campaign\_id} C5a, C5b indicating active-station count).
-	\item \texttt{run\_id} column is populated (Module~3 LH3-F schema). The stratified-condition filters below select on \texttt{campaign\_id} for readability, but the underlying train/val/test split was keyed on \texttt{run\_id} (LH4-A Check~9), so no same-run leakage can occur even when a campaign family contains multiple runs.
+	\item Lab Handouts~4-C through~4-F complete (RF, \mbox{SVM}, \mbox{MLP}, \mbox{CNN} all trained per task; LH4-F's \texttt{src\_test.npy} alignment files present alongside \texttt{Xs\_test.npy}).
+	\item \texttt{merged\_dataset.csv} present at \texttt{Code/Tools/CampaignCollect/merged\_dataset.csv}.
+	\item Campaign metadata present in the merged CSV: \texttt{distance\_m} populated (currently 3 m everywhere because C4 was skipped --- the distance plot is auto-skipped if the column has $<$2 unique values), \texttt{run\_id} prefixed by \texttt{C5a}/\texttt{C5b} for the active-station-count stratifier.
 \end{itemize}
 
-\begin{tcolorbox}[infobox={Expected campaign\_id Values}]
-This handout assumes the Module~3 canonical set \{C1, C2, C3, C4, C5a, C5b\}. If your \texttt{merged\_dataset.csv} uses different subcampaign labels, map them in \texttt{C5\_MAP} below \emph{and} update the C4 filter. The filters are cosmetic slicers, not leakage guards --- the leakage guard is the \texttt{run\_id}-keyed split from LH4-A.
+\begin{tcolorbox}[infobox={Sub-campaign encoding in this dataset}]
+\texttt{collect.py} stamps both C5a and C5b rows with \texttt{campaign\_id = "C5"}; the sub-config is encoded in \texttt{run\_id} (\texttt{C5a\_<timestamp>}, \texttt{C5b\_<timestamp>}). The script's active-station-count filter therefore matches on \texttt{run\_id.startswith(...)}, not on \texttt{campaign\_id}. The filters here are cosmetic slicers, not leakage guards --- the leakage guard is the row-level stratified split from LH3-H bis (degenerate run-level split fell back to row-level).
 \end{tcolorbox}
 
 \section{Background: Average Accuracy Lies}
@@ -25,166 +25,297 @@ Two models can have identical top-line test accuracy while behaving very differe
 
 \section{Procedure}
 
-\subsection{Step 1 --- Accuracy vs.\ SNR}
-Bucket the test set by \texttt{snr} into five equal-count bins (quintiles). Compute each model's accuracy per bucket and plot as a line.
+\subsection{Step 1 --- Logging, the row-level test set, and the model dispatcher}
+\texttt{Code/AIML/stratified.py} follows the LH4-A--F logging pattern. The script rebuilds the per-row test slice from the merged CSV (using the same \texttt{inter\_arrival\_ms > 0} filter LH4-B applied) so the raw column values (\texttt{snr\_db}, \texttt{distance\_m}, \texttt{run\_id}) are available for stratifying. Models that consume per-row vectors (RF, SVM, MLP) get the same scaling LH4-B saved; the CNN consumes \texttt{Xs\_test.npy} and is aligned to the merged-CSV row index via the \texttt{src\_test.npy} files written by LH4-F.
 
-\begin{lstlisting}[language=Python, caption={\texttt{stratified\_accuracy.py} --- SNR-stratified evaluation.}]
-import numpy as np, pandas as pd, joblib, torch
-import matplotlib.pyplot as plt
+\begin{lstlisting}[language=Python, caption={Top of \texttt{stratified.py} --- imports, paths, logging.}]
+import json
+import logging
+import sys
+from datetime import datetime, timezone
+from math import sqrt
 from pathlib import Path
 
-df = pd.read_csv("merged_dataset.csv")
-df = df[df["obs_count"] > 1].reset_index(drop=True)
-test = df[df["split"] == "test"].reset_index(drop=True)
+import joblib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+from scipy.stats import norm
 
-def bucket_snr(test, n_buckets=5):
-    edges = np.quantile(test["snr"], np.linspace(0, 1, n_buckets + 1))
-    idx = np.digitize(test["snr"], edges[1:-1])
-    centers = 0.5 * (edges[:-1] + edges[1:])
-    return idx, centers, edges
+SCRIPT_DIR    = Path(__file__).parent
+LOG_DIR       = SCRIPT_DIR / "Logs"
+ARTIFACTS_DIR = SCRIPT_DIR / "artifacts"
+FIGS_DIR      = SCRIPT_DIR / "figs"
+MANIFEST_PATH = SCRIPT_DIR / "stratified_manifest.json"
+MERGED_CSV    = SCRIPT_DIR.parent / "Tools" / "CampaignCollect" / "merged_dataset.csv"
 
-def predict_rf(task, test_df):
-    pre = joblib.load(f"artifacts/{task}/preprocessor.pkl")
-    model = joblib.load(f"artifacts/{task}/rf.pkl")["model"]
-    X = pre["scaler"].transform(
-        test_df[pre["feature_cols"]].to_numpy(dtype=np.float32))
-    y = pre["encoder"].transform(test_df[{
-        "sf": "label_sf", "mod": "label_mod",
-        "beacon": "label_beacon",
-    }[task]])
-    return model.predict(X), y
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+FIGS_DIR.mkdir(parents=True, exist_ok=True)
+run_stamp   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+log_archive = LOG_DIR / f"stratified_{run_stamp}.log"
+log_latest  = LOG_DIR / "stratified_latest.log"
 
-# Similar helpers for SVM, MLP, CNN. All return (y_pred, y_true).
+log = logging.getLogger("stratified")
+log.setLevel(logging.DEBUG); log.handlers.clear()
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+for h in (logging.StreamHandler(sys.stdout),
+          logging.FileHandler(log_archive, mode="w", encoding="utf-8"),
+          logging.FileHandler(log_latest,  mode="w", encoding="utf-8")):
+    h.setFormatter(fmt); log.addHandler(h)
 
-def accuracy_by_bucket(idx, y_pred, y_true, n_buckets):
-    accs = []
-    for b in range(n_buckets):
-        mask = (idx == b)
-        if mask.sum() == 0:
-            accs.append(np.nan); continue
-        accs.append((y_pred[mask] == y_true[mask]).mean())
-    return accs
+LABEL_COL = {"sf": "label_sf", "mod": "label_mod",
+             "beacon": "label_beacon", "pkt": "label_pkt"}
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-task = "sf"   # example; repeat for each task
-idx, centers, edges = bucket_snr(test)
-plt.figure()
-for model_name in ["rf", "svm", "mlp", "cnn"]:
-    y_pred, y_true = predict(model_name, task, test)  # wrapper dispatcher
-    accs = accuracy_by_bucket(idx, y_pred, y_true, len(centers))
-    plt.plot(centers, accs, "-o", label=model_name.upper())
-plt.xlabel("SNR (dB) bucket center")
-plt.ylabel("Test accuracy")
-plt.title(f"Accuracy vs. SNR --- task: {task}")
-plt.legend(); plt.grid(True)
-plt.tight_layout(); plt.savefig(f"figs/acc_vs_snr_{task}.png", dpi=150)
+df_full = pd.read_csv(MERGED_CSV)
+df_full = df_full[df_full["inter_arrival_ms"] > 0].reset_index(drop=True)
+test_df = df_full[df_full["split"] == "test"].copy()
+log.info(f"Loaded {len(df_full)} rows; {len(test_df)} test rows")
 \end{lstlisting}
 
-\begin{tcolorbox}[infobox={Sample Size per Bucket}]
-	Quintiles give $\sim$20\% of the test set per bucket. With a $\sim$400-row test set, that is $\sim$80 samples per bucket. A single-bucket accuracy of 0.90 at $n=80$ has a 95\% Wilson CI of roughly $[0.82, 0.95]$. Be cautious about interpreting small between-model differences at individual bucket edges --- look for consistent patterns across buckets instead.
-\end{tcolorbox}
+\begin{lstlisting}[language=Python, caption={Per-task predictions aligned to merged-CSV row indices.}]
+def predict_row_model(task, model_kind):
+    """Return (y_pred, y_true, src_idx) for RF/SVM/MLP."""
+    pre = joblib.load(ARTIFACTS_DIR / task / "preprocessor.pkl")
+    feats = pre["feature_cols"]
+    raw = test_df[LABEL_COL[task]].to_numpy()
+    known = np.isin(raw, pre["encoder"].classes_)
+    sub = test_df[known]
+    if len(sub) == 0:
+        return None, None, None
+    X = pre["scaler"].transform(sub[feats].to_numpy(dtype=np.float32))
+    y_true = pre["encoder"].transform(sub[LABEL_COL[task]])
+    if model_kind in ("rf", "svm"):
+        bundle = joblib.load(ARTIFACTS_DIR / task / f"{model_kind}.pkl")
+        y_pred = bundle["model"].predict(X)
+    elif model_kind == "mlp":
+        from mlp_train import MLP
+        pkl = torch.load(ARTIFACTS_DIR / task / "mlp.pt", weights_only=False)
+        m = MLP(pkl["n_features"], pkl["n_classes"]).to(DEVICE)
+        m.load_state_dict(pkl["state_dict"]); m.eval()
+        with torch.no_grad():
+            y_pred = m(torch.from_numpy(X).float().to(DEVICE)
+                       ).argmax(1).cpu().numpy()
+    else:
+        raise ValueError(model_kind)
+    return y_pred, y_true, sub.index.to_numpy()
 
-\subsection{Step 2 --- Accuracy vs.\ distance}
-Use Campaign~C4 (the distance sweep) exclusively for this plot. Distance is discrete in C4 (1, 3, 5, 8~m), so each distance is its own bucket rather than a quantile.
 
-\begin{lstlisting}[language=Python]
-c4 = df[df["campaign_id"] == "C4"].reset_index(drop=True)
-distances = sorted(c4["distance_m"].unique())
+def predict_cnn(task):
+    from cnn_train import CNN1D
+    pkl = torch.load(ARTIFACTS_DIR / task / "cnn.pt", weights_only=False)
+    Xs = np.load(ARTIFACTS_DIR / task / "Xs_test.npy")
+    ys = np.load(ARTIFACTS_DIR / task / "ys_test.npy")
+    src = np.load(ARTIFACTS_DIR / task / "src_test.npy")
+    if len(Xs) == 0:
+        return None, None, None
+    m = CNN1D(pkl["n_features"], pkl["n_classes"]).to(DEVICE)
+    m.load_state_dict(pkl["state_dict"]); m.eval()
+    with torch.no_grad():
+        y_pred = m(torch.from_numpy(Xs).float().to(DEVICE)
+                   ).argmax(1).cpu().numpy()
+    return y_pred, ys, src
 
-for task in ["sf", "mod", "beacon"]:
-    plt.figure()
-    for model_name in ["rf", "svm", "mlp", "cnn"]:
-        y_pred, y_true = predict(model_name, task, c4)
-        accs = [
-            (y_pred[c4["distance_m"] == d] == y_true[c4["distance_m"] == d]).mean()
-            for d in distances
-        ]
-        plt.plot(distances, accs, "-o", label=model_name.upper())
-    plt.xlabel("Distance (m)")
-    plt.ylabel("Test accuracy")
-    plt.title(f"Accuracy vs. distance --- task: {task}")
-    plt.legend(); plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(f"figs/acc_vs_distance_{task}.png", dpi=150)
+
+def predict(task, model_kind):
+    if model_kind == "cnn":
+        return predict_cnn(task)
+    return predict_row_model(task, model_kind)
 \end{lstlisting}
 
-\subsection{Step 3 --- Accuracy vs.\ active-station count}
-Use Campaign~C5. Each sub-configuration corresponds to a different active-station count (C5a: Target~A only; C5b: A+B fixed ping-pong). Plot accuracy as a function of station count.
+\subsection{Step 2 --- Stratified accuracy with Wilson CI}
+The script computes per-bucket accuracy with a Wilson 95\% CI for every model. Buckets with $<$30 samples are flagged in the log (the variance there is high enough that small between-model differences should not be over-read).
 
 \begin{lstlisting}[language=Python]
-# Map: active stations
-C5_MAP = {
-    "C5a": (1,),
-    "C5b": (2,),
-}
-c5 = df[df["campaign_id"].isin(C5_MAP)].reset_index(drop=True)
+def wilson_ci(n_correct, n_total, alpha=0.05):
+    if n_total == 0:
+        return 0.0, 1.0
+    p = n_correct / n_total
+    z = norm.ppf(1 - alpha / 2)
+    denom = 1 + z * z / n_total
+    center = (p + z * z / (2 * n_total)) / denom
+    half = z * sqrt(p * (1 - p) / n_total
+                    + z * z / (4 * n_total * n_total)) / denom
+    return max(0.0, center - half), min(1.0, center + half)
 
-for task in ["sf", "mod", "beacon"]:
-    rows = []
-    for cid, (n,) in C5_MAP.items():
-        sub = c5[c5["campaign_id"] == cid]
-        if len(sub) == 0: continue
-        for model_name in ["rf", "svm", "mlp", "cnn"]:
-            y_pred, y_true = predict(model_name, task, sub)
-            acc = (y_pred == y_true).mean()
-            rows.append({"stations": n, "model": model_name, "acc": acc})
-    rdf = pd.DataFrame(rows)
-    plt.figure()
-    for model_name, grp in rdf.groupby("model"):
-        plt.plot(grp["stations"], grp["acc"], "-o",
-                 label=model_name.upper())
-    plt.xlabel("Active station count")
-    plt.ylabel("Test accuracy")
-    plt.title(f"Accuracy vs. active stations --- task: {task}")
-    plt.legend(fontsize=7); plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(f"figs/acc_vs_stations_{task}.png", dpi=150)
+
+def stratified_acc(task, stratifier_col, edges_or_values, ax, title):
+    handles = []; bucket_summary = {}
+    for model_kind in ["rf", "svm", "mlp", "cnn"]:
+        y_pred, y_true, src = predict(task, model_kind)
+        if y_pred is None:
+            continue
+        strat = df_full.loc[src, stratifier_col].to_numpy()
+        accs = []; ns = []; los = []; his = []; centers = []
+        is_edges = (isinstance(edges_or_values, np.ndarray)
+                    and edges_or_values.dtype.kind in "fc"
+                    and len(edges_or_values) > 1
+                    and not np.array_equal(edges_or_values, np.unique(edges_or_values)[:1]))
+        if is_edges and len(edges_or_values) > 2:
+            interior = edges_or_values[1:-1]
+            idx = np.digitize(strat, interior)
+            n_b = len(edges_or_values) - 1
+            for b in range(n_b):
+                m = (idx == b); n = int(m.sum())
+                center = 0.5 * (edges_or_values[b] + edges_or_values[b+1])
+                centers.append(float(center))
+                if n == 0:
+                    accs.append(np.nan); ns.append(0); los.append(np.nan); his.append(np.nan)
+                    continue
+                nc = int((y_pred[m] == y_true[m]).sum())
+                accs.append(nc / n); ns.append(n)
+                lo, hi = wilson_ci(nc, n); los.append(lo); his.append(hi)
+        else:
+            for v in edges_or_values:
+                m = (strat == v); n = int(m.sum())
+                centers.append(float(v))
+                if n == 0:
+                    accs.append(np.nan); ns.append(0); los.append(np.nan); his.append(np.nan)
+                    continue
+                nc = int((y_pred[m] == y_true[m]).sum())
+                accs.append(nc / n); ns.append(n)
+                lo, hi = wilson_ci(nc, n); los.append(lo); his.append(hi)
+        for c, n in zip(centers, ns):
+            if 0 < n < 30:
+                log.warning(f"  {task} {model_kind} bucket center={c:.2f}: "
+                            f"n={n} (<30, noisy)")
+        h, = ax.plot(centers, accs, "-o", label=model_kind.upper())
+        handles.append(h)
+        bucket_summary[model_kind] = {
+            "centers": centers, "accs": accs, "ns": ns,
+            "ci_lo": los, "ci_hi": his,
+        }
+    ax.set_title(title); ax.grid(True); ax.legend(handles=handles, fontsize=7)
+    return bucket_summary
 \end{lstlisting}
 
-\subsection{Step 4 --- Robustness score}
-Define a simple, defensible robustness metric: the \emph{minimum} accuracy across all SNR buckets on the SF task. A model with high average accuracy but terrible worst-case accuracy is a worse deployment candidate than one with slightly lower average and higher worst-case.
+\subsection{Step 3 --- Per-task three-panel figure (SNR / distance / stations)}
+The distance panel is auto-skipped if \texttt{distance\_m} has $<$2 unique values (the case in the current dataset because C4 was skipped). The stations panel is auto-skipped if the test split contains only one of \texttt{C5a}/\texttt{C5b}.
 
 \begin{lstlisting}[language=Python]
+def plot_task(task):
+    if task == "mod":
+        log.info(f"  {task}: only LoRa collected --- skipping")
+        return None
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+    # Panel 1: SNR quintiles
+    snrs = test_df["snr_db"].to_numpy()
+    edges = np.quantile(snrs, np.linspace(0, 1, 6))
+    snr_summary = stratified_acc(task, "snr_db", edges, axes[0],
+                                 f"{task}: acc vs SNR (quintiles)")
+    axes[0].set_xlabel("SNR (dB)"); axes[0].set_ylabel("Test accuracy")
+
+    # Panel 2: distance (auto-skip if no variation)
+    distances = sorted(test_df["distance_m"].unique())
+    if len(distances) < 2:
+        axes[1].set_title(f"{task}: distance plot SKIPPED")
+        axes[1].text(0.5, 0.5, "C4 not collected\n(distance_m constant)",
+                     ha="center", va="center", transform=axes[1].transAxes)
+        dist_summary = None
+    else:
+        dist_summary = stratified_acc(task, "distance_m",
+                                      np.asarray(distances), axes[1],
+                                      f"{task}: acc vs distance")
+        axes[1].set_xlabel("Distance (m)")
+
+    # Panel 3: active stations (C5a -> 1, C5b -> 2)
+    runs = test_df["run_id"].to_numpy().astype(str)
+    stations = np.where(np.char.startswith(runs, "C5b"), 2,
+                np.where(np.char.startswith(runs, "C5a"), 1, 0))
+    df_full.loc[test_df.index, "_stations"] = stations
+    discrete = sorted(set(stations.tolist()) - {0})
+    if len(discrete) < 2:
+        axes[2].set_title(f"{task}: stations plot SKIPPED")
+        axes[2].text(0.5, 0.5, "Need both C5a and C5b in test",
+                     ha="center", va="center", transform=axes[2].transAxes)
+        sta_summary = None
+    else:
+        sta_summary = stratified_acc(task, "_stations",
+                                     np.asarray(discrete), axes[2],
+                                     f"{task}: acc vs active stations")
+        axes[2].set_xlabel("Active stations"); axes[2].set_xticks(discrete)
+
+    fig.tight_layout()
+    out = FIGS_DIR / f"stratified_{task}.png"
+    fig.savefig(out, dpi=150); plt.close(fig)
+    log.info(f"  Saved {out}")
+    return {"snr": snr_summary, "distance": dist_summary, "stations": sta_summary}
+
+
+task_results = {}
+for task in ["sf", "mod", "beacon", "pkt"]:
+    log.info(f"--- Task: {task} ---")
+    task_results[task] = plot_task(task)
+\end{lstlisting}
+
+\subsection{Step 4 --- Worst-bucket robustness score}
+Defensible single-number robustness metric: the \emph{minimum} accuracy across all SNR buckets. A model with high average accuracy but terrible worst-case accuracy is a worse deployment candidate than one with slightly lower average and higher worst-case.
+
+\begin{lstlisting}[language=Python]
+log.info("=== Worst-bucket robustness (SNR quintiles) ===")
+log.info(f"{'Task':<8} {'Model':<5} {'min':>8} {'mean':>8} {'max':>8}")
 robustness = {}
-idx, centers, _ = bucket_snr(test)
-for model_name in ["rf", "svm", "mlp", "cnn"]:
-    y_pred, y_true = predict(model_name, "sf", test)
-    accs = accuracy_by_bucket(idx, y_pred, y_true, len(centers))
-    robustness[model_name] = {
-        "min":  float(np.nanmin(accs)),
-        "mean": float(np.nanmean(accs)),
-        "max":  float(np.nanmax(accs)),
-    }
-print(pd.DataFrame(robustness).T)
+for task, res in task_results.items():
+    if not res or not res.get("snr"):
+        continue
+    robustness[task] = {}
+    for model_kind, info in res["snr"].items():
+        accs = np.asarray(info["accs"], dtype=float)
+        mn   = float(np.nanmin(accs))
+        mx   = float(np.nanmax(accs))
+        mean = float(np.nanmean(accs))
+        log.info(f"{task:<8} {model_kind:<5} {mn:>8.3f} {mean:>8.3f} {mx:>8.3f}")
+        robustness[task][model_kind] = {"min": mn, "mean": mean, "max": mx}
+
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run_stamp":    run_stamp,
+    "log_archive":  str(log_archive),
+    "results":      task_results,
+    "robustness":   robustness,
+}
+with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2, default=str)
+log.info(f"Wrote {MANIFEST_PATH}")
+log.info("=== stratified.py done ===")
 \end{lstlisting}
 
 \subsection{Step 5 --- Narrative discussion (required for the deliverable)}
 Write 2--3 paragraphs addressing:
 
 \begin{enumerate}[leftmargin=2em]
-	\item Which model degrades most gracefully as \mbox{SNR} drops? Is this the same model that has the highest average accuracy?
-	\item Does the \mbox{CNN}'s temporal input give it an advantage in the multi-station regime (C5b), where DATA and ACK packets from two different stations interleave?
-	\item Is there a model family whose accuracy curves become noticeably steeper (degrade faster) in the high-distance or high-contention regime? What does that suggest about how it would perform in a field deployment with obstructed line-of-sight?
+	\item Which model degrades most gracefully as \mbox{SNR} drops on the SF task? Is this the same model that has the highest average accuracy in LH4-C/D/E/F?
+	\item Does the \mbox{CNN}'s temporal input give it an advantage in the multi-station regime (C5b), where DATA and ACK packets from two different stations interleave? Compare per-bucket accuracy on the active-station-count panel.
+	\item Are any model families noticeably steeper (degrade faster) at the low-\mbox{SNR} end? What does that suggest about how each would perform in a low-\mbox{SNR} field deployment? If C4 has not been collected, state that the distance question cannot be answered from the current dataset.
 \end{enumerate}
 
 \begin{tcolorbox}[warning={Watch for Small-Bucket Artefacts}]
-	If a distance or beacon-count bucket has $<$30 samples, do not plot a single accuracy point --- the variance is too high and the plot will mislead. Either merge it with an adjacent bucket, or annotate the point with an error bar computed from a Wilson CI. If you cannot meaningfully report a bucket, state that explicitly in the discussion.
+	The script logs a \texttt{[WARN]} for any bucket with $<$30 samples and stores the Wilson 95\% CI bounds for every bucket in \texttt{stratified\_manifest.json}. A bucket of $n=20$ at acc=0.90 has a CI of roughly $[0.70, 0.97]$; do not over-read between-model differences within that range. Quintile bucketing of a 327-row test set gives $\sim$65 rows per bucket on average, but tail buckets after stratification can be smaller.
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] SNR-stratified accuracy plotted for all three tasks.
-	\item[$\square$] Distance-stratified accuracy plotted (C4 data only).
-	\item[$\square$] Active-station-count stratified accuracy plotted (C5a and C5b).
-	\item[$\square$] Worst-case-bucket robustness table computed for at least the SF task.
+	\item[$\square$] Three-panel stratified-accuracy figure produced for every task with $\geq 2$ classes (\texttt{sf}, \texttt{beacon}, \texttt{pkt}; \texttt{mod} skipped with logged reason).
+	\item[$\square$] Distance panel either populated (if C4 is collected) or auto-skipped with the on-figure annotation.
+	\item[$\square$] Active-station-count panel either populated (if both C5a and C5b appear in the test split) or auto-skipped with annotation.
+	\item[$\square$] Worst-case-bucket robustness logged for every non-skipped task.
+	\item[$\square$] \texttt{Code/AIML/stratified\_manifest.json} written with per-task per-model bucket data plus Wilson 95\% CI bounds.
+	\item[$\square$] \texttt{Code/AIML/Logs/stratified\_<timestamp>.log} archived.
 	\item[$\square$] Narrative discussion (Step~5) written.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-G Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Three stratified-accuracy figures per task (SNR, distance, station-count) = 9 figures total across the three classification tasks.
-		\item Worst-case robustness table: min, mean, max bucket-accuracy per model on the SF task.
-		\item A ``robustness ranking'' per task: order the four models (RF, SVM, MLP, CNN) from most to least robust, with one sentence justifying each position.
+		\item \texttt{Code/AIML/stratified.py}: the runnable script.
+		\item \texttt{Code/AIML/stratified\_manifest.json}: per-task per-model bucket accuracies, sample counts, Wilson CIs, and worst-bucket robustness summary.
+		\item \texttt{Code/AIML/figs/stratified\_<task>.png}: three-panel figure (SNR / distance / stations) per non-skipped task. Distance and stations panels carry an on-figure note when auto-skipped.
+		\item Worst-case robustness table per non-skipped task: min, mean, max bucket-accuracy per model on the SNR-stratified evaluation.
+		\item A ``robustness ranking'' per non-skipped task: order the four models (RF, SVM, MLP, CNN) from most to least robust by worst-bucket accuracy, with one sentence justifying each position.
 		\item 2--3 paragraph narrative discussion addressing the three questions in Step~5.
+		\item \texttt{Code/AIML/Logs/stratified\_<timestamp>.log}: archived audit trail.
 	\end{enumerate}
 \end{tcolorbox}
 

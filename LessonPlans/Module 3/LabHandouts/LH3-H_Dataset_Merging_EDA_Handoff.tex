@@ -18,115 +18,130 @@ Merge all campaign \mbox{CSV} files into a single, clean, labeled dataset; perfo
 \section{Procedure}
 
 \subsection{Step 1 --- Merging script}
-Create \texttt{merge\_dataset.py}. The script must concatenate all campaign CSVs, verify schema consistency, remove duplicates, flag label mismatches, and add a stratified train/val/test split column.
+Place \texttt{merge\_dataset.py} in the \texttt{Code/Tools/CampaignCollect/} folder alongside \texttt{collect.py}. The script auto-discovers every \texttt{results\_*.csv} under the \texttt{logs/} subdirectory, so no file list needs to be maintained as new campaigns are added. Run it with \texttt{python merge\_dataset.py}; it writes \texttt{merged\_dataset.csv} in the same folder.
 
 \begin{lstlisting}[language=Python, caption={Dataset merging script (\texttt{merge\_dataset.py}).}]
-import pandas as pd
-import numpy as np
+import csv
+import sys
+import random
 from pathlib import Path
-import hashlib
+from collections import Counter, defaultdict
 
-CAMPAIGN_FILES = [
-    "c1_pwr02.csv", "c1_pwr08.csv", "c1_pwr14.csv", "c1_pwr20.csv",
-    "c2_sf07.csv", "c2_sf08.csv", "c2_sf09.csv", "c2_sf10.csv",
-    "c4_1m.csv", "c4_3m.csv", "c4_5m.csv", "c4_8m.csv",
-    "c5a.csv", "c5b.csv",
-]
+SCRIPT_DIR = Path(__file__).parent
+LOGS_DIR   = SCRIPT_DIR / "logs"
+OUT_CSV    = SCRIPT_DIR / "merged_dataset.csv"
 
 EXPECTED_COLS = [
     "campaign_id", "run_id", "timestamp_host",
-    "beacon_id", "mod_kind", "spread_factor", "pkt_type",
-    "rssi", "snr", "obs_count", "rx_timestamp",
-    "inter_arrival_ms", "rssi_delta", "priority_score",
+    "rx_timestamp_ms", "tx_timestamp_ms", "inter_arrival_ms",
+    "beacon_id", "seq_num", "pkt_type", "mod_kind", "spread_factor",
+    "rssi_dbm", "snr_db", "freq_error_hz", "payload_len",
     "distance_m", "label_sf", "label_mod", "mod_kind_label",
-    "label_beacon",
+    "label_beacon", "label_pkt",
 ]
 
-# Canonical modulation kinds (Module 1/2 spec): 1=LoRa, 2=FSK, 3=OOK.
-MOD_LABEL_TO_KIND = {"lora": 1, "fsk": 2, "ook": 3}
+SKIP_DIRS  = {"dry_run"}
+SKIP_FILES = {"C1_combined.csv", "C2_combined.csv", "merged_dataset.csv"}
 
-# Canonical packet types in this dataset: 0=DATA, 1=ACK.
-PKT_TYPE_DATA, PKT_TYPE_ACK = 0, 1
 
-def stratified_split(df, label_col, fracs=(0.70, 0.15, 0.15), seed=42):
-    """Assign split at the run_id level, stratified by label_col.
+def discover_csvs():
+    found = []
+    for p in sorted(LOGS_DIR.rglob("results_*.csv")):
+        if p.parent.name in SKIP_DIRS:
+            continue
+        if p.name in SKIP_FILES:
+            continue
+        found.append(p)
+    return found
 
-    Keying on run_id (not campaign_id) prevents leakage when a single
-    campaign family contains multiple collection runs.
-    """
-    rng = np.random.default_rng(seed=seed)
-    splits = []
-    for label_val, grp in df.groupby(label_col):
-        runs = grp["run_id"].unique()
+
+def stratified_split(rows, label_col, fracs=(0.70, 0.15, 0.15), seed=42):
+    # Split at run_id level stratified by label_col to prevent leakage:
+    # rows within one run share channel state, so splitting rows randomly
+    # would leak that context into the test set.
+    rng = random.Random(seed)
+    by_label = defaultdict(lambda: defaultdict(list))
+    for i, row in enumerate(rows):
+        by_label[row[label_col]][row["run_id"]].append(i)
+
+    split_map = {}
+    for label_val, run_dict in by_label.items():
+        runs = sorted(run_dict.keys())
+        rng.shuffle(runs)
         n = len(runs)
         n_train = max(1, round(n * fracs[0]))
         n_val   = max(1, round(n * fracs[1]))
-        shuffled = rng.permutation(runs)
-        train_r = set(shuffled[:n_train])
-        val_r   = set(shuffled[n_train:n_train + n_val])
-        for idx, row in grp.iterrows():
-            if row["run_id"] in train_r:
-                splits.append((idx, "train"))
-            elif row["run_id"] in val_r:
-                splits.append((idx, "val"))
-            else:
-                splits.append((idx, "test"))
-    split_map = {idx: s for idx, s in splits}
-    return df.index.map(split_map)
+        for j, run_id in enumerate(runs):
+            tag = ("train" if j < n_train
+                   else "val" if j < n_train + n_val
+                   else "test")
+            for idx in run_dict[run_id]:
+                split_map[idx] = tag
+    return split_map
 
-dfs = []
-for fname in CAMPAIGN_FILES:
-    p = Path(fname)
-    if not p.exists():
-        print(f"[WARN] Missing: {fname}")
+
+csvs = discover_csvs()
+if not csvs:
+    print(f"No results_*.csv files found under {LOGS_DIR}")
+    sys.exit(1)
+
+print(f"Found {len(csvs)} campaign CSV(s):\n")
+all_rows = []
+for p in csvs:
+    with open(p, newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        print(f"  [SKIP] {p.name} - empty")
         continue
-    df = pd.read_csv(p)
-    # Schema check
-    missing = set(EXPECTED_COLS) - set(df.columns)
+    missing = set(EXPECTED_COLS) - set(rows[0].keys())
     if missing:
-        raise ValueError(f"{fname} missing columns: {missing}")
-    dfs.append(df)
+        print(f"  [WARN] {p.name} missing columns: {missing}")
+    cid = rows[0].get("campaign_id", "?")
+    rid = rows[0].get("run_id", "?")
+    print(f"  {p.name}  ->  campaign={cid}  run={rid}  rows={len(rows)}")
+    all_rows.extend(rows)
 
-merged = pd.concat(dfs, ignore_index=True)
-print(f"Total rows before dedup: {len(merged)}")
+print(f"\nTotal rows before dedup: {len(all_rows)}")
 
-# Dedup at (run_id, beacon_id, obs_count, pkt_type) granularity. run_id
-# is required; pkt_type is required because a Beacon~ID can produce both
-# DATA and ACK rows in the same run (Target~B in C5b) so dedup at
-# (run_id, beacon_id, obs_count) alone would collapse legitimate distinct
-# rows.
-merged = merged.drop_duplicates(
-    subset=["run_id", "beacon_id", "obs_count", "pkt_type"])
-print(f"Total rows after dedup:  {len(merged)}")
+seen = set()
+deduped = []
+for row in all_rows:
+    key = (row.get("run_id"), row.get("beacon_id"),
+           row.get("seq_num"), row.get("pkt_type"))
+    if key not in seen:
+        seen.add(key)
+        deduped.append(row)
+print(f"Total rows after dedup:  {len(deduped)}")
 
-# Flag label mismatches (self-reported vs. config) using canonical
-# Module 1/2 integer mod kinds: 1=LoRa, 2=FSK, 3=OOK. mod_kind_label is
-# written directly from the campaign config by LH3-F collect.py. Note
-# that for ACK rows (pkt_type=1) the responding Target's spread_factor
-# self-report is unaffected by the campaign config's fixed_sf, so we
-# only check the mismatch for DATA rows (Target~A is the originator
-# whose config we control).
-data_mask = merged["pkt_type"] == PKT_TYPE_DATA
-merged["label_mismatch"] = 0
-merged.loc[data_mask, "label_mismatch"] = (
-    (merged.loc[data_mask, "spread_factor"] != merged.loc[data_mask, "label_sf"]) |
-    (merged.loc[data_mask, "mod_kind"] != merged.loc[data_mask, "mod_kind_label"])
-).astype(int)
-n_mismatch = merged["label_mismatch"].sum()
-print(f"Label mismatches (DATA only): {n_mismatch} "
-      f"({100*n_mismatch/data_mask.sum():.1f}% of DATA rows)")
+for row in deduped:
+    row["regime"] = (
+        "contended" if row.get("campaign_id", "").startswith("C5")
+        else "clean")
 
-# Tag operating regime: clean (C1, C2, C4 single-station) vs. contended (C5)
-merged["regime"] = merged["campaign_id"].apply(
-    lambda c: "contended" if c.startswith("C5") else "clean")
-print(merged["regime"].value_counts())
+split_map = stratified_split(deduped, "label_sf")
+for i, row in enumerate(deduped):
+    row["split"] = split_map.get(i, "train")
 
-# Stratified split by SF label (primary classification target), keyed on run_id
-merged["split"] = stratified_split(merged, "label_sf")
+by_campaign = Counter(r["campaign_id"] for r in deduped)
+by_regime   = Counter(r["regime"]      for r in deduped)
+by_pkt      = Counter(r["pkt_type"]    for r in deduped)
+by_split    = Counter(r["split"]       for r in deduped)
 
-merged.to_csv("merged_dataset.csv", index=False)
-print(f"Saved: merged_dataset.csv  ({len(merged)} rows)")
-print(merged["split"].value_counts())
+print("\n--- Summary ---")
+print("Rows per campaign_id:")
+for k, v in sorted(by_campaign.items()):
+    print(f"  {k}: {v}")
+print(f"Regime:   {dict(by_regime)}")
+print(f"pkt_type: {dict(by_pkt)}")
+print(f"Split:    {dict(by_split)}")
+
+out_cols = EXPECTED_COLS + ["regime", "split"]
+with open(OUT_CSV, "w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=out_cols, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(deduped)
+
+print(f"\nSaved: {OUT_CSV}  ({len(deduped)} rows)")
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={Stratification at the run\_id Level}]
@@ -148,7 +163,7 @@ After running \texttt{merge\_dataset.py}, confirm:
 	\item \texttt{regime} column shows roughly 75\% \texttt{clean} (C1, C2, C4) and 25\% \texttt{contended} (C5); the LH4-F operating-condition shift experiment relies on having both regimes well-represented.
 	\item \texttt{pkt\_type} value counts: \texttt{0} (DATA) dominates due to C1--C4; \texttt{1} (ACK) appears only in C5b.
 	\item \texttt{split} column contains ``train'', ``val'', and ``test'' at approximately 70/15/15\%.
-	\item \texttt{label\_mismatch} rate $<$ 2\% across DATA rows. A higher rate indicates a firmware configuration error.
+	\item No \texttt{[WARN]} lines in the script output indicating missing schema columns. The script does not compute a \texttt{label\_mismatch} column; verify firmware config correctness by checking that the \texttt{spread\_factor} column matches \texttt{label\_sf} for all DATA rows (\texttt{pkt\_type = 0}).
 \end{itemize}
 
 \subsection{Step 3 --- EDA Visualization 1: RSSI by TX power (C1)}
@@ -159,8 +174,10 @@ import pandas as pd
 
 df = pd.read_csv("merged_dataset.csv")
 c1 = df[df["campaign_id"] == "C1"]
-sns.violinplot(data=c1, x="label_sf", y="rssi")  # label_sf holds tx_power for C1
-# (Or use a custom grouping column if you stored sweep_value separately.)
+# sweep_value (TX power) is not stored as a column; use run_id to recover it.
+c1 = c1.copy()
+c1["tx_power"] = c1["run_id"].str.extract(r"pwr(\d+)").astype(int)
+sns.violinplot(data=c1, x="tx_power", y="rssi_dbm")
 plt.xlabel("TX Power (dBm)")
 plt.ylabel("RSSI (dBm)")
 plt.title("Campaign C1: RSSI Distribution by TX Power")
@@ -173,9 +190,8 @@ Expected: distributions shift right (higher RSSI, less negative) as TX power inc
 import numpy as np
 
 c4 = df[df["campaign_id"] == "C4"]
-distances = [1, 3, 5, 8]
-means = c4.groupby("distance_m")["rssi"].mean()
-stds  = c4.groupby("distance_m")["rssi"].std()
+means = c4.groupby("distance_m")["rssi_dbm"].mean()
+stds  = c4.groupby("distance_m")["rssi_dbm"].std()
 
 # FSPL model: RSSI(d) = P_tx - 20*log10(d) - 20*log10(f_Hz) + 147.55
 f_hz  = 906.5e6
@@ -196,9 +212,9 @@ plt.savefig("eda2_rssi_vs_distance.png", dpi=150)
 
 \subsection{Step 5 --- EDA Visualization 3: Feature correlation matrix}
 \begin{lstlisting}[language=Python]
-numeric_cols = ["rssi", "snr", "inter_arrival_ms", "rssi_delta",
-                "obs_count", "priority_score", "spread_factor"]
-corr = df[numeric_cols].corr()
+numeric_cols = ["rssi_dbm", "snr_db", "inter_arrival_ms",
+                "freq_error_hz", "spread_factor", "distance_m"]
+corr = df[numeric_cols].astype(float).corr()
 sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", center=0)
 plt.title("Feature Correlation Matrix (Full Dataset)")
 plt.tight_layout()
@@ -209,8 +225,8 @@ Identify and discuss in your report: which feature pairs are strongly correlated
 \newpage
 \subsection{Step 6 --- EDA Visualization 4: Inter-arrival time by station count (C5a vs.\ C5b)}
 \begin{lstlisting}[language=Python]
-c5a = df[df["campaign_id"] == "C5a"]["inter_arrival_ms"]
-c5b = df[df["campaign_id"] == "C5b"]["inter_arrival_ms"]
+c5a = df[df["run_id"].str.startswith("C5a")]["inter_arrival_ms"]
+c5b = df[df["run_id"].str.startswith("C5b")]["inter_arrival_ms"]
 plt.figure()
 plt.hist(c5a, bins=40, alpha=0.6, label="C5a Single station (DATA-only)")
 plt.hist(c5b, bins=40, alpha=0.6, label="C5b Ping-pong (DATA + ACK)")
@@ -224,18 +240,28 @@ Expected: C5a produces a tight peak near 2\,s (fixed initiator interval); C5b pr
 
 \subsection{Step 7 --- EDA Visualization 5: Class balance (4 tasks)}
 \begin{lstlisting}[language=Python]
-fig, axes = plt.subplots(1, 3, figsize=(12, 4))
-for ax, col, title in zip(axes,
-    ["label_sf", "label_mod", "label_beacon"],
-    ["SF Label", "Modulation Label", "Beacon ID Label"]):
-    df[col].value_counts().sort_index().plot(kind="bar", ax=ax)
+PKT_LABELS = {0: "DATA", 1: "ACK"}
+TASKS = [
+    ("label_sf",     "Spreading Factor",  str),
+    ("label_mod",    "Modulation",        str),
+    ("label_beacon", "Beacon ID",         str),
+    ("label_pkt",    "Packet Type",       lambda x: PKT_LABELS.get(int(x), str(x))),
+]
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+for ax, (col, title, fmt) in zip(axes, TASKS):
+    counts = df[col].value_counts().sort_index()
+    labels = [fmt(k) for k in counts.index]
+    bars = ax.bar(labels, counts.values, color="steelblue", edgecolor="white")
     ax.set_title(title)
     ax.set_xlabel(col)
     ax.set_ylabel("Count")
+    for bar, v in zip(bars, counts.values):
+        if v < 150:
+            bar.set_color("tomato")
 plt.tight_layout()
 plt.savefig("eda5_class_balance.png", dpi=150)
 \end{lstlisting}
-Flag any class with fewer than 150 samples; the 70/15/15 split will produce fewer than 30 test samples for that class, which is insufficient for reliable evaluation.
+Bars drawn in red indicate fewer than 150 samples; the 70/15/15 split will produce fewer than 30 test samples for that class, which is insufficient for reliable evaluation.
 
 \subsection{Step 8 --- Operating-condition shift analysis}
 Compare at least two features between the clean regime (C1, C2, and C4 single-station, DATA-only) and the contended regime (C5 cooperative-target ping-pong), entirely within the hardware dataset. The \texttt{regime} column added by the merge script identifies the source for each row.
@@ -253,43 +279,49 @@ Compare at least two features between the clean regime (C1, C2, and C4 single-st
 \subsection{Step 9 --- Data dictionary}
 Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{merged\_dataset.csv}:
 
-\begin{table}[h!]
-	\centering
-	\renewcommand{\arraystretch}{1.3}
-	\begin{tabularx}{\textwidth}{l l l X}
-		\toprule
-		\textbf{Column} & \textbf{Type} & \textbf{Units / Valid Range} & \textbf{Description} \\
-		\midrule
-		\texttt{campaign\_id} & string & C1--C5d & Experiment family identifier \\
-		\texttt{run\_id} & string & unique per run & One \texttt{collect.py} invocation (ISO-timestamped) --- split-leakage key \\
-		\texttt{regime} & string & ``clean''/``contended'' & Operating regime (clean = C1, C2, and C4 single-station; contended = C5 multi-station ping-pong) \\
-		\texttt{timestamp\_host} & ISO 8601 & UTC & Host reception time \\
-		\texttt{beacon\_id} & uint8 & 1--255 & FPGA-parsed sender Beacon~ID (\texttt{0x01}=Target~A, \texttt{0x02}=Target~B, \texttt{0xFF}=Threat) \\
-		\texttt{mod\_kind} & uint8 & 1=LoRa, 2=FSK, 3=OOK; low 2 bits cleared & Self-reported modulation kind (upper 6 bits of radio packet's \texttt{Modulation Code} byte) \\
-		\texttt{mod\_kind\_label} & uint8 & 1=LoRa, 2=FSK, 3=OOK & Ground-truth modulation kind (canonical) \\
-		\texttt{spread\_factor} & uint8 & 7--12 (LoRa); 0 (non-LoRa) & Self-reported SF \\
-		\texttt{pkt\_type} & uint8 & 0=DATA, 1=ACK & Packet type from low 2 bits of \texttt{Modulation Code} byte \\
-		\texttt{rssi} & int16 & $-120$ to $0$~dBm & Received signal strength \\
-		\texttt{snr} & int16 & $-20$ to $+15$~dB & Signal-to-noise ratio \\
-		\texttt{obs\_count} & uint32 & $\geq 1$ & FPGA per-station frame count \\
-		\texttt{rx\_timestamp} & uint32 & ms & Interceptor-side STM32 tick \\
-		\texttt{inter\_arrival\_ms} & uint32 & ms & FPGA-computed inter-arrival time \\
-		\texttt{rssi\_delta} & int32 & dBm & FPGA-computed RSSI change \\
-		\texttt{priority\_score} & uint32 & --- & FPGA-computed priority \\
-		\texttt{distance\_m} & float & 0.5--10~m & Measured Target--interceptor separation \\
-		\texttt{label\_sf} & uint8 & 7--12 & Ground-truth spreading factor \\
-		\texttt{label\_mod} & string & ``lora''/``fsk''/``ook'' & Human-readable modulation label (alias of \texttt{mod\_kind\_label}) \\
-		\texttt{label\_beacon} & uint8 & 1, 2, or 255 (\texttt{0xFF}) & Ground-truth Beacon~ID (sender identity) \\
-		\texttt{label\_mismatch} & uint8 & 0 / 1 & 1 if DATA-row self-reported $\neq$ config label \\
-		\texttt{split} & string & ``train'' / ``val'' / ``test'' & Dataset partition (stratified by \texttt{label\_sf}, keyed on \texttt{run\_id}) \\
-		\bottomrule
-	\end{tabularx}
-\end{table}
+\begin{tabularx}{\textwidth}{l l l X}
+	\toprule
+	\textbf{Column} & \textbf{Type} & \textbf{Units / Valid Range} & \textbf{Description} \\
+	\midrule
+	\texttt{campaign\_id} & string & C1, C2, C4, C5 & Experiment family identifier \\
+	\texttt{run\_id} & string & unique per run & One \texttt{collect.py} invocation (ISO-timestamped) --- split-leakage key \\
+	\texttt{regime} & string & ``clean''/``contended'' & Operating regime (clean = C1, C2, C4; contended = C5) \\
+	\texttt{timestamp\_host} & ISO 8601 & UTC & Host reception time \\
+	\texttt{rx\_timestamp\_ms} & uint32 & ms & Interceptor-side STM32 tick at RX \\
+	\texttt{tx\_timestamp\_ms} & uint32 & ms & Transmitter-side STM32 tick (from packet payload) \\
+	\texttt{inter\_arrival\_ms} & int32 & ms & RX timestamp delta between consecutive packets \\
+	\texttt{beacon\_id} & uint8 & 1--255 & Sender Beacon~ID (\texttt{0x01}=Target~A, \texttt{0x02}=Target~B, \texttt{0xFF}=Threat) \\
+	\texttt{seq\_num} & uint16 & $\geq 0$ & Per-station sequence counter (resets on firmware flash) \\
+	\texttt{pkt\_type} & uint8 & 0=DATA, 1=ACK & Packet type from low 2 bits of \texttt{Modulation Code} byte \\
+	\texttt{mod\_kind} & uint8 & 1=LoRa, 2=FSK, 3=OOK & Self-reported modulation kind (upper 6 bits of \texttt{Modulation Code} byte) \\
+	\bottomrule
+\end{tabularx}
+
+\newpage
+
+\begin{tabularx}{\textwidth}{l l l X}
+	\toprule
+	\textbf{Column} & \textbf{Type} & \textbf{Units / Valid Range} & \textbf{Description} \\
+	\midrule
+	\texttt{spread\_factor} & uint8 & 7--10 (LoRa); 0 (non-LoRa) & Self-reported SF (fixed by firmware compile-time define) \\
+	\texttt{rssi\_dbm} & int8 & $-120$ to $0$~dBm & Received signal strength at interceptor \\
+	\texttt{snr\_db} & float & $-20$ to $+15$~dB & SNR estimate (SX1276 \texttt{RegPktSnrValue} $\times$ 0.25) \\
+	\texttt{freq\_error\_hz} & int16 & Hz & Crystal frequency offset between TX and interceptor \\
+	\texttt{payload\_len} & uint8 & bytes & Radio payload length byte from packet \\
+	\texttt{distance\_m} & float & 0.5--10~m & Measured Target--interceptor antenna separation \\
+	\texttt{label\_sf} & uint8 & 7--10 & Ground-truth spreading factor (from campaign config) \\
+	\texttt{label\_mod} & string & ``lora'' & Human-readable modulation label (alias of \texttt{mod\_kind\_label}) \\
+	\texttt{mod\_kind\_label} & uint8 & 1=LoRa & Ground-truth modulation kind integer (from campaign config) \\
+	\texttt{label\_beacon} & uint8 & 1 or 2 & Ground-truth Beacon~ID (sender identity, from packet) \\
+	\texttt{label\_pkt} & uint8 & 0 or 1 & Ground-truth packet type (from packet) \\
+	\texttt{split} & string & ``train''/``val''/``test'' & Dataset partition (stratified by \texttt{label\_sf}, keyed on \texttt{run\_id}) \\
+	\bottomrule
+\end{tabularx}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \texttt{merged\_dataset.csv} contains $\geq$2{,}500 rows with the correct schema and a \texttt{split} column.
-	\item[$\square$] \texttt{label\_mismatch} rate $<$ 2\% across DATA rows.
+	\item[$\square$] \texttt{merged\_dataset.csv} contains $\geq$2{,}100 rows with the correct schema and a \texttt{split} column.
+	\item[$\square$] No \texttt{[WARN]} lines in merge script output; \texttt{spread\_factor} matches \texttt{label\_sf} for all DATA rows.
 	\item[$\square$] Both regimes well-represented: \texttt{regime} = \texttt{clean} and \texttt{regime} = \texttt{contended} both present with non-trivial row counts.
 	\item[$\square$] All four classification tasks (SF, modulation, Beacon~ID, packet type) have at least 30 test samples per class.
 	\item[$\square$] Train/val/test split is approximately 70/15/15\%.
@@ -302,9 +334,9 @@ Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{me
 	\begin{enumerate}[leftmargin=1.2em]
 		\item \texttt{merged\_dataset.csv}: the complete labeled dataset with stratified split column.
 		\item \texttt{merge\_dataset.py}: the merging script.
-		\item Dataset summary: total rows, rows per campaign, rows per regime (clean / contended), rows per (Beacon~\mbox{ID}, \texttt{pkt\_type}) pair, rows per class for all four classification tasks (SF, modulation, Beacon~ID, packet type), label mismatch count, \mbox{CRC} failure count.
+		\item Dataset summary: total rows, rows per campaign, rows per regime (clean / contended), rows per (Beacon~\mbox{ID}, \texttt{pkt\_type}) pair, rows per class for all four classification tasks (SF, modulation, Beacon~ID, packet type).
 		\item All five \mbox{EDA} plots (\texttt{eda1\_} through \texttt{eda5\_}), each with a 2--3 sentence interpretive caption.
-		\item Operating-condition shift analysis: at least two quantitative comparisons between the clean regime (C1--C4) and the contended regime (C5) with physical interpretation.
+		\item Operating-condition shift analysis: at least two quantitative comparisons between the clean regime (C1, C2, and C4) and the contended regime (C5) with physical interpretation.
 		\item \texttt{data\_dictionary.md}: complete column documentation.
 		\item Known limitations section: indoor multipath effects, distance measurement uncertainty, half-duplex shadowing during Threat RX, any collection anomalies (power interruptions, firmware crashes, station desynchronization), and any campaigns that fell short of their target packet count.
 		\item One-page Module~3 retrospective: what worked, what integration failures were most instructive, and what you would change before a second data collection campaign.

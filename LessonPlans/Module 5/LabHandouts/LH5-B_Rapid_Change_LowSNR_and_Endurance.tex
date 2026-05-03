@@ -7,11 +7,11 @@
 \labheader{5-B}{S2 Rapid Parameter Change, S3 Low-SNR, and S4 Extended-Duration Stress Tests}
 
 \section{Objective}
-Execute three of the remaining stress-test dimensions: S2 evaluates whether the four-task classifier suite tracks dynamic SF changes from a cooperative target while a second target remains fixed; S3 extends the accuracy-vs.-\mbox{SNR} curve from Module~4 into the low-\mbox{SNR} regime --- including an intentionally out-of-distribution obstruction test --- and S4 runs the bidirectional system for 30 minutes to surface time-dependent failure modes. The PAUSE behavioural-response stress test (S5) is covered in LH5-C alongside the latency instrumentation it shares.
+Execute three of the remaining stress-test dimensions: S2 evaluates whether the deployed three-task classifier suite (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) tracks dynamic SF changes from a cooperative target while a second target remains fixed; S3 extends the accuracy-vs.-\mbox{SNR} curve from Module~4 into the low-\mbox{SNR} regime --- including an intentionally out-of-distribution obstruction test --- and S4 runs the bidirectional system for 30 minutes to surface time-dependent failure modes. The \texttt{mod} task is single-class in the dataset and was dropped during Module~3, so this handout only ever evaluates three tasks. The PAUSE behavioural-response stress test (S5) is covered in LH5-C alongside the latency instrumentation it shares.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~5-A complete (stress test plan written; S1a--S1e executed; \texttt{s1\_results.json} in hand with four-task accuracy columns).
+	\item Lab Handout~5-A complete (stress test plan written; S1a--S1e executed; \texttt{s1\_results.json} in hand with three-task (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) accuracy columns).
 	\item Target~A (ID 0x01), Target~B (ID 0x02), and the Threat interceptor (ID 0xFF) all operational on 906.5\,MHz.
 	\item Firmware build environment available for in-situ SF reconfiguration on Target~A.
 	\item A physical obstruction available for S3e (metal filing cabinet, stack of textbooks, or similar).
@@ -20,38 +20,38 @@ Execute three of the remaining stress-test dimensions: S2 evaluates whether the 
 \section{Procedure}
 
 \subsection{Step 1 --- S2: Rapid Parameter Change}
-Configure both cooperative targets at SF7, +14\,dBm, fixed 2-second DATA/ACK ping-pong (Target~A initiates DATA, Target~B replies ACK; PAUSE button \emph{not} held). Start \texttt{live\_inference.py} and confirm the four-task classifier reports SF7, the correct modulation kind, the correct emitter ID per packet, and the correct packet type (DATA vs.\ ACK) for both targets. Then cycle Target~A's SF while Target~B remains at SF7:
+Configure both cooperative targets at SF7, +14\,dBm, fixed 2-second DATA/ACK ping-pong (Target~A initiates DATA, Target~B replies ACK; PAUSE button \emph{not} held). Start \texttt{live\_inference.py} and confirm the three-task classifier reports SF7, the correct beacon ID per packet, and the correct packet type (DATA vs.\ ACK) for both targets. Then cycle Target~A's SF while Target~B remains at SF7:
 
 \begin{enumerate}[leftmargin=2em]
 	\item $t = 0$: Both targets at SF7. Verify inference reports SF7, correct emitter ID, and correct packet type for every frame.
-	\item $t = 30$\,s: Reflash or reconfigure Target~A to SF10. Observe the number of packets between reflash completion and the first correct SF10 classification on Target~A's DATA frames. Record whether Target~B's SF7 ACK frames remain correctly classified throughout.
+	\item $t = 30$\,s: Reflash or reconfigure Target~A to SF10. Observe the number of packets between reflash completion and the first correct SF10 classification on Target~A's DATA frames. Record whether Target~B's SF7 ACK frames remain correctly classified throughout (the \texttt{beacon} and \texttt{pkt} tasks should be unaffected; only \texttt{sf} should transition).
 	\item $t = 60$\,s: Change Target~A to SF12. Record the same observations.
 	\item $t = 90$\,s: Return Target~A to SF7. Record the return behaviour.
 	\item Continue for the remainder of 10 minutes, cycling the same sequence every 90 seconds to gather multiple transitions per SF pair.
 \end{enumerate}
 
 \begin{tcolorbox}[warning={Transient Misclassification at SF Boundaries}]
-	The Module~4 Random Forest and MLP classify each feature vector independently --- they have no memory of previous classifications, so there is no ``tracking delay'' inside the model. However, the \FPGA{}'s \texttt{inter\_arrival\_ms} and \texttt{rssi\_delta} features are computed relative to the \emph{previous} observation from the same Beacon~ID. On the first packet after a transition, \texttt{inter\_arrival\_ms} is computed against the last old-SF DATA frame from Target~A, whose on-air time is different. This can cause one or two transient misclassifications right at the boundary on the SF and modulation-kind tasks. The packet-type and emitter-ID tasks should remain stable throughout because they read directly from the packed Modulation Code byte. Document the transients and explain them in terms of the Module~2 feature-computation logic.
+	The Module~4 candidate models classify each feature vector independently (the deployed CNN runs over an 8-frame sequence buffer but has no per-Target state) --- there is no ``tracking delay'' inside the model. However, the \FPGA{}'s \texttt{inter\_arrival\_ms} feature is computed relative to the \emph{previous} observation from the same Beacon~ID. On the first packet after a transition, \texttt{inter\_arrival\_ms} is computed against the last old-SF DATA frame from Target~A, whose on-air time is different. This can cause one or two transient misclassifications right at the boundary on the \texttt{sf} task. The \texttt{pkt} and \texttt{beacon} tasks should remain stable throughout because they read directly from the packed Modulation Code byte and the source-ID byte. Document the transients and explain them in terms of the Module~2 feature-computation logic.
 \end{tcolorbox}
 
 \subsection{Step 2 --- S2 analysis}
-Build a transition table that tracks all four classification tasks separately:
+Build a transition table that tracks all three deployed classification tasks separately:
 
 \begin{table}[h!]
 	\centering
 	\renewcommand{\arraystretch}{1.3}
-	\begin{tabularx}{\textwidth}{c c c c c c X}
+	\begin{tabularx}{\textwidth}{c c c c c X}
 		\toprule
-		\textbf{Trans.} & \textbf{From} & \textbf{To} & \textbf{Pkts to first correct SF} & \textbf{Pkts to first correct mod} & \textbf{Pkt-type / ID stable?} & \textbf{Notes} \\
+		\textbf{Trans.} & \textbf{From} & \textbf{To} & \textbf{Pkts to first correct SF} & \textbf{Pkt-type / beacon stable?} & \textbf{Notes} \\
 		\midrule
-		1 & SF7  & SF10 & & & & \\
-		2 & SF10 & SF12 & & & & \\
-		3 & SF12 & SF7  & & & & \\
+		1 & SF7  & SF10 & & & \\
+		2 & SF10 & SF12 & & & \\
+		3 & SF12 & SF7  & & & \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
 
-Expected: the SF and modulation columns should be 0, 1, or 2 --- never larger. Packet type and emitter ID should be stable (zero transition packets) because both are decoded directly from the Modulation Code byte and the source-ID byte rather than from inter-arrival statistics. If you consistently see 3+ on the SF/mod columns, revisit the \FPGA{} feature computation: is \texttt{inter\_arrival\_ms} being reset on \texttt{beacon\_id} change, or is it measuring across mismatched SF conditions for more than one packet? If packet type or emitter ID ever flips, you have a Modulation Code packing bug and must revisit LH2-D.
+Expected: the SF column should be 0, 1, or 2 --- never larger. Packet type and beacon ID should be stable (zero transition packets) because both are decoded directly from the Modulation Code byte and the source-ID byte rather than from inter-arrival statistics. If you consistently see 3+ on the SF column, revisit the \FPGA{} feature computation: is \texttt{inter\_arrival\_ms} being reset on \texttt{beacon\_id} change, or is it measuring across mismatched SF conditions for more than one packet? If packet type or beacon ID ever flips, you have a Modulation Code packing bug and must revisit LH2-D.
 
 \subsection{Step 3 --- S3: Low-SNR operating conditions}
 
@@ -78,17 +78,17 @@ For S3e, place the obstruction physically between Target~A and the Threat interc
 Plot:
 \begin{itemize}[leftmargin=2em]
 	\item Measured mean \mbox{RSSI} vs.\ configuration (bar or line chart).
-	\item Classification accuracy vs.\ configuration, one line per task --- \emph{four lines total}: SF, modulation kind, emitter ID, packet type.
-	\item Overlay: the Module~4 LH4-G accuracy-vs.-\mbox{SNR} curve (also four lines), so the Module~5 data extends the existing plot into the low-\mbox{SNR} regime rather than duplicating it.
+	\item Classification accuracy vs.\ configuration, one line per deployed task --- \emph{three lines total}: \texttt{sf}, \texttt{beacon}, \texttt{pkt}.
+	\item Overlay: the Module~4 LH4-G accuracy-vs.-\mbox{SNR} curve (also three lines), so the Module~5 data extends the existing plot into the low-\mbox{SNR} regime rather than duplicating it.
 \end{itemize}
 
 Then characterise the degradation mode for each task:
 \begin{itemize}[leftmargin=2em]
-	\item \textbf{Graceful:} Accuracy decreases smoothly; SF/mod misclassifications favour adjacent classes; packet-type and emitter-ID degrade only when CRC starts failing.
+	\item \textbf{Graceful:} Accuracy decreases smoothly; SF misclassifications favour adjacent classes; packet-type and beacon-ID degrade only when CRC starts failing.
 	\item \textbf{Catastrophic:} Accuracy drops abruptly to near-random; misclassifications scatter across all classes.
 \end{itemize}
 
-Expected pattern: packet type and emitter ID should hold near 100\% as long as CRC passes (these are byte reads, not statistical inferences) and then collapse abruptly once \texttt{packet\_crc\_ok} starts dropping. SF and modulation kind should degrade more gradually because they depend on continuous-valued features. Either outcome is a valid experimental result; the analysis value is in explaining \emph{which} outcome occurred per task and tracing it to the training data distribution (Module~3) and feature-engineering decisions (Module~4).
+Expected pattern: packet type and beacon ID should hold near 100\% as long as CRC passes (these are byte reads, not statistical inferences) and then collapse abruptly once \texttt{packet\_crc\_ok} starts dropping. The \texttt{sf} task should degrade more gradually because it depends on continuous-valued features (\texttt{rssi\_dbm}, \texttt{snr\_db}, \texttt{inter\_arrival\_ms}). Either outcome is a valid experimental result; the analysis value is in explaining \emph{which} outcome occurred per task and tracing it to the training data distribution (Module~3) and feature-engineering decisions (Module~4).
 
 \subsection{Step 5 --- S4: Extended-duration stability run}
 Configure Target~A and Target~B at SF7, +14\,dBm, 2-second fixed DATA/ACK ping-pong (the Module~3 nominal C2 configuration). Threat is powered, listening, and \emph{not} transmitting (PAUSE button not held). Start \texttt{live\_inference.py} with logging enabled and let the system run for 30 minutes uninterrupted.
@@ -103,11 +103,11 @@ Monitor and record:
 		\textbf{Metric} & \textbf{What to watch for} \\
 		\midrule
 		\texttt{obs\_count} trajectory       & Linear growth; any reset or plateau is abnormal \\
-		Sequence-number gap (per emitter ID) & Constant gap = one-time desync; growing gap = ongoing loss; check both 0x01 and 0x02 \\
+		Sequence-number gap (per beacon ID) & Constant gap = one-time desync; growing gap = ongoing loss; check both 0x01 and 0x02 \\
 		DATA / ACK ratio                     & Should sit at 1:1 within $\pm$5\%; a drift indicates one direction of the link is degrading \\
 		\FIFO{} baseline utilization         & Slow upward creep = throughput deficit \\
 		\FIFO{} overflow alarm (\texttt{led(15)}) & Should never set under nominal load \\
-		Per-task accuracy per 5-min window   & All four tasks should be stable; drift suggests feature drift \\
+		Per-task accuracy per 5-min window   & All three deployed tasks should be stable; drift suggests feature drift \\
 		Python inference-script memory        & Should plateau after $\sim$1 minute; linear growth = leak \\
 		Python inference-script \mbox{CPU} usage     & Should be consistent; spikes correlate with \mbox{OS} scheduling \\
 		\bottomrule
@@ -116,28 +116,32 @@ Monitor and record:
 
 \subsection{Step 6 --- S4 post-run analysis}
 
-\begin{lstlisting}[language=Python, caption={\texttt{analyse\_s4.py} --- minute-by-minute four-task stability metrics.}]
+\begin{tcolorbox}[infobox={CSV logging is a local enhancement to \texttt{live\_inference.py}}]
+The shipped \texttt{live\_inference.py} prints to stdout only. For S4 you have two options: (1) \texttt{tee} stdout to a file and parse it with the regex skeleton below, or (2) extend \texttt{live\_inference.py} with a small CSV writer that emits one row per frame containing \texttt{timestamp\_host, beacon\_id, seq, pred\_sf, pred\_beacon, pred\_pkt}. Option 2 is the cleaner path; option 1 is faster.
+\end{tcolorbox}
+
+\begin{lstlisting}[language=Python, caption={\texttt{analyse\_s4.py} --- minute-by-minute three-task stability metrics. Assumes you have written a CSV with the columns above (or adapt the parser to whatever your extended \texttt{live\_inference.py} emits). Ground-truth columns (\texttt{gt\_sf}, \texttt{gt\_beacon}, \texttt{gt\_pkt}) come from the known operator configuration during S4 (SF7, beacon 0x01/0x02 by Target, alternating DATA/ACK).}]
 import pandas as pd, matplotlib.pyplot as plt
-df = pd.read_csv("s4_log.csv")   # produced by live_inference.py with --log-csv
+df = pd.read_csv("s4_log.csv")   # produced by your extended live_inference.py
 df["ts"] = pd.to_datetime(df["timestamp_host"])
 df["minute"] = (df["ts"] - df["ts"].min()).dt.total_seconds() // 60
 
-# Per-minute accuracy across all four tasks
-for task in ["sf", "mod", "id", "pkt"]:
+# Per-minute accuracy across all three deployed tasks
+for task in ["sf", "beacon", "pkt"]:
     acc = df.groupby("minute").apply(
         lambda g: (g[f"pred_{task}"] == g[f"gt_{task}"]).mean())
     plt.plot(acc.index, acc.values, label=task)
 plt.xlabel("Minute")
 plt.ylabel("Accuracy")
-plt.title("S4 --- per-minute four-task accuracy (30 min run)")
+plt.title("S4 --- per-minute three-task accuracy (30 min run)")
 plt.legend()
 plt.tight_layout()
 plt.savefig("figs/s4_accuracy_timeseries.png", dpi=150)
 
-# Sequence-number gap per emitter ID (0x01 and 0x02)
-gap = df.groupby("emitter_id").apply(
+# Sequence-number gap per beacon ID (0x01 and 0x02)
+gap = df.groupby("beacon_id").apply(
     lambda g: (g["seq"].max() - g["seq"].min() + 1) - len(g))
-print("Sequence gap per emitter:")
+print("Sequence gap per beacon:")
 print(gap)
 
 # DATA/ACK balance
@@ -159,21 +163,21 @@ print(f"DATA/ACK ratio: {counts.get('DATA',0) / max(counts.get('ACK',1),1):.3f}"
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] S2: all three SF transitions executed; four-task transition table filled.
-	\item[$\square$] S2: packet-type and emitter-ID columns confirm zero-packet stability across SF transitions.
+	\item[$\square$] S2: all three SF transitions executed; three-task transition table filled.
+	\item[$\square$] S2: packet-type and beacon-ID columns confirm zero-packet stability across SF transitions.
 	\item[$\square$] S3: all five configurations run; per-task degradation mode labelled (graceful vs.\ catastrophic).
-	\item[$\square$] S3 plot overlays the LH4-G accuracy-vs.-SNR curve and contains four lines per panel (SF, mod, ID, packet type).
+	\item[$\square$] S3 plot overlays the LH4-G accuracy-vs.-SNR curve and contains three lines per panel (\texttt{sf}, \texttt{beacon}, \texttt{pkt}).
 	\item[$\square$] S4: 30-minute bidirectional run completed without manual intervention; PAUSE never asserted.
-	\item[$\square$] S4 per-minute four-task accuracy time-series saved.
+	\item[$\square$] S4 per-minute three-task accuracy time-series saved.
 	\item[$\square$] S4 DATA/ACK ratio recorded.
 	\item[$\square$] Any anomalies from S2/S3/S4 tagged for the LH5-E failure catalog.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 5-B Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item S2 inference log + four-task transition table with the ``packets until first correct'' columns filled for SF and modulation, and the stability columns confirmed for packet type and emitter ID.
-		\item S3 accuracy-vs.-configuration plot (four task lines) overlaid on the LH4-G Module~4 curve; short paragraph classifying degradation mode per task.
-		\item S4 log file (\texttt{s4\_log.csv}), 30-minute time-series plots (four-task accuracy, \FIFO{} peak, DATA/ACK ratio, Python memory), and a one-paragraph stability verdict.
+		\item S2 inference log + three-task transition table with the ``packets until first correct'' column filled for \texttt{sf}, and the stability columns confirmed for \texttt{pkt} and \texttt{beacon}.
+		\item S3 accuracy-vs.-configuration plot (three task lines) overlaid on the LH4-G Module~4 curve; short paragraph classifying degradation mode per task.
+		\item S4 log file (\texttt{s4\_log.csv}), 30-minute time-series plots (three-task accuracy, \FIFO{} peak, DATA/ACK ratio, Python memory), and a one-paragraph stability verdict.
 		\item Updated Session-17 summary table: maximum safe active-station count (from LH5-A), minimum classifiable \mbox{SNR} per task, SF-transition latency, 30-min stability verdict.
 	\end{enumerate}
 \end{tcolorbox}

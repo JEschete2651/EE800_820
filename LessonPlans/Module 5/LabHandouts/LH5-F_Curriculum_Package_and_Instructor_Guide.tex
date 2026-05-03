@@ -31,8 +31,8 @@ Assemble the complete, self-contained curriculum package that a future instructo
 		3  & Threat (Interceptor) Firmware             & VS Code STM32 project; ISR, ring buffer, UART forwarder, RSSI table, button-gated PAUSE TX scheduler (ID 0xFF) & $\square$ \\
 		4  & \FPGA{} \mbox{RTL{}}                      & Vivado project; all \mbox{VHDL} sources, XDC, testbenches & $\square$ \\
 		5  & Host Collection Script                    & Python \texttt{collect.py} with campaign-config \mbox{JSON}s for C1--C5 & $\square$ \\
-		6  & ML Pipeline Code                          & \texttt{preprocess.py}, training scripts, \texttt{inference.py} (four tasks: SF, mod, ID, packet type) & $\square$ \\
-		7  & Trained Models                            & \texttt{.pkl} / \texttt{.pt} files for RF, SVM, MLP, CNN-1D, one set per task & $\square$ \\
+		6  & ML Pipeline Code                          & \texttt{preprocess.py}, training scripts (\texttt{baselines.py}, \texttt{svm\_train.py}, \texttt{mlp\_train.py}, \texttt{cnn\_train.py}), \texttt{stratified.py}, \texttt{select\_model.py}, \texttt{inference.py}, \texttt{live\_inference.py} (three deployed tasks: \texttt{sf}, \texttt{beacon}, \texttt{pkt}; \texttt{mod} dropped as single-class) & $\square$ \\
+		7  & Trained Models                            & \texttt{.pkl} / \texttt{.pt} files for RF, SVM, MLP, CNN-1D, one set per task; \texttt{deployment\_manifest.json} pins which is deployed per task & $\square$ \\
 		8  & Labeled Dataset                           & \texttt{merged\_dataset.csv} + \texttt{data\_dictionary.md} (with \texttt{regime} column) & $\square$ \\
 		9  & Hardware \mbox{BOM}                       & Part numbers, vendors, costs (3$\times$ Nucleo, 3$\times$ RFM95W, Nexys A7) & $\square$ \\
 		10 & Instructor's Guide                        & The document written in Step~3 of this handout & $\square$ \\
@@ -47,7 +47,7 @@ Verification is not just presence --- for each item, confirm it is usable:
 	\item For firmware projects (\#2--\#3): clone to a scratch directory, open in VS Code, and build all three projects (TargetA, TargetB, Threat). No missing \mbox{SDK} references, no unresolved \texttt{\#include}s, no hardcoded paths pointing to the original developer's machine. Confirm each project's \texttt{Beacon\_ID} \texttt{\#define} is set to the correct value (0x01, 0x02, 0xFF).
 	\item For the Vivado project (\#4): open in Vivado, run Synthesis. It must complete without warnings about missing files or unconstrained ports beyond those already documented.
 	\item For the Python code (\#5, \#6): create a fresh conda or venv environment from a \texttt{requirements.txt}, install, and run the scripts on the packaged dataset. If a script requires a \mbox{USB} device, provide a \texttt{--replay} mode or a dummy input for package-integrity testing.
-	\item For the trained models (\#7): \texttt{joblib.load()} / \texttt{torch.load()} succeeds and \texttt{predict()} on a sample feature row returns a sensible class for each of the four tasks.
+	\item For the trained models (\#7): \texttt{joblib.load()} / \texttt{torch.load()} succeeds and \texttt{InferenceEngine.predict()} on a sample feature dict returns a sensible class for each of the three deployed tasks (\texttt{sf}, \texttt{beacon}, \texttt{pkt}).
 	\item For the dataset (\#8): \texttt{pd.read\_csv()} + the LH4-A thirteen-check audit passes; the \texttt{regime} column contains both ``clean'' and ``contended'' values.
 \end{itemize}
 
@@ -133,9 +133,11 @@ capstone_package/
 |-- Host/
 |   |-- collect.py
 |   |-- preprocess.py
-|   |-- train_rf.py / train_svm.py / train_mlp.py / train_cnn.py
+|   |-- baselines.py / svm_train.py / mlp_train.py / cnn_train.py
+|   |-- stratified.py / select_model.py
 |   |-- inference.py
 |   |-- live_inference.py
+|   |-- deployment_manifest.json    # which model is deployed per task
 |   |-- requirements.txt
 |   |-- campaign_configs/*.json     # C1, C2, C3, C4, C5
 |-- Data/
@@ -144,9 +146,9 @@ capstone_package/
 |   |-- validation_manifest.json
 |-- Models/
 |   |-- sf/rf.pkl, svm.pkl, mlp.pt, cnn.pt, preprocessor.pkl
-|   |-- mod/...
-|   |-- id/...
+|   |-- beacon/...                  # was "id" in earlier drafts
 |   |-- pkt/...
+|   # Note: no `mod/` subfolder --- single-class skip during M3
 |-- Hardware/
 |   |-- BOM.md
 |   |-- wiring_diagram.png
@@ -189,8 +191,9 @@ The instructor's guide (\texttt{InstructorGuide.pdf}) has five sections:
 # Capstone: AI-Driven RF Signal Processing
 
 End-to-end teaching framework that builds, from scratch, a system that
-classifies Radio-Frequency transmissions in real time on a four-task
-suite (spreading factor, modulation kind, emitter ID, packet type):
+classifies Radio-Frequency transmissions in real time on a three-task
+suite (spreading factor `sf`, beacon ID `beacon`, packet type `pkt`;
+the `mod` task is single-class in this dataset and not deployed):
 
   Target A (DATA) <-> Target B (ACK)        on 906.5 MHz
             |

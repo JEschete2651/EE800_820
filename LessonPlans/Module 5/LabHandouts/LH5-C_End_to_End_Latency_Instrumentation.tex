@@ -7,7 +7,7 @@
 \labheader{5-C}{End-to-End Latency Instrumentation, Per-Stage Decomposition, and S5 PAUSE Behavioural Response}
 
 \section{Objective}
-Instrument the full pipeline --- Target~A \mbox{TX} start $\to$ Threat interceptor classification output --- with a GPIO-toggle latency measurement and produce a per-stage decomposition of the total response time. This handout extends the LH3-D \mbox{GPIO}-toggle method from a single stage (\mbox{RF} + firmware) to all six stages, giving the Module~5 benchmarking table in LH5-D a physical measurement per stage rather than a theoretical budget. It also runs the \textbf{S5 PAUSE behavioural-response} stress test, which measures the closed-loop latency from the held-button assertion at the Threat to the moment a Target prints \texttt{I'm Jammed} on USART2, and the recovery latency once the button is released.
+Instrument the full pipeline --- Target~A \mbox{TX} start $\to$ Threat interceptor classification output --- with a GPIO-toggle latency measurement and produce a per-stage decomposition of the total response time. This handout extends the LH3-D \mbox{GPIO}-toggle method from a single stage (\mbox{RF} + firmware) to all six stages, giving the Module~5 benchmarking table in LH5-D a physical measurement per stage rather than a theoretical budget. The host-side ``classification output'' is the three-task (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) prediction emitted by \texttt{live\_inference.py}; the dropped \texttt{mod} task does not contribute to $T_{\text{infer}}$. This handout also runs the \textbf{S5 PAUSE behavioural-response} stress test, which measures the closed-loop latency from the held-button assertion at the Threat to the moment a Target prints \texttt{I'm Jammed} on USART2, and the recovery latency once the button is released.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -34,7 +34,7 @@ Instrument the full pipeline --- Target~A \mbox{TX} start $\to$ Threat intercept
 		\mbox{UART} to \FPGA{}     & $T_{\text{UART\_in}}$  & Calculated            & $43 \times 10 / 115{,}200 = 3.73$\,ms \\
 		\FPGA{} pipeline           & $T_{\text{FPGA}}$      & \mbox{ILA}            & UART-RX-complete to \texttt{frame\_valid} \\
 		\mbox{UART} to host        & $T_{\text{UART\_out}}$ & Calculated            & $35 \times 10 / 115{,}200 = 3.04$\,ms \\
-		Host inference (4 tasks)   & $T_{\text{infer}}$     & \texttt{perf\_counter()} & Parse + scale + four parallel predicts \\
+		Host inference (3 tasks)   & $T_{\text{infer}}$     & \texttt{perf\_counter()} & Parse + scale + three sequential predicts (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
@@ -47,11 +47,12 @@ From LH3-D, Target~A already toggles PA8 (or the board \mbox{LED} on PA5) just b
 \subsection{Step 2 --- Host-side GPIO toggle}
 Wire a USB-\mbox{GPIO} adapter to the host. In \texttt{live\_inference.py}, add a one-line pin-toggle call on every classification print:
 
-\begin{lstlisting}[language=Python, caption={Host-side toggle snippet --- add just before the \texttt{print()} in the live loop.}]
+\begin{lstlisting}[language=Python, caption={Host-side toggle snippet --- add just before the \texttt{print()} in the live loop. Note the three-task field set (the deployed pipeline does not include a \texttt{mod} task).}]
 # gpio is a handle to a USB-GPIO adapter (Arduino-Firmata, FT232H, pyftdi...)
 gpio.toggle(HOST_LATENCY_PIN)   # 1 us resolution via FT232H
-print(f"[{ts}] SF={preds['sf']['label']} mod={preds['mod']['label']} "
-      f"id={preds['id']['label']} pkt={preds['pkt']['label']}")
+print(f"[{ts}] SF={preds['sf']['label']} "
+      f"BEACON={preds['beacon']['label']} "
+      f"PKT={preds['pkt']['label']}")
 \end{lstlisting}
 
 The toggle should fire on the \emph{first line} of the output path, not inside the \texttt{print()} call, so that Python stdout buffering does not inflate $T_{\text{infer}}$.
@@ -60,7 +61,7 @@ The toggle should fire on the \emph{first line} of the output path, not inside t
 Connect:
 \begin{itemize}[leftmargin=2em]
 	\item Ch.~1: Target~A \mbox{GPIO} toggle (rising edge marks DATA \mbox{TX} start).
-	\item Ch.~2: host \mbox{GPIO} toggle (rising edge marks four-task classification output).
+	\item Ch.~2: host \mbox{GPIO} toggle (rising edge marks three-task classification output).
 	\item Ch.~3 (optional, if a 4-channel scope is available): \FPGA{} \texttt{frame\_valid} routed to \mbox{PMOD} JA[2] (as in LH3-D).
 \end{itemize}
 
@@ -80,7 +81,7 @@ Combine measurements and calculations per operating point:
 		$T_{\text{RF}}$           & Theoretical LoRa on-air time for the configured SF/BW/payload & $\pm$(SX1276 symbol-timing tolerance, typ.\ 1\,\%) \\
 		$T_{\text{FPGA}}$         & \mbox{ILA} trace: UART-RX-complete $\to$ \texttt{frame\_valid} (LH3-C method) & $\pm$(1 sysclk cycle, i.e.\ 10\,ns at 100\,MHz) \\
 		$T_{\text{UART\_in}}$ / $T_{\text{UART\_out}}$ & Fixed: 3.73\,ms / 3.04\,ms at 115200 baud & $\pm$(baud-divisor quantization, typ.\ 0.5\,\%) \\
-		$T_{\text{infer}}$        & \texttt{time.perf\_counter()} around the four-task \texttt{InferenceEngine.predict()} call (LH4-H microbench) & $\pm$(reported std over $\geq$100 calls) \\
+		$T_{\text{infer}}$        & \texttt{time.perf\_counter()} around the three-task \texttt{InferenceEngine.predict()} call (LH4-H microbench --- the deployed mix is CNN(sf) + SVM(beacon) + SVM(pkt)) & $\pm$(reported std over $\geq$100 calls) \\
 		$T_{\text{RX\_FW}}$       & $T_{\text{total}}$ $-$ (all other stages above); residual & \textbf{Required:} quadrature-sum of all other stages' uncertainties \\
 		\bottomrule
 	\end{tabularx}
@@ -108,7 +109,7 @@ Then add the host-side contributions ($T_{\text{UART\_out}} + T_{\text{infer}}$)
 At SF7, the scope-measured $T_{\text{total}} - T_{\text{infer}} - T_{\text{UART\_out}}$ should match the LH3-D Step~4 measurement (mean near 55\,ms, std $<$5\,ms). If it does not, one of the instrumentation paths has drifted --- re-check pin assignments, trigger level, and the Target firmware \mbox{GPIO} toggle polarity.
 
 \begin{tcolorbox}[infobox={Why the RF Stage Dominates}]
-	The \mbox{RF} on-air time is $\sim$50\,ms at SF7 and $\sim$1.5\,s at SF12, while every downstream stage is $<$10\,ms combined. The dominant stage is \emph{always} $T_{\text{RF}}$ at any LoRa SF. This has an important architectural consequence: moving the four-task inference step onto the \FPGA{} would eliminate $T_{\text{UART\_out}} + T_{\text{infer}}$ ($\sim$8\,ms), which is a $<$15\% reduction in $T_{\text{total}}$ at SF7 and $<$1\% at SF12. The investment is only worthwhile if the host is also eliminated (standalone embedded deployment) --- a point LH5-D asks you to articulate.
+	The \mbox{RF} on-air time is $\sim$50\,ms at SF7 and $\sim$1.5\,s at SF12, while every downstream stage is $<$10\,ms combined. The dominant stage is \emph{always} $T_{\text{RF}}$ at any LoRa SF. This has an important architectural consequence: moving the three-task inference step onto the \FPGA{} would eliminate $T_{\text{UART\_out}} + T_{\text{infer}}$ ($\sim$5--6\,ms with the deployed CNN+SVM+SVM mix), which is a $<$12\% reduction in $T_{\text{total}}$ at SF7 and $<$1\% at SF12. The investment is only worthwhile if the host is also eliminated (standalone embedded deployment) --- a point LH5-D asks you to articulate.
 \end{tcolorbox}
 
 \subsection{Step 7 --- S5: PAUSE Behavioural Response Latency}
@@ -119,7 +120,7 @@ Re-route the scope channels for this step:
 	\item Ch.~1: Threat user-button input (PC13). Falling edge marks the operator pressing PAUSE.
 	\item Ch.~2: Threat \mbox{TX} indicator (toggle the same PA8/PA5 line just before \texttt{sx1276\_send\_pause()} in the LH1-G PAUSE scheduler). Rising edge marks the first PAUSE burst leaving the Threat.
 	\item Ch.~3: Target~A or Target~B USART2 \mbox{TX} pin (the line that emits \texttt{"I'm Jammed\textbackslash r\textbackslash n"} per LH1-F). The first start bit (falling edge) marks the Target's behavioural acknowledgement of PAUSE.
-	\item Ch.~4 (optional): host \mbox{GPIO} toggle from Step~2, so the four-task classifier's first \texttt{pkt=PAUSE} print is also captured.
+	\item Ch.~4 (optional): host \mbox{GPIO} toggle from Step~2, so the three-task classifier's first \texttt{pkt=PAUSE} print is also captured.
 \end{itemize}
 
 Define and capture the four S5 latency intervals:
@@ -146,7 +147,7 @@ Compute mean, std, and p99 for each of the four intervals. Pre-declared S5 thres
 \begin{itemize}[leftmargin=2em]
 	\item $T_{\text{btn}\to\text{TX}}$ p99 $\leq$ 100\,ms (one PAUSE-cadence period).
 	\item $T_{\text{btn}\to\text{ACK}} = T_{\text{btn}\to\text{TX}} + T_{\text{TX}\to\text{ACK}}$ p99 $\leq$ 250\,ms (one PAUSE-cadence + one SF7 round trip).
-	\item $T_{\text{btn}\to\text{cls}}$ p99 $\leq$ 350\,ms (above plus a four-task inference cycle).
+	\item $T_{\text{btn}\to\text{cls}}$ p99 $\leq$ 350\,ms (above plus a three-task inference cycle).
 	\item $T_{\text{recover}}$ p99 $\leq$ 500\,ms (the LH1-F default hold-off).
 \end{itemize}
 

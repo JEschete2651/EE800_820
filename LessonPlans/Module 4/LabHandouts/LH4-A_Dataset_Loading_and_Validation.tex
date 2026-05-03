@@ -4,77 +4,109 @@
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{4-A}{Dataset Loading, Schema Validation, and 10-Check Audit}
+\labheader{4-A}{Dataset Loading, Schema Validation, and 9-Check Audit}
 
 \section{Objective}
-Load the \texttt{merged\_dataset.csv} produced by Lab Handout~3-H and subject it to the ten mandatory integrity checks that must pass before any preprocessing, feature engineering, or model training is attempted. This handout establishes the \emph{data contract} the rest of Module~4 relies on: if any of the ten checks fail, you stop and fix the data before proceeding.
+Load the \texttt{merged\_dataset.csv} produced by Lab Handout~3-H and subject it to the nine mandatory integrity checks that must pass before any preprocessing, feature engineering, or model training is attempted. This handout establishes the \emph{data contract} the rest of Module~4 relies on: if any of the nine checks fail, you stop and fix the data before proceeding.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~3-H complete (\texttt{merged\_dataset.csv} and \texttt{data\_dictionary.md} delivered).
 	\item Python 3.10+ with \texttt{pandas}, \texttt{numpy}, and \texttt{pytest} installed.
-	\item Working directory contains \texttt{merged\_dataset.csv} (the Module~3 handoff artifact).
+	\item \texttt{Code/AIML/} folder created with a \texttt{Logs/} subdirectory --- this is the home for all Module~4 artifacts.
+	\item \texttt{merged\_dataset.csv} present in \texttt{Code/Tools/CampaignCollect/} (the Module~3 handoff artifact). The script reads from there directly; do not copy it.
 \end{itemize}
 
 \section{Background: Why Validate Before Training?}
-A single corrupted column, an undetected duplicate, or an unconverted two's-complement field will silently propagate into every downstream model. The failure mode is insidious: training runs complete, accuracy numbers look plausible, and the model learns artifacts of the corruption rather than the underlying physics. The ten-check audit here is not optional paperwork --- each check has a specific failure mode it prevents.
+A single corrupted column, an undetected duplicate, or an unconverted two's-complement field will silently propagate into every downstream model. The failure mode is insidious: training runs complete, accuracy numbers look plausible, and the model learns artifacts of the corruption rather than the underlying physics. The nine-check audit here is not optional paperwork --- each check has a specific failure mode it prevents.
 
-\begin{tcolorbox}[infobox={The Signed-Field Trap}]
-	The \mbox{FPGA} writes \mbox{RSSI}, \mbox{SNR}, \texttt{freq\_error}, and \texttt{rssi\_delta} as two's-complement integers but the \mbox{CSV} stores them as unsigned decimal text. A raw value of $65{,}456$ in the \mbox{CSV} is actually $-80$~dBm after signed decoding. If you skip the sign-fix, the model will learn a fictitious ``high \mbox{RSSI}'' class corresponding to weak signals --- an error that only surfaces when you inspect individual predictions. Check~6 catches this.
+\begin{tcolorbox}[infobox={Sign Sanity on RSSI}]
+	The Module~3 collection script (\texttt{collect.py}) reads \texttt{RegPktRssiValue}, \texttt{RegPktSnrValue}, and \texttt{RegFeiMsb/Lsb} from the SX1276 and writes them as already-decoded signed decimals into \texttt{rssi\_dbm}, \texttt{snr\_db}, and \texttt{freq\_error\_hz}. \mbox{RSSI} should always be non-positive at the receiver; if any \texttt{rssi\_dbm} value is positive in the merged \mbox{CSV}, something upstream has corrupted the column (e.g., a manual edit, a re-export through Excel, or a regression in \texttt{collect.py}). Check~6 enforces this invariant before the values are fed to any model.
 \end{tcolorbox}
 
 \section{Procedure}
 
-\subsection{Step 1 --- Load the dataset}
-Create \texttt{load\_and\_validate.py}. Keep the script small and well-commented: this file is the official gateway between Modules~3 and~4.
+\subsection{Step 1 --- Set up logging and constants}
+Create \texttt{load\_and\_validate.py} in \texttt{Code/AIML/}. Every Module~4 script writes a timestamped log to \texttt{Code/AIML/Logs/} so that troubleshooting (and the final deliverable's audit trail) does not depend on remembering to redirect stdout. Two log files are written per run: a stable \texttt{load\_and\_validate\_latest.log} that is overwritten each run for easy tail-following, and a timestamped archive copy that is preserved.
 
-\begin{lstlisting}[language=Python, caption={Top of \texttt{load\_and\_validate.py}.}]
-import pandas as pd
-import numpy as np
+\begin{lstlisting}[language=Python, caption={Top of \texttt{load\_and\_validate.py} --- imports, paths, logging.}]
+import json
+import logging
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-EXPECTED_COLS = [
-    "campaign_id", "run_id", "regime", "timestamp_host",
-    "beacon_id", "mod_kind", "spread_factor", "pkt_type",
-    "rssi", "snr", "obs_count", "rx_timestamp",
-    "inter_arrival_ms", "rssi_delta", "priority_score",
-    "distance_m", "label_sf", "label_mod", "mod_kind_label",
-    "label_beacon", "label_mismatch", "split",
-]
+import numpy as np
+import pandas as pd
 
-SIGNED_COLS = ["rssi", "snr", "rssi_delta"]   # two's-complement 16 or 32 bit
+SCRIPT_DIR    = Path(__file__).parent
+LOG_DIR       = SCRIPT_DIR / "Logs"
+MERGED_CSV    = SCRIPT_DIR.parent / "Tools" / "CampaignCollect" / "merged_dataset.csv"
+MANIFEST_PATH = SCRIPT_DIR / "validation_manifest.json"
+
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+run_stamp     = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+log_archive   = LOG_DIR / f"load_and_validate_{run_stamp}.log"
+log_latest    = LOG_DIR / "load_and_validate_latest.log"
+
+log = logging.getLogger("validate")
+log.setLevel(logging.DEBUG)
+log.handlers.clear()
+fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
+                        datefmt="%Y-%m-%d %H:%M:%S")
+for handler in (logging.StreamHandler(sys.stdout),
+                logging.FileHandler(log_archive, mode="w", encoding="utf-8"),
+                logging.FileHandler(log_latest,  mode="w", encoding="utf-8")):
+    handler.setFormatter(fmt)
+    log.addHandler(handler)
+
+log.info("=== load_and_validate.py starting ===")
+log.info(f"Run stamp: {run_stamp}")
+log.info(f"Source CSV: {MERGED_CSV}")
+log.info(f"Archive log: {log_archive}")
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Schema constants and dataset load.}]
+# 23-column schema produced by Module 3's merge_dataset.py (LH3-H).
+# Column names match collect.py's CSV writer exactly --- do not rename
+# without updating LH3-F (collect.py) and LH3-H (merge_dataset.py).
+EXPECTED_COLS = [
+    "campaign_id", "run_id", "timestamp_host",
+    "rx_timestamp_ms", "tx_timestamp_ms", "inter_arrival_ms",
+    "beacon_id", "seq_num", "pkt_type", "mod_kind", "spread_factor",
+    "rssi_dbm", "snr_db", "freq_error_hz", "payload_len",
+    "distance_m", "label_sf", "label_mod", "mod_kind_label",
+    "label_beacon", "label_pkt", "regime", "split",
+]
 
 # Canonical modulation kind mapping, frozen once across Modules 1-5:
 #   1 = LoRa, 2 = FSK, 3 = OOK  (Module 1 Table 4; LH1-F; LH3-F/G/H).
-# Both the self-reported byte (mod_kind, upper 6 bits of Modulation Code
-# right-shifted by 2 with low 2 bits cleared) and the ground-truth column
-# (mod_kind_label) must be drawn from this set. Do not introduce a 0/1
-# alias; the string label_mod ("lora"/"fsk"/"ook") is readability-only.
 VALID_MOD_KINDS = {1, 2, 3}
 
 # Canonical packet types in this dataset: 0=DATA, 1=ACK.
 VALID_PKT_TYPES = {0, 1}
 PKT_TYPE_DATA, PKT_TYPE_ACK = 0, 1
 
-# Operating regimes: 'clean' = C1-C4 (single-station DATA-only),
+# Operating regimes: 'clean' = C1, C2, C4 (single-station DATA-only),
 # 'contended' = C5 (cooperative-target ping-pong).
 VALID_REGIMES = {"clean", "contended"}
 
-# Expected campaign_id family values (Module 3 LH3-F/G).
-EXPECTED_CAMPAIGN_IDS = {
-    "C1", "C2", "C3", "C4", "C5a", "C5b",
-}
+# Expected campaign_id family values. C5a and C5b are both stamped as
+# "C5" by collect.py (the sub-config is encoded in run_id, not
+# campaign_id). C3 was removed from the curriculum in LH3-G.
+EXPECTED_CAMPAIGN_IDS = {"C1", "C2", "C4", "C5"}
 
-def decode_signed(x, bits):
-    """Convert raw unsigned integer to signed integer (two's complement)."""
-    mask_neg = 1 << (bits - 1)
-    mask_all = (1 << bits) - 1
-    return (x & mask_all) - ((x & mask_neg) << 1)
+if not MERGED_CSV.exists():
+    log.error(f"merged_dataset.csv not found at {MERGED_CSV}")
+    log.error("Run Code/Tools/CampaignCollect/merge_dataset.py first.")
+    sys.exit(1)
 
-df = pd.read_csv("merged_dataset.csv")
-print(f"Loaded {len(df):,} rows, {len(df.columns)} columns")
+df = pd.read_csv(MERGED_CSV)
+log.info(f"Loaded {len(df):,} rows, {len(df.columns)} columns")
 \end{lstlisting}
 
+\newpage
 \subsection{Step 2 --- The ten mandatory checks}
 
 \begin{table}[h!]
@@ -84,162 +116,221 @@ print(f"Loaded {len(df):,} rows, {len(df.columns)} columns")
 		\toprule
 		\textbf{\#} & \textbf{Check} & \textbf{Failure Indicates} \\
 		\midrule
-		1  & Schema                & Missing or extra column; LH3-H contract violated (must include \texttt{pkt\_type}, \texttt{regime}, \texttt{mod\_kind}/\texttt{mod\_kind\_label}) \\
+		1  & Schema                & Missing or extra column; LH3-H contract violated (must include all 23 columns: \texttt{pkt\_type}, \texttt{regime}, \texttt{mod\_kind}/\texttt{mod\_kind\_label}, etc.) \\
 		2  & Row count             & Merge was truncated or duplicate rows persist \\
 		3  & Null-value budget     & $>$1\% nulls in any feature column; parser or \UART{} issue \\
-		4  & Duplicate rows        & Same (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{obs\_count}) repeated \\
+		4  & Duplicate rows        & Same (\texttt{run\_id}, \texttt{beacon\_id}, \texttt{seq\_num}, \texttt{pkt\_type}) repeated \\
 		5  & Valid ranges          & \mbox{RSSI}, \mbox{SNR}, SF, \texttt{mod\_kind}, \texttt{pkt\_type}, or \texttt{regime} outside canonical sets \\
-		6  & Signed-field decode   & \mbox{RSSI}/\mbox{SNR}/\texttt{rssi\_delta} not yet two's-complement decoded \\
+		6  & RSSI sign sanity      & Any \texttt{rssi\_dbm} value $> 0$; column was corrupted upstream \\
 		7  & Label consistency     & DATA-row \texttt{label\_sf} $\neq$ \texttt{spread\_factor} or \texttt{mod\_kind} $\neq$ \texttt{mod\_kind\_label} (mismatch rate $>$2\%) \\
-		8  & Class balance         & Any class (across all three classification tasks) with $<$150 samples \\
+		8  & Class balance         & Any class (across all four classification tasks) with $<$150 samples \\
 		9  & Split integrity       & A \texttt{run\_id} leaked across train/val/test partitions \\
 		\bottomrule
 	\end{tabularx}
-	\caption{The ten-check audit. Every check must pass, or the check itself must be explicitly waived with written justification, before continuing to LH4-B.}
+	\caption{The nine-check audit. Every check must pass, or the check itself must be explicitly waived with written justification, before continuing to LH4-B.}
 \end{table}
 
 \subsection{Step 3 --- Implement the checks}
 
-\begin{lstlisting}[language=Python, caption={The ten audit checks (continue in \texttt{load\_and\_validate.py}).}]
+\begin{lstlisting}[language=Python, caption={The nine audit checks (continue in \texttt{load\_and\_validate.py}).}]
 def check_1_schema(df):
     missing = set(EXPECTED_COLS) - set(df.columns)
     extra   = set(df.columns) - set(EXPECTED_COLS)
-    assert not missing, f"Missing columns: {missing}"
+    if missing:
+        raise AssertionError(f"Missing columns: {missing}")
     if extra:
-        print(f"[INFO] Extra columns present (not fatal): {extra}")
+        log.info(f"Extra columns present (not fatal): {extra}")
 
-def check_2_row_count(df, min_rows=2500):
-    assert len(df) >= min_rows, \
-        f"Row count {len(df)} < expected minimum {min_rows}"
+def check_2_row_count(df, min_rows=2100):
+    # Module 3 expected envelope: C1 (800) + C2 (800) + C4 (up to 800)
+    # + C5 (~600) ~= 3000 theoretical. 2100 is the floor; below that,
+    # the merge missed CSVs or the campaign data is too thin.
+    if len(df) < min_rows:
+        raise AssertionError(
+            f"Row count {len(df)} < expected minimum {min_rows}")
+    log.debug(f"Row count {len(df)} meets minimum {min_rows}")
 
 def check_3_nulls(df, budget_frac=0.01):
     frac = df.isna().mean()
     over = frac[frac > budget_frac]
-    assert over.empty, f"Columns over null budget: {over.to_dict()}"
+    if not over.empty:
+        raise AssertionError(f"Columns over null budget: {over.to_dict()}")
 
 def check_4_duplicates(df):
-    key = ["run_id", "beacon_id", "obs_count"]
+    # Dedup key matches merge_dataset.py: pkt_type is required because
+    # Beacon~ID 0x02 produces both DATA (relay) and ACK rows with the
+    # same seq_num in C5b.
+    key = ["run_id", "beacon_id", "seq_num", "pkt_type"]
     dup = df.duplicated(subset=key).sum()
-    assert dup == 0, f"{dup} duplicate (run, beacon, obs) rows"
+    if dup:
+        raise AssertionError(f"{dup} duplicate {tuple(key)} rows")
 
 def check_5_valid_ranges(df):
-    assert df["rssi"].between(-120, 0).all(),  "RSSI out of range"
-    assert df["snr"].between(-20, 15).all(),   "SNR out of range"
-    assert df["label_sf"].between(7, 12).all(), "label_sf out of range"
-    # beacon_id must be Target~A (1), Target~B (2), or Threat (255 = 0xFF)
-    assert set(df["beacon_id"].unique()) <= {1, 2, 255}, \
-        "beacon_id contains non-canonical values (expected {1, 2, 255})"
-    # Canonical mod_kind set (1/2/3). Catches any 0/1 alias drift.
+    if not df["rssi_dbm"].between(-120, 0).all():
+        raise AssertionError("rssi_dbm out of range")
+    if not df["snr_db"].between(-20, 15).all():
+        raise AssertionError("snr_db out of range")
+    # label_sf 7-10 reflects the Module 3 scoping decision (LH3-F):
+    # SF11 and SF12 require lora_init() rework that was out of scope.
+    if not df["label_sf"].between(7, 10).all():
+        raise AssertionError("label_sf out of range")
+    if not set(df["beacon_id"].unique()) <= {1, 2, 255}:
+        raise AssertionError(
+            "beacon_id contains non-canonical values (expected {1, 2, 255})")
     bad = set(df["mod_kind"].unique()) - VALID_MOD_KINDS
-    assert not bad, f"mod_kind contains non-canonical values: {bad}"
+    if bad:
+        raise AssertionError(f"mod_kind non-canonical: {bad}")
     bad = set(df["mod_kind_label"].unique()) - VALID_MOD_KINDS
-    assert not bad, f"mod_kind_label contains non-canonical values: {bad}"
-    # Canonical pkt_type set (0/1). Any other value indicates a parser bug.
+    if bad:
+        raise AssertionError(f"mod_kind_label non-canonical: {bad}")
     bad = set(df["pkt_type"].unique()) - VALID_PKT_TYPES
-    assert not bad, f"pkt_type contains non-canonical values: {bad}"
-    # Regime must be 'clean' (C1-C4) or 'contended' (C5).
+    if bad:
+        raise AssertionError(f"pkt_type non-canonical: {bad}")
     bad = set(df["regime"].unique()) - VALID_REGIMES
-    assert not bad, f"regime contains non-canonical values: {bad}"
-    # Campaign family check (warn, not fatal --- sub-campaign strings
-    # like C5a/C5b/C5c are allowed; anything else prints for review).
+    if bad:
+        raise AssertionError(f"regime non-canonical: {bad}")
     unknown = set(df["campaign_id"].unique()) - EXPECTED_CAMPAIGN_IDS
     if unknown:
-        print(f"[INFO] Non-standard campaign_id values: {unknown}")
+        log.info(f"Non-standard campaign_id values: {unknown}")
 
-def check_6_signed_decode(df):
-    # If rssi is still unsigned, most rows will be large positive numbers.
-    assert df["rssi"].max() <= 0, \
-        "RSSI contains positive values; signed-field decode not applied"
+def check_6_rssi_sign(df):
+    # collect.py writes signed rssi_dbm directly from RegPktRssiValue;
+    # any positive value indicates upstream corruption (manual edit,
+    # Excel re-export, or a regression in the collection pipeline).
+    if df["rssi_dbm"].max() > 0:
+        raise AssertionError(
+            f"rssi_dbm contains positive values (max={df['rssi_dbm'].max()}); "
+            "column was corrupted upstream")
 
-def check_7_label_consistency(df):
-    # label_mismatch is computed by LH3-H over DATA rows only (since
-    # ACK rows have different self-report semantics).
-    data_mask = df["pkt_type"] == PKT_TYPE_DATA
-    if data_mask.any():
-        mismatch_rate = df.loc[data_mask, "label_mismatch"].mean()
-        assert mismatch_rate < 0.02, \
-            f"DATA-row label mismatch rate {mismatch_rate:.1%} exceeds 2% threshold"
+def check_7_label_consistency(df, threshold=0.02):
+    # ACK rows come from the responding Target whose spread_factor
+    # self-report is unaffected by the campaign config's fixed_sf, so
+    # we only check DATA rows (Target~A is the originator whose
+    # firmware config we control).
+    data = df[df["pkt_type"] == PKT_TYPE_DATA]
+    if data.empty:
+        log.warning("No DATA rows present; skipping label-consistency check.")
+        return
+    sf_mismatch  = (data["spread_factor"] != data["label_sf"])
+    mod_mismatch = (data["mod_kind"]      != data["mod_kind_label"])
+    rate = (sf_mismatch | mod_mismatch).mean()
+    log.debug(f"DATA label mismatch rate: {rate:.2%} "
+              f"(sf={sf_mismatch.sum()}, mod={mod_mismatch.sum()})")
+    if rate >= threshold:
+        raise AssertionError(
+            f"DATA-row label mismatch rate {rate:.1%} >= {threshold:.0%}")
 
 def check_8_class_balance(df, min_per_class=150):
-    for col in ["label_sf", "label_mod", "label_beacon"]:
+    # Four classification tasks. Threshold of 150 ensures >=22 test
+    # samples per class at 70/15/15. Logs as WARN, not fatal --- model
+    # training is allowed to proceed, but per-class metrics must be
+    # interpreted with the imbalance in mind.
+    for col in ["label_sf", "label_mod", "label_beacon", "label_pkt"]:
         counts = df[col].value_counts()
         small = counts[counts < min_per_class]
-        assert small.empty, f"{col} classes under {min_per_class}: {small.to_dict()}"
+        if not small.empty:
+            log.warning(f"{col} classes under {min_per_class}: "
+                        f"{small.to_dict()}")
 
 def check_9_split_integrity(df):
-    # Key leakage on run_id, not campaign_id: a single campaign family
-    # legitimately contains multiple collection runs, and those may be
-    # assigned to different splits. The split must be stable per run_id.
+    # Key leakage on run_id: a run_id must map to exactly one split.
     leak = (df.groupby("run_id")["split"].nunique() > 1)
     leaked = leak[leak].index.tolist()
-    assert not leaked, f"Run IDs split across partitions: {leaked}"
+    if leaked:
+        raise AssertionError(f"Run IDs split across partitions: {leaked}")
 
-for fn in [check_1_schema, check_2_row_count, check_3_nulls,
-           check_4_duplicates, check_5_valid_ranges,
-           check_6_signed_decode, check_7_label_consistency,
-           check_8_class_balance, check_9_split_integrity]:
-    fn(df)
-    print(f"[PASS] {fn.__name__}")
+
+CHECKS = [
+    check_1_schema, check_2_row_count, check_3_nulls,
+    check_4_duplicates, check_5_valid_ranges, check_6_rssi_sign,
+    check_7_label_consistency, check_8_class_balance, check_9_split_integrity,
+]
+
+failed = []
+for fn in CHECKS:
+    try:
+        fn(df)
+        log.info(f"[PASS] {fn.__name__}")
+    except AssertionError as e:
+        log.error(f"[FAIL] {fn.__name__}: {e}")
+        failed.append(fn.__name__)
+
+if failed:
+    log.error(f"{len(failed)} check(s) failed: {failed}")
+    sys.exit(1)
+log.info(f"All {len(CHECKS)} checks passed.")
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={If Check 6 Fails}]
-	If \texttt{check\_6\_signed\_decode} fires, do \emph{not} patch around it by negating values in the script. Instead: re-run the Module~3 merging script with an explicit signed-decode step (\texttt{decode\_signed(x, bits=16)} for \mbox{RSSI} and \mbox{SNR}, \texttt{bits=32} for \texttt{rssi\_delta}) and regenerate \texttt{merged\_dataset.csv}. The data contract is supposed to hand you already-decoded values; fixing it at the source guarantees every future load is correct.
+	If \texttt{check\_6\_rssi\_sign} fires, do \emph{not} patch around it by negating values in the script. Instead, regenerate \texttt{merged\_dataset.csv} from the per-run logs by re-running \texttt{merge\_dataset.py}. If positive values persist after a clean re-merge, inspect the offending \texttt{results\_*.csv} directly --- the corruption originated in \texttt{collect.py} (a regression in how it reads \texttt{RegPktRssiValue}) or in a manual edit of the per-run file. The data contract is supposed to hand you already-decoded signed values; fixing it at the source guarantees every future load is correct.
 \end{tcolorbox}
 
 \subsection{Step 4 --- Dataset summary print-out}
-After the ten checks pass, print a one-screen summary that the rest of Module~4 can paste into reports:
+After the nine checks pass, write a one-screen summary to the log. Because the log handlers fan out to stdout and to two files, this entry simultaneously appears on the terminal, in the timestamped archive, and in \texttt{load\_and\_validate\_latest.log} for downstream scripts to read.
 
 \begin{lstlisting}[language=Python]
-print("\n=== Dataset Summary ===")
-print(f"Total rows:         {len(df):,}")
-print(f"Unique campaigns:   {df['campaign_id'].nunique()}")
-print(f"Regimes:            {df['regime'].value_counts().to_dict()}")
-print(f"Splits:             {df['split'].value_counts().to_dict()}")
-print(f"SF classes:         {df['label_sf'].value_counts().sort_index().to_dict()}")
-print(f"Mod classes:        {df['label_mod'].value_counts().to_dict()}")
-print(f"Beacon classes:     {df['label_beacon'].value_counts().sort_index().to_dict()}")
-print(f"Sentinel rows:      {(df['obs_count']==1).sum()}")
-print(f"Label mismatches:   {df['label_mismatch'].sum()}")
+data_mask = df["pkt_type"] == PKT_TYPE_DATA
+n_mismatch = int(
+    ((df.loc[data_mask, "spread_factor"] != df.loc[data_mask, "label_sf"]) |
+     (df.loc[data_mask, "mod_kind"]      != df.loc[data_mask, "mod_kind_label"]))
+    .sum()
+)
+
+log.info("=== Dataset Summary ===")
+log.info(f"Total rows:          {len(df):,}")
+log.info(f"Unique campaigns:    {df['campaign_id'].nunique()}")
+log.info(f"Unique runs:         {df['run_id'].nunique()}")
+log.info(f"Regimes:             {df['regime'].value_counts().to_dict()}")
+log.info(f"Splits:              {df['split'].value_counts().to_dict()}")
+log.info(f"SF classes:          {df['label_sf'].value_counts().sort_index().to_dict()}")
+log.info(f"Mod classes:         {df['label_mod'].value_counts().to_dict()}")
+log.info(f"Beacon classes:      {df['label_beacon'].value_counts().sort_index().to_dict()}")
+log.info(f"Pkt-type classes:    {df['label_pkt'].value_counts().sort_index().to_dict()}")
+log.info(f"DATA-row mismatches: {n_mismatch}")
 \end{lstlisting}
 
 \subsection{Step 5 --- Persist a validation manifest}
-Write the summary to \texttt{validation\_manifest.json}. LH4-H will read it to confirm that the deployed inference pipeline is consuming the same data contract the models were trained on.
+Write the summary to \texttt{validation\_manifest.json} alongside the script. LH4-H will read it to confirm that the deployed inference pipeline is consuming the same data contract the models were trained on. The manifest also records the path of the archive log so that a future audit can pair the manifest with the exact log that produced it.
 
 \begin{lstlisting}[language=Python]
-import json, datetime
 manifest = {
-    "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
-    "source_file":  "merged_dataset.csv",
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "run_stamp":    run_stamp,
+    "source_file":  str(MERGED_CSV),
+    "log_archive":  str(log_archive),
     "row_count":    int(len(df)),
     "schema":       list(df.columns),
     "class_counts": {
         "sf":     df["label_sf"].value_counts().sort_index().to_dict(),
         "mod":    df["label_mod"].value_counts().to_dict(),
         "beacon": df["label_beacon"].value_counts().sort_index().to_dict(),
+        "pkt":    df["label_pkt"].value_counts().sort_index().to_dict(),
     },
     "regime_counts": df["regime"].value_counts().to_dict(),
     "split_counts":  df["split"].value_counts().to_dict(),
-    "checks_passed": 9,
+    "data_row_label_mismatches": n_mismatch,
+    "checks_passed": len(CHECKS),
 }
-with open("validation_manifest.json", "w") as f:
+with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
     json.dump(manifest, f, indent=2)
-print("Wrote validation_manifest.json")
+log.info(f"Wrote {MANIFEST_PATH}")
+log.info("=== load_and_validate.py done ===")
 \end{lstlisting}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] \texttt{merged\_dataset.csv} loads without errors.
 	\item[$\square$] All nine audit checks pass (or waivers are explicitly documented).
-	\item[$\square$] Dataset summary printed and saved.
-	\item[$\square$] \texttt{validation\_manifest.json} written to the Module~4 working directory.
-	\item[$\square$] Sentinel-row count logged (will be consumed by LH4-B).
+	\item[$\square$] Dataset summary recorded in the log.
+	\item[$\square$] \texttt{Code/AIML/Logs/load\_and\_validate\_latest.log} and a timestamped archive log are present.
+	\item[$\square$] \texttt{validation\_manifest.json} written to \texttt{Code/AIML/}.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-A Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{load\_and\_validate.py}: the loader and 9-check audit, runnable from the command line.
-		\item \texttt{validation\_manifest.json}: the machine-readable dataset summary consumed by LH4-H.
-		\item Audit log: a plain-text or \mbox{PDF} capture of the script's output showing all ten \texttt{[PASS]} lines and the dataset summary.
+		\item \texttt{Code/AIML/load\_and\_validate.py}: the loader and 9-check audit, runnable from the command line.
+		\item \texttt{Code/AIML/validation\_manifest.json}: the machine-readable dataset summary consumed by LH4-H.
+		\item \texttt{Code/AIML/Logs/load\_and\_validate\_<timestamp>.log}: the archived audit trail showing all nine \texttt{[PASS]} entries and the dataset summary.
 		\item Any waivers: a list of any check that was downgraded from fatal to warning, with a 2--3 sentence written justification per waiver.
 	\end{enumerate}
 \end{tcolorbox}

@@ -11,7 +11,7 @@ Write the formal Module~5 stress test plan that structures every subsequent expe
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Module~4 complete: four-task \texttt{inference.py} streaming live predictions; \texttt{live\_inference.py} validated.
+	\item Module~4 complete: three-task (\texttt{sf}, \texttt{beacon}, \texttt{pkt}) \texttt{inference.py} streaming live predictions; \texttt{live\_inference.py} validated. The \texttt{mod} task was dropped during Module~3 because the dataset is single-class (LoRa only).
 	\item Production bitstream (LH3-E) programmed; \FIFO{} count wired to \mbox{LEDs{}} (LH3-E Step~1) so peak \FIFO{} utilization is visible without an \mbox{ILA{}}.
 	\item All three radios operational: Target~A (Beacon~ID \texttt{0x01}), Target~B (Beacon~ID \texttt{0x02}), Threat (Beacon~ID \texttt{0xFF}). The Threat's user button (B1) reachable for PAUSE-burst configurations.
 	\item Baseline values from Module~3 (S1a-equivalent \PER{}) and Module~4 (nominal classification accuracy across all four tasks) at hand for comparison.
@@ -77,18 +77,20 @@ For each configuration, record:
 	\item Total valid feature vectors (\FPGA{} observation counts per Beacon~\mbox{ID}, summed). For S1d/S1e, the Threat's apparent self-PER will be very high because its RX shadows its own TX --- this is expected and not a system fault.
 	\item \PER{} and its four-component decomposition (\mbox{RF} loss, framing errors, \mbox{CRC} rejects, \FIFO{} overflow) --- same decomposition introduced in LH3-D. For paused Targets in S1d/S1e, the apparent \PER{} reflects the deliberate TX hold-off, not a fault.
 	\item \FIFO{} peak utilization via \texttt{led(5:0)} peak observation plus the \texttt{led(15)} latching overflow alarm (LH3-E).
-	\item Live classification accuracy across all four tasks: run \texttt{live\_inference.py} (LH4-H) simultaneously and compare predictions against the known station configuration. Compute SF / modulation / emitter \mbox{ID} / packet-type accuracy per configuration.
+	\item Live classification accuracy across all three deployed tasks: run \texttt{live\_inference.py} (LH4-H) simultaneously and compare predictions against the known station configuration. Compute SF / beacon-ID / packet-type accuracy per configuration. (The \texttt{mod} task is not deployed --- single-class skip.) Because \texttt{live\_inference.py} as shipped only prints to stdout, redirect or \texttt{tee} its output to a per-configuration log file (e.g.\ \texttt{> logs/s1a.txt}) and post-process accuracy from that.
 \end{enumerate}
 
 \subsection{Step 3 --- Data collection script}
 
-\begin{lstlisting}[language=Python, caption={\texttt{run\_s1.py} --- thin wrapper around the Module~4 live pipeline that tags each row with the current S1 configuration.}]
+\begin{lstlisting}[language=Python, caption={\texttt{run\_s1.py} --- thin wrapper that runs \texttt{live\_inference.py} for each S1 configuration, capturing stdout to a per-config log. \texttt{live\_inference.py} as shipped takes only an optional COM port and prints to stdout; this wrapper redirects that stream and bounds the run via a \texttt{Popen.terminate()} after \texttt{DURATION\_S}.}]
 import time, json, subprocess, sys
 from pathlib import Path
 
-CONFIGS = ["S1a", "S1b", "S1c", "S1d", "S1e"]
-DURATION_S = 5 * 60   # 5 minutes per configuration
+CONFIGS    = ["S1a", "S1b", "S1c", "S1d", "S1e"]
+DURATION_S = 5 * 60               # 5 minutes per configuration
+COM_PORT   = "COM3"               # FPGA USB-UART; change to your port
 
+Path("logs").mkdir(exist_ok=True)
 log = []
 for cfg in CONFIGS:
     print(f"\n=== {cfg} ===")
@@ -97,11 +99,15 @@ for cfg in CONFIGS:
         print("  * Operator must hold the Threat user button "
               "during the run (continuous for S1d, 5s on / 5s off for S1e).")
     input("  Press ENTER when stations are configured and ready.")
-    # Start live_inference.py in a subprocess; it writes demo_log.txt
-    proc = subprocess.Popen([sys.executable, "live_inference.py",
-                             "--tag", cfg, "--duration", str(DURATION_S)])
-    proc.wait()
-    log.append({"cfg": cfg, "t": time.time()})
+    log_path = Path("logs") / f"{cfg}.txt"
+    with log_path.open("w") as f:
+        proc = subprocess.Popen([sys.executable, "live_inference.py",
+                                 COM_PORT], stdout=f, stderr=subprocess.STDOUT)
+        try:
+            proc.wait(timeout=DURATION_S)
+        except subprocess.TimeoutExpired:
+            proc.terminate(); proc.wait()
+    log.append({"cfg": cfg, "t": time.time(), "log": str(log_path)})
     print(f"{cfg} finished. Check FIFO LED peak and overflow alarm:")
     log[-1]["fifo_peak"] = int(input("  FIFO peak (0-63): "))
     log[-1]["fifo_ovf"]  = input("  led(15) overflow set? (y/n): ") == "y"
@@ -114,7 +120,7 @@ print("Wrote s1_results.json")
 \begin{enumerate}[leftmargin=2em]
 	\item \PER{} vs.\ active-station configuration (S1a--S1e), with PAUSE-active configurations marked distinctly.
 	\item \FIFO{} peak utilization bar chart (one bar per configuration). Horizontal line at 75\% threshold.
-	\item Classification accuracy vs.\ configuration, four lines (one per task: SF / mod / emitter / packet-type). The packet-type task's accuracy curve will look qualitatively different from the others because the active class set changes between configurations (S1a is DATA-only; S1b/S1c add ACK; S1d/S1e add PAUSE).
+	\item Classification accuracy vs.\ configuration, three lines (one per deployed task: SF / beacon / packet-type). The packet-type task's accuracy curve will look qualitatively different from the other two because the active class set changes between configurations (S1a is DATA-only; S1b/S1c add ACK; S1d/S1e add PAUSE).
 \end{enumerate}
 
 Identify the configuration at which SF accuracy first drops below 90\% --- this is the empirically-derived ``max safe active-station density.''
@@ -138,7 +144,7 @@ With the debug bitstream loaded, verify:
 \begin{tcolorbox}[warning={Pre-Declared Thresholds}]
 	Write your pass/fail thresholds into \texttt{stress\_test\_plan.md} \emph{before} Step~2. Example:
 	\begin{itemize}[leftmargin=1.2em]
-		\item PASS if: \PER{} $<$ 5\% (excluding deliberate Target hold-off windows) and \FIFO{} peak $<$ 75\% and SF accuracy $\geq$ 90\% and packet-type accuracy $\geq$ 85\% on the configurations where ACK or PAUSE rows are present.
+		\item PASS if: \PER{} $<$ 5\% (excluding deliberate Target hold-off windows) and \FIFO{} peak $<$ 75\% and SF accuracy $\geq$ 90\% and beacon and packet-type accuracy $\geq$ 85\% on the configurations where ACK or PAUSE rows are present.
 		\item FAIL if: any of the above are violated.
 	\end{itemize}
 	After the run, if any configuration fails, report it as failed --- do not adjust the threshold to make the result pass. The failing configuration is the empirical spec boundary and is the whole point of the test.
@@ -150,7 +156,7 @@ With the debug bitstream loaded, verify:
 	\item[$\square$] All five S1 configurations executed for 5 minutes each.
 	\item[$\square$] \PER{} decomposition recorded per configuration (four stages each).
 	\item[$\square$] \FIFO{} peak and overflow status recorded per configuration.
-	\item[$\square$] Live classification accuracy recorded per configuration for all four tasks.
+	\item[$\square$] Live classification accuracy recorded per configuration for all three deployed tasks (sf, beacon, pkt).
 	\item[$\square$] \mbox{ILA{}} burst capture for S1e saved (including at least one PAUSE row).
 	\item[$\square$] Maximum safe active-station configuration identified and written into \texttt{spec\_table.md}.
 \end{itemize}

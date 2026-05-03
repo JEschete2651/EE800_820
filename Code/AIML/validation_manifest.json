@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-05-03T20:45:09.233470+00:00",
+  "run_stamp": "20260503T204509Z",
+  "source_file": "D:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\Tools\\CampaignCollect\\merged_dataset.csv",
+  "log_archive": "D:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\AIML\\Logs\\load_and_validate_20260503T204509Z.log",
+  "row_count": 2197,
+  "schema": [
+    "campaign_id",
+    "run_id",
+    "timestamp_host",
+    "rx_timestamp_ms",
+    "tx_timestamp_ms",
+    "inter_arrival_ms",
+    "beacon_id",
+    "seq_num",
+    "pkt_type",
+    "mod_kind",
+    "spread_factor",
+    "rssi_dbm",
+    "snr_db",
+    "freq_error_hz",
+    "payload_len",
+    "distance_m",
+    "label_sf",
+    "label_mod",
+    "mod_kind_label",
+    "label_beacon",
+    "label_pkt",
+    "regime",
+    "split"
+  ],
+  "class_counts": {
+    "sf": {
+      "7": 1597,
+      "8": 200,
+      "9": 200,
+      "10": 200
+    },
+    "mod": {
+      "lora": 2197
+    },
+    "beacon": {
+      "1": 2047,
+      "2": 150
+    },
+    "pkt": {
+      "0": 2047,
+      "1": 150
+    }
+  },
+  "regime_counts": {
+    "clean": 1600,
+    "contended": 597
+  },
+  "split_counts": {
+    "train": 1700,
+    "test": 297,
+    "val": 200
+  },
+  "data_row_label_mismatches": 0,
+  "checks_passed": 9
+}

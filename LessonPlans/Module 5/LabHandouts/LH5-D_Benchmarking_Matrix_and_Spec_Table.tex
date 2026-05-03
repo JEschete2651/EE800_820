@@ -7,13 +7,13 @@
 \labheader{5-D}{Benchmarking Matrix (B1--B6), Baseline Regression, and System Specification Table}
 
 \section{Objective}
-Run the six benchmarking operating points, compare the stressed-system performance against the Module~3 and Module~4 baselines, and fill in the final Module~5 system specification table. The deliverable is a single-page spec sheet that any future user of this system can refer to for operating envelope, four-task accuracy, expected latency, and PAUSE behavioural-response latency.
+Run the six benchmarking operating points, compare the stressed-system performance against the Module~3 and Module~4 baselines, and fill in the final Module~5 system specification table. The deliverable is a single-page spec sheet that any future user of this system can refer to for operating envelope, three-task accuracy (\texttt{sf}, \texttt{beacon}, \texttt{pkt} --- the \texttt{mod} task is single-class in the dataset and not deployed), expected latency, and PAUSE behavioural-response latency.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~5-C complete (per-stage \mbox{GPIO}-toggle instrumentation working at SF7; S5 PAUSE response intervals captured).
 	\item Module~3 LH3-D measurements on file (\PER{}, latency at SF7/SF10).
-	\item Module~4 LH4-H microbenchmark on file (p99 host inference latency for the four-task suite).
+	\item Module~4 LH4-H microbenchmark on file (p99 host inference latency for the three-task suite; deployed mix per \texttt{deployment\_manifest.json} is CNN(\texttt{sf}) + SVM(\texttt{beacon}) + SVM(\texttt{pkt})).
 	\item Module~4 LH4-F operating-condition shift results on file ($\Delta_{\text{op-shift}}$ per task).
 \end{itemize}
 
@@ -43,7 +43,7 @@ For each operating point, capture 50 $T_{\text{total}}$ measurements with the LH
 	\item Mean, std, min, max, and p99 of $T_{\text{total}}$.
 	\item Per-stage decomposition (six stages from LH5-C).
 	\item The dominant stage (the stage contributing $>$50\% of $T_{\text{total}}$).
-	\item Per-task accuracy across all four classifiers (SF, modulation kind, emitter ID, packet type).
+	\item Per-task accuracy across all three deployed classifiers (\texttt{sf}, \texttt{beacon}, \texttt{pkt}).
 \end{itemize}
 
 \subsection{Step 2 --- Latency histograms}
@@ -70,7 +70,7 @@ A regression claim is only meaningful if the M3, M4, and M5 numbers were measure
 	\item \textbf{Carrier frequency} (906.5\,MHz; record the SX1276 register triple 0xE2/0xA0/0x00).
 	\item \textbf{Firmware commit hashes} (Target~A + Target~B + Threat builds) --- record the short SHA used in each module.
 	\item \textbf{Bitstream hash} (the \texttt{.bit} file hash; differs between debug and production builds).
-	\item \textbf{Model artefact versions} (the four \texttt{*.pt} paths + content hashes used for the M4 and M5 accuracy numbers --- one per task).
+	\item \textbf{Model artefact versions} (the three deployed-model paths + content hashes used for the M4 and M5 accuracy numbers, one per task --- file extensions vary: \texttt{cnn.pt} for \texttt{sf}, \texttt{svm.pkl} for \texttt{beacon} and \texttt{pkt} per the current \texttt{deployment\_manifest.json}).
 \end{enumerate}
 Record these in the row header of the table below or in an ``Operating Point'' cell. Any row without all eight fields pinned is not a regression check; it is an exploration.
 \end{tcolorbox}
@@ -84,10 +84,9 @@ Record these in the row header of the table below or in an ``Operating Point'' c
 		\midrule
 		\PER{} (A+B ping-pong, SF7)                & & & & \\
 		End-to-end latency (SF7, 3\,m)             & & --- & & \\
-		SF classification accuracy                 & --- & & & \\
-		Modulation-kind classification accuracy    & --- & & & \\
-		Emitter ID accuracy                        & --- & & & \\
-		Packet-type accuracy (DATA/ACK/PAUSE)      & --- & & & \\
+		\texttt{sf} classification accuracy        & --- & & & \\
+		\texttt{beacon} (emitter ID) accuracy      & --- & & & \\
+		\texttt{pkt} (DATA/ACK/PAUSE) accuracy     & --- & & & \\
 		$\Delta_{\text{op-shift}}$ (clean$\to$contended) & --- & & & \\
 		\FIFO{} peak utilization (A+B)             & & --- & & \\
 		\bottomrule
@@ -122,17 +121,16 @@ This is the headline Module~5 artefact:
 		Maximum classifiable distance (per-task accuracy $>$ 80\%)   & \rule{1.5cm}{0.4pt}\,m  & LH5-B (S3) \\
 		End-to-end latency at SF7 (mean $\pm$ std)                  & \rule{1.5cm}{0.4pt}\,ms & B1 \\
 		End-to-end latency at SF12 (mean $\pm$ std)                 & \rule{1.5cm}{0.4pt}\,ms & B3 \\
-		SF classification accuracy (nominal)                        & \rule{1.5cm}{0.4pt}\%   & B1 \\
-		Modulation-kind classification accuracy (nominal)           & \rule{1.5cm}{0.4pt}\%   & B1 \\
-		Emitter \mbox{ID} classification accuracy (nominal)         & \rule{1.5cm}{0.4pt}\%   & B1 \\
-		Packet-type classification accuracy (nominal)               & \rule{1.5cm}{0.4pt}\%   & B5 \\
+		\texttt{sf} classification accuracy (nominal)               & \rule{1.5cm}{0.4pt}\%   & B1 \\
+		\texttt{beacon} (emitter ID) accuracy (nominal)             & \rule{1.5cm}{0.4pt}\%   & B1 \\
+		\texttt{pkt} (DATA/ACK/PAUSE) accuracy (nominal)            & \rule{1.5cm}{0.4pt}\%   & B5 \\
 		Operating-condition shift $\Delta_{\text{op-shift}}$ (worst task) & \rule{1.5cm}{0.4pt}\,pp & LH4-F + B5 \\
 		PAUSE response latency $T_{\text{btn}\to\text{ACK}}$ (p99)  & \rule{1.5cm}{0.4pt}\,ms & LH5-C (S5) \\
 		PAUSE recovery latency $T_{\text{recover}}$ (p99)           & \rule{1.5cm}{0.4pt}\,ms & LH5-C (S5) \\
 		RSSI-targeting accuracy (correct Target~ID selected)        & \rule{1.5cm}{0.4pt}\%   & LH5-C (S5) \\
 		Maximum stable run time (tested)                            & \rule{1.5cm}{0.4pt}\,min & LH5-B (S4) \\
 		\FPGA{} resource utilization (\mbox{LUT{}} / FF / \mbox{BRAM{}}) & \rule{1.5cm}{0.4pt}  & Module~2 \\
-		Host inference latency (four-task, p99)                     & \rule{1.5cm}{0.4pt}\,ms & Module~4 \\
+		Host inference latency (three-task, p99)                    & \rule{1.5cm}{0.4pt}\,ms & Module~4 \\
 		\bottomrule
 	\end{tabularx}
 	\caption{Module~5 system specification table. Every value is cited back to its source experiment; no assumed or theoretical numbers.}
@@ -143,7 +141,7 @@ Write a paragraph (150--250 words) addressing:
 
 \begin{enumerate}[leftmargin=2em]
 	\item Which stage dominates $T_{\text{total}}$ at every operating point? (Spoiler: \mbox{RF}.)
-	\item Given this, would moving the four-task Module~4 inference step onto the \FPGA{} materially reduce latency? Quantify your answer using the LH5-D bar chart proportions.
+	\item Given this, would moving the three-task Module~4 inference step onto the \FPGA{} materially reduce latency? Quantify your answer using the LH5-D bar chart proportions.
 	\item Under what deployment scenario \emph{would} on-\FPGA{} inference be worthwhile? (The honest answer is: only when the host \mbox{PC} is eliminated entirely, for standalone embedded deployment.)
 	\item Given the \mbox{RF}-dominated architecture, what is the single highest-leverage change for reducing latency? (Usually: smaller payload or lower SF --- both reduce the on-air time, at the cost of payload capacity or range.)
 	\item Does the PAUSE behavioural-response latency (LH5-C S5) sit on the same critical path as $T_{\text{total}}$, or does it have its own bottleneck (the 100\,ms PAUSE cadence)? Explain which spec changes would shorten each.
@@ -154,7 +152,7 @@ Write a paragraph (150--250 words) addressing:
 	\item[$\square$] All six operating points measured with $\geq$50 samples each.
 	\item[$\square$] B1 and B3 histograms generated.
 	\item[$\square$] Per-stage dominance bar chart generated for all six points.
-	\item[$\square$] Four-task accuracy reported per operating point (B5 is the only point at which packet-type PAUSE rows appear).
+	\item[$\square$] Three-task accuracy reported per operating point (B5 is the only point at which packet-type PAUSE rows appear).
 	\item[$\square$] Baseline regression table filled; any regressions investigated using the 4-step protocol.
 	\item[$\square$] System specification table filled with every value cited.
 	\item[$\square$] Architectural-implications paragraph written.
@@ -162,7 +160,7 @@ Write a paragraph (150--250 words) addressing:
 
 \begin{tcolorbox}[deliverable={Lab Handout 5-D Deliverable --- and Session 18 Final Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item B1--B6 measurement table (one row per operating point, columns for mean / std / p99 / dominant stage / per-task accuracy).
+		\item B1--B6 measurement table (one row per operating point, columns for mean / std / p99 / dominant stage / per-task accuracy across the three deployed tasks).
 		\item Two latency histograms (B1 and B3) with mean / std / p99 annotations.
 		\item Stacked dominance bar chart for all six operating points.
 		\item Baseline regression table with investigation notes for any regression.

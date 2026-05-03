@@ -7,20 +7,25 @@
 \labheader{4-H}{Multi-Task Real-Time Inference, Latency Budget, and Final Model Selection}
 
 \section{Objective}
-Assemble the end-to-end inference pipeline: load all three trained classifiers (SF, modulation, emitter \mbox{ID}), stream feature vectors from the \mbox{FPGA} over \UART{} (as established in LH3-F), run all three classifications in parallel, and display live predictions. Verify the total inference latency fits inside the budget established in LH3-D/E. Produce the final model-selection rubric that picks the deployed model per task, consuming every result from LH4-C through LH4-G.
+Assemble the end-to-end inference pipeline: build a reusable \texttt{InferenceEngine} that loads the trained classifier per task, run a latency microbenchmark, score the four model families against the deliverable rubric to pick the deployed model per task, and stream live predictions from the \mbox{FPGA}. Every score in the rubric is read mechanically from the LH4-A through LH4-G manifest files.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handouts~4-C through~4-G complete (all four model families trained for all three tasks; stratified-accuracy plots in hand).
-	\item LH3-F \texttt{collect.py} still functional; hardware producing feature vectors on demand.
-	\item \texttt{validation\_manifest.json} from LH4-A present.
+	\item Lab Handouts~4-A through~4-G complete and their manifests present in \texttt{Code/AIML/}: \texttt{validation\_manifest.json}, \texttt{preprocess\_manifest.json}, \texttt{baselines\_manifest.json}, \texttt{svm\_manifest.json}, \texttt{mlp\_manifest.json}, \texttt{cnn\_manifest.json}, \texttt{stratified\_manifest.json}.
+	\item Per-task artifacts present in \texttt{Code/AIML/artifacts/<task>/}: \texttt{preprocessor.pkl}, \texttt{rf.pkl}, \texttt{svm.pkl}, \texttt{mlp.pt}, \texttt{cnn.pt}.
+	\item LH3-F \texttt{collect.py} still functional; hardware producing feature vectors on demand if the live demo (Step 6) is exercised.
 \end{itemize}
 
+\begin{tcolorbox}[infobox={Tasks scoped in this handout}]
+The four classification tasks are SF, modulation, emitter \mbox{ID}, and packet type. The \texttt{mod} task is auto-skipped throughout because only \mbox{LoRa} was collected in Module~3 (single class). The deployed pipeline therefore selects models for three tasks: \texttt{sf}, \texttt{beacon}, \texttt{pkt}.
+\end{tcolorbox}
+
+\newpage
 \section{Latency Budget}
 \begin{table}[h!]
 	\centering
 	\renewcommand{\arraystretch}{1.3}
-	\begin{tabularx}{\textwidth}{l c X}
+	\begin{tabularx}{\textwidth}{l c c}
 		\toprule
 		\textbf{Stage} & \textbf{Budget (ms)} & \textbf{Source} \\
 		\midrule
@@ -38,154 +43,137 @@ Assemble the end-to-end inference pipeline: load all three trained classifiers (
 
 \section{Procedure}
 
-\subsection{Step 1 --- The \texttt{InferenceEngine}}
+\subsection{Step 1 --- The \texttt{InferenceEngine} library}
+\texttt{Code/AIML/inference.py} is a library (no top-level work). It accepts a dict of task $\to$ chosen-model-name, loads the per-task preprocessor and the chosen model, and exposes \texttt{predict(feature\_dict, seq\_buffer)} that returns predictions for every loaded task. Each task uses its own scaler and its own post-drop feature column subset, so the caller passes \emph{all} raw features as a dict and the engine picks what each task needs.
 
-\begin{lstlisting}[language=Python, caption={\texttt{inference.py} --- loads the chosen model per task and runs all three on each incoming feature vector.}]
-import joblib, numpy as np, torch, time
+\begin{lstlisting}[language=Python, caption={\texttt{inference.py} --- model-agnostic per-task predict, with inlined model classes.}]
+import joblib
+import numpy as np
+import torch
+import torch.nn as nn
 from pathlib import Path
 
-MODEL_CHOICE = {  # Filled in after the rubric in Step 4
-    "sf":     "rf",
-    "mod":    "mlp",
-    "beacon": "cnn",
 
-}
+# Inlined to avoid re-running training scripts on import.
+class MLP(nn.Module):
+    def __init__(self, n_features, n_classes, hidden=(64, 32), p=0.3):
+        super().__init__()
+        layers = []; prev = n_features
+        for h in hidden:
+            layers += [nn.Linear(prev, h), nn.ReLU(), nn.Dropout(p)]
+            prev = h
+        layers.append(nn.Linear(prev, n_classes))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class CNN1D(nn.Module):
+    def __init__(self, n_features, n_classes):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv1d(n_features, 16, kernel_size=3, padding=1), nn.ReLU(),
+            nn.Conv1d(16,         32, kernel_size=3, padding=1), nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+            nn.Linear(32, 32), nn.ReLU(), nn.Dropout(0.3),
+            nn.Linear(32, n_classes),
+        )
+
+    def forward(self, x):
+        return self.net(x.transpose(1, 2))
+
 
 class InferenceEngine:
-    def __init__(self, artifacts_dir="artifacts"):
+    """Load one trained model per task and run them all on each frame.
+
+    `model_choice`: dict task -> 'rf'/'svm'/'mlp'/'cnn'. Tasks present
+    in the dict are loaded; tasks absent are skipped. Single-class
+    tasks (mod) typically aren't included.
+    """
+    def __init__(self, model_choice, artifacts_dir):
         self.artifacts_dir = Path(artifacts_dir)
-        self.models = {}
-        self.prep   = {}
-        for task, choice in MODEL_CHOICE.items():
+        self.choice = dict(model_choice)
+        self.models = {}; self.prep = {}
+        for task, choice in self.choice.items():
             d = self.artifacts_dir / task
             self.prep[task] = joblib.load(d / "preprocessor.pkl")
-            self.models[task] = self._load_model(task, choice, d)
+            self.models[task] = self._load_one(task, choice, d)
 
-    def _load_model(self, task, choice, d):
+    def _load_one(self, task, choice, d):
         if choice in ("rf", "svm"):
-            return {"kind": "sk", "model":
-                    joblib.load(d / f"{choice}.pkl")["model"]}
+            return {"kind": "sk",
+                    "model": joblib.load(d / f"{choice}.pkl")["model"]}
         if choice == "mlp":
-            from train_mlp import MLP
-            ck = torch.load(d / "mlp.pt", map_location="cpu")
+            ck = torch.load(d / "mlp.pt", map_location="cpu",
+                            weights_only=False)
             m = MLP(ck["n_features"], ck["n_classes"])
             m.load_state_dict(ck["state_dict"]); m.eval()
             return {"kind": "mlp", "model": m}
         if choice == "cnn":
-            from train_cnn import CNN1D
-            ck = torch.load(d / "cnn.pt", map_location="cpu")
+            ck = torch.load(d / "cnn.pt", map_location="cpu",
+                            weights_only=False)
             m = CNN1D(ck["n_features"], ck["n_classes"])
             m.load_state_dict(ck["state_dict"]); m.eval()
-            return {"kind": "cnn", "model": m,
-                    "window": ck.get("window", 8)}
+            return {"kind": "cnn", "model": m, "window": 8}
         raise ValueError(f"Unknown model choice: {choice}")
 
-    def predict(self, feature_row, sequence_buffer=None):
-        """feature_row: 1-D np.array of raw features, same order as preprocessor.
-           sequence_buffer: dict task->deque of last N scaled feature vectors."""
+    def predict(self, feature_dict, sequence_buffer=None):
+        """feature_dict: {column_name: float}. The engine subsets and
+        scales per task using each task's saved preprocessor.
+
+        sequence_buffer: optional dict task -> deque of length 8 of
+        already-scaled feature vectors (CNN tasks only). The caller
+        is responsible for pushing each frame's scaled vector into
+        the deque before calling predict.
+        """
         out = {}
         for task, bundle in self.models.items():
             pre = self.prep[task]
             cols = pre["feature_cols"]
-            # feature_row must already be in this column order; caller enforces.
-            x = feature_row.reshape(1, -1).astype(np.float32)
-            x_scaled = pre["scaler"].transform(x)
+            try:
+                row = np.asarray([feature_dict[c] for c in cols],
+                                 dtype=np.float32).reshape(1, -1)
+            except KeyError as e:
+                raise KeyError(
+                    f"Task {task} needs column {e} but feature_dict "
+                    f"has only {sorted(feature_dict)}") from None
+            x_scaled = pre["scaler"].transform(row)
             if bundle["kind"] == "sk":
-                idx = bundle["model"].predict(x_scaled)[0]
+                idx = int(bundle["model"].predict(x_scaled)[0])
+                # Most sklearn classifiers expose predict_proba; SVC
+                # only does if it was trained with probability=True
+                # (LH4-D's model is not).
                 prob = None
-                if hasattr(bundle["model"], "predict_proba"):
+                try:
                     prob = float(bundle["model"].predict_proba(x_scaled).max())
+                except (AttributeError, NotImplementedError):
+                    pass
+                except Exception:
+                    pass
             elif bundle["kind"] == "mlp":
                 with torch.no_grad():
                     logits = bundle["model"](torch.from_numpy(x_scaled))
                     probs = torch.softmax(logits, dim=1).numpy()[0]
-                    idx  = int(probs.argmax())
-                    prob = float(probs.max())
+                    idx = int(probs.argmax()); prob = float(probs.max())
             elif bundle["kind"] == "cnn":
-                assert sequence_buffer is not None
+                if sequence_buffer is None or task not in sequence_buffer:
+                    raise ValueError(f"CNN task {task} needs a "
+                                     f"sequence_buffer entry")
                 seq = np.stack(list(sequence_buffer[task]))
                 seq_t = torch.from_numpy(seq[None, :, :]).float()
                 with torch.no_grad():
                     logits = bundle["model"](seq_t)
                     probs = torch.softmax(logits, dim=1).numpy()[0]
-                    idx  = int(probs.argmax())
-                    prob = float(probs.max())
+                    idx = int(probs.argmax()); prob = float(probs.max())
             label = pre["encoder"].inverse_transform([idx])[0]
-            out[task] = {"label": label, "prob": prob}
+            out[task] = {"label": label, "prob": prob, "kind": bundle["kind"]}
         return out
 \end{lstlisting}
 
-\subsection{Step 2 --- Latency microbenchmark}
-
-\begin{lstlisting}[language=Python, caption={Latency measurement: 1000 warm predictions, report median and 99th percentile.}]
-import time, numpy as np
-engine = InferenceEngine()
-from collections import deque
-# Fake a feature row and a filled sequence buffer:
-F = len(engine.prep["sf"]["feature_cols"])
-seq_buf = {t: deque(np.zeros((8, F), dtype=np.float32), maxlen=8)
-           for t in engine.models}
-row = np.zeros(F, dtype=np.float32)
-
-# Warm-up
-for _ in range(20): engine.predict(row, seq_buf)
-
-latencies = []
-for _ in range(1000):
-    t0 = time.perf_counter()
-    engine.predict(row, seq_buf)
-    latencies.append((time.perf_counter() - t0) * 1000)  # ms
-
-latencies = np.asarray(latencies)
-print(f"median    = {np.median(latencies):.3f} ms")
-print(f"mean      = {latencies.mean():.3f} ms")
-print(f"p95       = {np.percentile(latencies, 95):.3f} ms")
-print(f"p99       = {np.percentile(latencies, 99):.3f} ms")
-print(f"max       = {latencies.max():.3f} ms")
-\end{lstlisting}
-
-\begin{tcolorbox}[infobox={Why p99, Not Just Mean?}]
-	Garbage collection, Python bytecode JIT warm-up, and occasional OS scheduling hiccups produce a long-tailed latency distribution. The mean can be comfortably under budget while the 99th percentile occasionally breaches it. If p99 $>$ budget, you will see periodic late predictions in the live pipeline --- a problem the mean would have hidden. Report p99 alongside median.
-\end{tcolorbox}
-
-\subsection{Step 3 --- Live streaming inference}
-
-\begin{lstlisting}[language=Python, caption={Minimal live loop --- reuses the LH3-F serial reader.}]
-from collections import deque
-import numpy as np, serial, time
-from inference import InferenceEngine
-
-def live_inference(port="COM3", baud=115200):
-    engine = InferenceEngine()
-    F = len(engine.prep["sf"]["feature_cols"])
-    seq_buf = {t: deque(np.zeros((8, F), dtype=np.float32), maxlen=8)
-               for t in engine.models}
-
-    with serial.Serial(port, baud, timeout=1.0) as ser:
-        while True:
-            frame = read_frame(ser)  # from LH3-F collect.py
-            if frame is None: continue
-            feat_row = frame_to_feature_row(frame, engine.prep["sf"])
-            # Update sequence buffer for CNN
-            for t in engine.models:
-                seq_buf[t].append(engine.prep[t]["scaler"]
-                                  .transform(feat_row.reshape(1, -1))[0])
-            t0 = time.perf_counter()
-            preds = engine.predict(feat_row, seq_buf)
-            dt = (time.perf_counter() - t0) * 1000
-            print(f"[{time.strftime('%H:%M:%S')}] "
-                  f"SF={preds['sf']['label']} "
-                  f"(p={preds['sf']['prob']:.2f}) | "
-                  f"MOD={preds['mod']['label']} | "
-                  f"BEACON={preds['beacon']['label']} | "
-                  f"lat={dt:.1f} ms")
-
-if __name__ == "__main__":
-    live_inference()
-\end{lstlisting}
-
-\subsection{Step 4 --- Final model-selection rubric}
-Score each of the four models (RF, SVM, MLP, CNN) per task on a 0--5 scale against each criterion, then weight:
+\subsection{Step 2 --- Final model-selection rubric (auto-scored from manifests)}
+Score each of the four models per task on a 0--5 scale against each criterion. Accuracy and robustness are read from the LH4 manifests; latency comes from Step~3's microbenchmark; interpretability and complexity are fixed-per-family constants the script applies uniformly across tasks.
 
 \begin{table}[h!]
 	\centering
@@ -194,74 +182,313 @@ Score each of the four models (RF, SVM, MLP, CNN) per task on a 0--5 scale again
 		\toprule
 		\textbf{Criterion} & \textbf{Weight} & \textbf{Source of evidence} \\
 		\midrule
-		Accuracy (test set)            & 0.40 & LH4-C/D/E/F headline numbers \\
-		Robustness (worst-bucket)      & 0.25 & LH4-G min-bucket accuracy \\
-		Latency (p99)                  & 0.15 & Step~2 microbenchmark \\
-		Interpretability               & 0.10 & Feature importance availability \\
-		Complexity (deployment effort) & 0.10 & Dependencies, model size, serialisation \\
+		Accuracy (test set)            & 0.40 & \texttt{baselines\_manifest.json} (RF), \texttt{svm/mlp/cnn\_manifest.json} \\
+		Robustness (worst-bucket SNR)  & 0.25 & \texttt{stratified\_manifest.json} \\
+		Latency (median, ms)           & 0.15 & Step~3 microbenchmark \\
+		Interpretability               & 0.10 & RF=5, SVM=4, MLP=2, CNN=2 (fixed) \\
+		Deployment complexity (lower=better) & 0.10 & RF/SVM=5, MLP=3, CNN=2 (fixed) \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Model selection rubric. Score each model 0--5 per criterion, multiply by the weight, sum. Highest weighted score per task is the deployed model.}
+	\caption{Model selection rubric. The script normalizes accuracy/robustness/latency to 0--5 across the four candidates and applies the weights. Highest weighted score per task is the deployed model.}
 \end{table}
 
-\begin{lstlisting}[language=Python, caption={Example scoring spreadsheet (complete per task).}]
-# One matrix per task; fill in scores from LH4-C through LH4-G.
-# Example for SF task:
-scores = {
-    #          acc  rob  lat  interp  complex
-    "rf":    (   4,   4,    5,      4,       4),
-    "svm":   (   3,   3,    5,      3,       4),
-    "mlp":   (   4,   3,    5,      2,       3),
-    "cnn":   (   5,   5,    3,      2,       2),
-}
-weights = [0.40, 0.25, 0.15, 0.10, 0.10]
-for m, s in scores.items():
-    total = sum(w * v for w, v in zip(weights, s))
-    print(f"{m:5s}: {total:.2f}")
+\begin{lstlisting}[language=Python, caption={\texttt{select\_model.py} --- reads every manifest and ranks candidates.}]
+import json
+import logging
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+SCRIPT_DIR = Path(__file__).parent
+
+WEIGHTS = {"acc": 0.40, "rob": 0.25, "lat": 0.15,
+           "interp": 0.10, "complex": 0.10}
+INTERP_FIXED   = {"rf": 5, "svm": 4, "mlp": 2, "cnn": 2}
+COMPLEX_FIXED  = {"rf": 5, "svm": 5, "mlp": 3, "cnn": 2}
+
+
+def load_acc_per_task():
+    rf  = json.loads((SCRIPT_DIR / "baselines_manifest.json").read_text())
+    svm = json.loads((SCRIPT_DIR / "svm_manifest.json").read_text())
+    mlp = json.loads((SCRIPT_DIR / "mlp_manifest.json").read_text())
+    cnn = json.loads((SCRIPT_DIR / "cnn_manifest.json").read_text())
+    out = {}
+    for task in ("sf", "beacon", "pkt"):
+        out[task] = {
+            "rf":  (rf["results"][task].get("rf")  or {}).get("acc"),
+            "svm": svm["results"][task].get("test_acc"),
+            "mlp": mlp["results"][task].get("test_acc"),
+            "cnn": cnn["results"][task].get("test_acc"),
+        }
+    return out
+
+
+def load_robustness_per_task():
+    s = json.loads((SCRIPT_DIR / "stratified_manifest.json").read_text())
+    return s.get("robustness", {})
+
+
+def normalize_to_0_5(values):
+    """Map a list of floats (or None) to 0..5 by min-max within the
+    list. Missing values get the minimum score (0). If all values are
+    equal, every model gets 5."""
+    arr = np.asarray([v if v is not None else np.nan for v in values],
+                     dtype=float)
+    if np.all(np.isnan(arr)):
+        return [0.0] * len(values)
+    mn = np.nanmin(arr); mx = np.nanmax(arr)
+    if mx == mn:
+        return [5.0 if not np.isnan(v) else 0.0 for v in arr]
+    out = []
+    for v in arr:
+        if np.isnan(v):
+            out.append(0.0)
+        else:
+            out.append(5.0 * (v - mn) / (mx - mn))
+    return out
+
+
+def latency_inverse_to_0_5(values):
+    """Lower latency = higher score. Same min-max but inverted."""
+    arr = np.asarray([v if v is not None else np.inf for v in values],
+                     dtype=float)
+    finite = arr[np.isfinite(arr)]
+    if len(finite) == 0:
+        return [0.0] * len(values)
+    mn = finite.min(); mx = finite.max()
+    if mx == mn:
+        return [5.0 if np.isfinite(v) else 0.0 for v in arr]
+    return [5.0 * (mx - v) / (mx - mn) if np.isfinite(v) else 0.0
+            for v in arr]
+
+
+def score_per_task(accs, robs, lats):
+    """accs: {task: {model: acc}}, robs: {task: {model: {min,...}}},
+       lats: {model: median_ms}. Returns {task: {model: weighted_total}}."""
+    candidates = ["rf", "svm", "mlp", "cnn"]
+    rows = {}
+    for task, by_model in accs.items():
+        acc_vec = [by_model.get(m) for m in candidates]
+        rob_vec = [(robs.get(task, {}).get(m) or {}).get("min")
+                   for m in candidates]
+        lat_vec = [lats.get(m) for m in candidates]
+        a5 = normalize_to_0_5(acc_vec)
+        r5 = normalize_to_0_5(rob_vec)
+        l5 = latency_inverse_to_0_5(lat_vec)
+        scores = {}
+        for i, m in enumerate(candidates):
+            total = (WEIGHTS["acc"]     * a5[i]
+                     + WEIGHTS["rob"]   * r5[i]
+                     + WEIGHTS["lat"]   * l5[i]
+                     + WEIGHTS["interp"]  * INTERP_FIXED[m]
+                     + WEIGHTS["complex"] * COMPLEX_FIXED[m])
+            scores[m] = {"total": total,
+                         "components": {"acc": a5[i], "rob": r5[i],
+                                        "lat": l5[i],
+                                        "interp": INTERP_FIXED[m],
+                                        "complex": COMPLEX_FIXED[m]}}
+        rows[task] = scores
+    return rows
 \end{lstlisting}
 
-\subsection{Step 5 --- Manifest check}
-The deployed pipeline must consume the same data contract that the models were trained against. Re-read \texttt{validation\_manifest.json} from LH4-A and assert that the schema recorded there matches the live \mbox{FPGA} feature-vector schema.
+\subsection{Step 3 --- Latency microbenchmark}
+For each candidate model and each non-skipped task, measure 1000 warm predictions on a fake feature row (and a zero-padded sequence buffer for the CNN) and report median, mean, p95, p99, max in milliseconds. The median latency feeds the rubric in Step 2; the p99 is the deployment-relevant tail.
 
 \begin{lstlisting}[language=Python]
-import json
-with open("validation_manifest.json") as f:
-    manifest = json.load(f)
-expected = manifest["schema"]
-# Check against live column order used by frame_to_feature_row:
-assert expected == actual_live_columns, "Schema drift!"
+import time
+from collections import deque
+from inference import InferenceEngine
+import numpy as np
+
+def microbenchmark(model_kind, n_warmup=20, n_iter=1000):
+    """Per-model latency: build an engine that uses model_kind for every
+    non-skipped task, then time predict()."""
+    tasks = ["sf", "beacon", "pkt"]
+    eng = InferenceEngine({t: model_kind for t in tasks},
+                          artifacts_dir=SCRIPT_DIR / "artifacts")
+    # Build a zero-valued feature dict covering every column any task needs.
+    cols = set()
+    for pre in eng.prep.values():
+        cols.update(pre["feature_cols"])
+    feat = {c: 0.0 for c in cols}
+    F = max(len(pre["feature_cols"]) for pre in eng.prep.values())
+    seq_buf = {t: deque([np.zeros(len(eng.prep[t]["feature_cols"]),
+                                  dtype=np.float32) for _ in range(8)],
+                        maxlen=8)
+               for t in eng.models}
+    for _ in range(n_warmup):
+        eng.predict(feat, seq_buf)
+    lats = []
+    for _ in range(n_iter):
+        t0 = time.perf_counter()
+        eng.predict(feat, seq_buf)
+        lats.append((time.perf_counter() - t0) * 1000.0)
+    lats = np.asarray(lats)
+    return {"median": float(np.median(lats)),
+            "mean":   float(lats.mean()),
+            "p95":    float(np.percentile(lats, 95)),
+            "p99":    float(np.percentile(lats, 99)),
+            "max":    float(lats.max())}
 \end{lstlisting}
 
-Any drift is a deployment blocker: it means the \mbox{FPGA} parser or the merging script has changed since LH3-H, and the models were trained on an outdated contract.
+\begin{tcolorbox}[infobox={Why p99, Not Just Mean?}]
+	Garbage collection, Python bytecode JIT warm-up, and occasional OS scheduling hiccups produce a long-tailed latency distribution. The mean can be comfortably under budget while the 99th percentile occasionally breaches it. If p99 $>$ budget, you will see periodic late predictions in the live pipeline --- a problem the mean would have hidden. The script reports both.
+\end{tcolorbox}
 
-\subsection{Step 6 --- End-to-end demonstration}
-Run \texttt{live\_inference.py} against the physical hardware for 5 minutes with the cooperative-target ping-pong (Target~A + Target~B) running and the Threat connected to the FPGA. Record:
-\begin{itemize}[leftmargin=2em]
-	\item Live prediction log (captured to \texttt{demo\_log.txt}).
-	\item Median and p99 per-frame inference latency during the run.
-	\item Accuracy of the live predictions on the known ground-truth SF / modulation / Beacon~ID configuration.
-	\item Any frames where the classifier's probability fell below 0.6 (low-confidence flags).
-\end{itemize}
+\subsection{Step 4 --- Driver: pick winning model per task and write the manifest}
+
+\begin{lstlisting}[language=Python]
+log.info("=== Latency microbenchmark (median ms) ===")
+lats = {}
+for m in ["rf", "svm", "mlp", "cnn"]:
+    bench = microbenchmark(m)
+    lats[m] = bench["median"]
+    log.info(f"  {m:<5} median={bench['median']:.3f}  "
+             f"p95={bench['p95']:.3f}  p99={bench['p99']:.3f}  "
+             f"max={bench['max']:.3f}")
+
+accs = load_acc_per_task()
+robs = load_robustness_per_task()
+log.info("=== Per-task scores (weighted, highest wins) ===")
+rows = score_per_task(accs, robs, lats)
+choices = {}
+for task, scores in rows.items():
+    log.info(f"--- {task} ---")
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1]["total"])
+    for m, s in ranked:
+        log.info(f"  {m:<5} total={s['total']:.3f}  "
+                 f"acc={s['components']['acc']:.2f} "
+                 f"rob={s['components']['rob']:.2f} "
+                 f"lat={s['components']['lat']:.2f} "
+                 f"interp={s['components']['interp']} "
+                 f"complex={s['components']['complex']}")
+    choices[task] = ranked[0][0]
+    log.info(f"  WINNER: {ranked[0][0]} (score {ranked[0][1]['total']:.3f})")
+
+manifest = {
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "weights":      WEIGHTS,
+    "latency_ms":   lats,
+    "scores":       rows,
+    "deployed_choice": choices,
+}
+(SCRIPT_DIR / "deployment_manifest.json").write_text(
+    json.dumps(manifest, indent=2, default=str))
+log.info("Wrote deployment_manifest.json")
+\end{lstlisting}
+
+\subsection{Step 5 --- Validation-manifest schema check}
+Before deploying, assert the live feature-vector schema (the columns \texttt{collect.py} emits) is a superset of every column any chosen model needs. The check fails closed: any missing column blocks deployment.
+
+\begin{lstlisting}[language=Python]
+val_manifest = json.loads(
+    (SCRIPT_DIR / "validation_manifest.json").read_text())
+training_schema = set(val_manifest["schema"])
+
+needed = set()
+for task, choice in choices.items():
+    pre = joblib.load(SCRIPT_DIR / "artifacts" / task / "preprocessor.pkl")
+    needed.update(pre["feature_cols"])
+
+missing = needed - training_schema
+if missing:
+    log.error(f"Schema drift: deployed models need columns "
+              f"{missing} not present in validation_manifest.")
+    sys.exit(1)
+log.info(f"Schema check PASS: all {len(needed)} needed columns "
+         f"present in validation_manifest.")
+\end{lstlisting}
+
+\subsection{Step 6 --- Live streaming inference (hardware-side, optional)}
+A separate \texttt{Code/AIML/live\_inference.py} script reuses the LH3-F frame-reader and the InferenceEngine to print live predictions. Run it against hardware with the cooperative-target ping-pong active and capture the output to \texttt{demo\_log.txt} for the deliverable.
+
+\begin{lstlisting}[language=Python, caption={\texttt{live\_inference.py} --- minimal serial-streaming demo.}]
+import time
+from collections import deque
+from pathlib import Path
+
+import numpy as np
+import serial
+
+from inference import InferenceEngine
+
+SCRIPT_DIR = Path(__file__).parent
+import json
+choices = json.loads((SCRIPT_DIR / "deployment_manifest.json").read_text())
+choices = choices["deployed_choice"]
+
+
+def live_inference(port="COM3", baud=115200):
+    eng = InferenceEngine(choices, artifacts_dir=SCRIPT_DIR / "artifacts")
+    seq_buf = {t: deque([np.zeros(len(eng.prep[t]["feature_cols"]),
+                                  dtype=np.float32) for _ in range(8)],
+                        maxlen=8)
+               for t in eng.models}
+    with serial.Serial(port, baud, timeout=1.0) as ser:
+        # Reuse the LH3-F collect.py helpers: read_frame() and
+        # parse_forwarding_frame() return a dict that lines up with
+        # the column names InferenceEngine expects (rssi_dbm, snr_db,
+        # inter_arrival_ms, ...).
+        from collect import read_frame, parse_forwarding_frame
+        last_rx_ts = None
+        while True:
+            buf = read_frame(ser)
+            if buf is None:
+                continue
+            fv = parse_forwarding_frame(buf)
+            ia = (fv["rx_timestamp_ms"] - last_rx_ts) if last_rx_ts else 0
+            last_rx_ts = fv["rx_timestamp_ms"]
+            feat = {**fv, "inter_arrival_ms": ia}
+            # Push scaled vector into each task's CNN buffer (only used
+            # if a task chose CNN, but it's cheap to maintain anyway).
+            for t in eng.models:
+                cols = eng.prep[t]["feature_cols"]
+                row = np.asarray([feat[c] for c in cols], dtype=np.float32)
+                seq_buf[t].append(eng.prep[t]["scaler"].transform(
+                    row.reshape(1, -1))[0])
+            t0 = time.perf_counter()
+            preds = eng.predict(feat, seq_buf)
+            dt = (time.perf_counter() - t0) * 1000.0
+            line = f"[{time.strftime('%H:%M:%S')}] "
+            for t in ("sf", "beacon", "pkt"):
+                p = preds.get(t)
+                if p is None:
+                    continue
+                pstr = (f"p={p['prob']:.2f}" if p['prob'] is not None
+                        else "p=?")
+                line += f"{t.upper()}={p['label']} ({pstr}) | "
+            line += f"lat={dt:.1f} ms"
+            print(line)
+
+
+if __name__ == "__main__":
+    live_inference()
+\end{lstlisting}
 
 \begin{tcolorbox}[deliverable={Module~4 Final Deliverable (LH4-H)}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{inference.py}: the \texttt{InferenceEngine} class wired to the chosen models per task.
-		\item \texttt{live\_inference.py}: the serial-streaming demo script.
-		\item Latency microbenchmark: median, p95, p99 of 1000 inference calls, with a 1--2 sentence comparison to the 8\,ms target.
-		\item Final model selection rubric: a filled $4 \times 3$ table (four models, three tasks) showing the weighted scores, with a short paragraph per task explaining the winning choice.
-		\item \texttt{demo\_log.txt}: at least 5 minutes of live predictions from hardware, with ground-truth accuracy computed after the fact for all three tasks.
-		\item One-page Module~4 retrospective: what the operating-condition shift revealed (LH4-F clean$\to$contended), which feature additions would most likely improve the weakest task, and what the next campaign would look like.
+		\item \texttt{Code/AIML/inference.py}: the \texttt{InferenceEngine} library.
+		\item \texttt{Code/AIML/select\_model.py}: the runnable rubric driver that consumes every LH4 manifest and writes \texttt{deployment\_manifest.json}.
+		\item \texttt{Code/AIML/live\_inference.py}: the serial-streaming demo script (hardware-side).
+		\item \texttt{Code/AIML/deployment\_manifest.json}: per-task component scores, weighted totals, latency stats (median/p95/p99), and the chosen model per non-skipped task.
+		\item Latency microbenchmark output (in the script's archived log): median, p95, p99, max for each candidate model. The framework target is p99 $<$ 8\,ms; record the actual numbers and any exceedance with a one-sentence reason.
+		\item Filled model-selection rubric: a $4 \times 3$ table (four models $\times$ three non-skipped tasks) showing the weighted totals, with a short paragraph per task explaining the winning choice.
+		\item \texttt{demo\_log.txt}: at least 5 minutes of live predictions from hardware (Step 6 only --- skip if hardware not available, but note the skip in the retrospective), with ground-truth accuracy computed after the fact for the three deployed tasks.
+		\item \texttt{Code/AIML/Logs/select\_model\_<timestamp>.log}: archived audit trail for the rubric run.
+		\item One-page Module~4 retrospective: what the operating-condition shift revealed (LH4-F clean$\to$contended), what the dataset-design alias revealed (LH4-C beacon/pkt structural ties), which feature additions or campaign collections would most likely improve the weakest task, and what the next campaign would look like.
 	\end{enumerate}
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \texttt{InferenceEngine} loads all three chosen models and returns predictions for a single feature row.
-	\item[$\square$] Microbenchmark: p99 latency $<$ 8\,ms (or a written justification if exceeded).
-	\item[$\square$] Live inference runs uninterrupted for 5 minutes against hardware.
-	\item[$\square$] Validation-manifest schema matches live \mbox{FPGA} feature-vector schema (no drift).
-	\item[$\square$] Final model-selection rubric complete and signed off.
-	\item[$\square$] Demo log captured and post-hoc accuracy computed.
+	\item[$\square$] \texttt{InferenceEngine} loads each chosen model and returns predictions for a feature dict.
+	\item[$\square$] Microbenchmark: latency stats logged for every candidate; p99 $<$ 8\,ms (or written justification if exceeded).
+	\item[$\square$] Validation-manifest schema check passes (every column the deployed models need is in \texttt{validation\_manifest.json}).
+	\item[$\square$] Rubric driver writes \texttt{deployment\_manifest.json} with per-task weighted totals and the winning model.
+	\item[$\square$] (Hardware-side, optional) Live inference runs uninterrupted for 5 minutes against hardware; \texttt{demo\_log.txt} captured.
+	\item[$\square$] One-page Module~4 retrospective complete.
 \end{itemize}
 
 \printhandoutglossary

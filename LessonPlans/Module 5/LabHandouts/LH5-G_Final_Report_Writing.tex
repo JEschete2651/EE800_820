@@ -49,7 +49,7 @@ Write the 15--20 page final project report that synthesizes all five modules int
 Write a one-sentence answer to each of these questions on a scratch sheet before you begin the body:
 \begin{enumerate}[leftmargin=2em]
 	\item What problem does the project solve?
-	\item What was built? (Three bidirectional STM32 stations on 906.5\,MHz, an FPGA ingest pipeline, a four-task ML classifier suite, and a button-gated PAUSE protocol for behavioural-response measurement.)
+	\item What was built? (Three bidirectional STM32 stations on 906.5\,MHz, an FPGA ingest pipeline, a three-task ML classifier suite (\texttt{sf}, \texttt{beacon}, \texttt{pkt}; \texttt{mod} dropped as single-class), and a button-gated PAUSE protocol for behavioural-response measurement.)
 	\item What are the two or three most important quantitative results? (Per-task nominal accuracy; PAUSE response/recovery latency; operating-condition shift $\Delta_{\text{op-shift}}$.)
 	\item What is the single cross-module insight you want the reader to remember?
 \end{enumerate}
@@ -59,7 +59,7 @@ These four sentences are the skeleton of the abstract; you will polish them afte
 Introduce the pedagogical claim that the curriculum teaches: engineering systems are defined by their interfaces. Describe the project scope in 3--4 sentences and state what the report will demonstrate. Do \emph{not} duplicate Module~1's lesson-plan introduction --- the report is retrospective, the lesson plan was prospective.
 
 \subsection{Step 3 --- Section~3 system architecture}
-Reuse the Module~5 system diagram (lesson-plan Section~``Complete System Architecture'') as the anchor figure. The text should walk the reader through the diagram once in data-flow order: Target~A / Target~B (cooperative DATA/ACK ping-pong on 906.5\,MHz) $\to$ Threat interceptor (also receives the operator's PAUSE button) $\to$ \UART{} $\to$ \FPGA{} pipeline $\to$ \UART{} $\to$ host four-task inference. Every hardware / software component should be labelled with which module developed it.
+Reuse the Module~5 system diagram (lesson-plan Section~``Complete System Architecture'') as the anchor figure. The text should walk the reader through the diagram once in data-flow order: Target~A / Target~B (cooperative DATA/ACK ping-pong on 906.5\,MHz) $\to$ Threat interceptor (also receives the operator's PAUSE button) $\to$ \UART{} $\to$ \FPGA{} pipeline $\to$ \UART{} $\to$ host three-task inference (\texttt{sf}, \texttt{beacon}, \texttt{pkt}). Every hardware / software component should be labelled with which module developed it.
 
 \subsection{Step 4 --- Section~4 module summaries}
 One subsection per module. Each subsection is \emph{not} a rewrite of the lesson plan; it is a three-paragraph synthesis:
@@ -70,13 +70,13 @@ One subsection per module. Each subsection is \emph{not} a rewrite of the lesson
 \end{enumerate}
 
 \subsection{Step 5 --- Section~5 comparison to single-domain prior work}
-This section is the contribution claim. Briefly survey the three single-domain neighbours --- (a) RF-only datasets and modulation-classification benchmarks, (b) FPGA RF front-ends without ML, (c) host-side ML for spectrum sensing without a hardware-in-the-loop emitter $\to$ feature pipeline --- and explain why each leaves a gap that the four-task unified pipeline closes. Keep the tone critical-but-defensible: name the prior work fairly, then state precisely which axis (multi-task, hardware-in-the-loop, behavioural-response) is added here.
+This section is the contribution claim. Briefly survey the three single-domain neighbours --- (a) RF-only datasets and modulation-classification benchmarks, (b) FPGA RF front-ends without ML, (c) host-side ML for spectrum sensing without a hardware-in-the-loop emitter $\to$ feature pipeline --- and explain why each leaves a gap that the three-task unified pipeline closes. Keep the tone critical-but-defensible: name the prior work fairly, then state precisely which axis (multi-task, hardware-in-the-loop, behavioural-response) is added here.
 
 \subsection{Step 6 --- Section~6 experimental results}
 Present results in the order needed to tell the story, not the order the experiments ran. Suggested flow:
 \begin{enumerate}[leftmargin=2em]
 	\item System specification table (LH5-D) as the section opener --- it is the one-glance summary, including PAUSE response/recovery latency and RSSI-targeting accuracy.
-	\item Four-task classification accuracy summary (from LH4-C/D/E + LH5-D B5) showing the winning model per task.
+	\item Three-task classification accuracy summary (from LH4-C/D/E + LH5-D B5) showing the winning model per task. Per the \texttt{deployment\_manifest.json} produced by LH4-H, the deployed mix is CNN(\texttt{sf}) + SVM(\texttt{beacon}) + SVM(\texttt{pkt}).
 	\item Stress test findings (LH5-A/B): maximum active-station count, low-\mbox{SNR} per-task degradation, 30-min stability.
 	\item Latency decomposition (LH5-C/D): per-stage contribution, architectural implication.
 	\item PAUSE behavioural response (LH5-C S5): four-interval table with mean / std / p99.
@@ -88,7 +88,7 @@ This is the intellectual core of the report. Address all of the following:
 
 \begin{enumerate}[leftmargin=2em]
 	\item \textbf{Cross-domain dependencies.} Cite the LH5-E catalog. Which design decisions had the most far-reaching downstream consequences? Which modules had the tightest mutual coupling? Use the dependency diagram as a figure.
-	\item \textbf{Operating-condition shift.} Quantify the $\Delta_{\text{op-shift}}$ from LH4-F per task. Explain \emph{which} features contributed most to the shift between the clean and contended regimes (\mbox{RSSI}, \texttt{inter\_arrival\_ms}, and the PAUSE-only fields are the usual suspects) and what that implies about Module~3 dataset coverage.
+	\item \textbf{Operating-condition shift.} Quantify the $\Delta_{\text{op-shift}}$ from LH4-F per deployed task (\texttt{sf}, \texttt{beacon}, \texttt{pkt}). Explain \emph{which} features contributed most to the shift between the clean and contended regimes (\texttt{rssi\_dbm}, \texttt{inter\_arrival\_ms}, and the PAUSE-only fields are the usual suspects) and what that implies about Module~3 dataset coverage.
 	\item \textbf{Redesign decisions.} If starting over, which \emph{single} decision would you change? Candidates: upgrading \UART{} $\to$ \mbox{SPI}, widening the feature vector, collecting more contended-regime data. Argue for one and quantify its expected benefit.
 	\item \textbf{Scalability.} How would the architecture evolve to support 10 active stations? 100? What are the architectural bottlenecks at each scale (FIFO depth, SX1276 half-duplex, RSSI table aging)?
 	\item \textbf{Pedagogical reflection.} Which cross-domain skill was hardest? Where did the staged-development approach help? Where did it create artificial difficulty?
@@ -101,8 +101,8 @@ This is the intellectual core of the report. Address all of the following:
 \subsection{Step 8 --- Section~8 conclusion}
 Summarise achievements in three or four sentences. Then a short ``Future Work'' list (3--5 bullet items, each one sentence). Examples:
 \begin{itemize}[leftmargin=2em]
-	\item Contended-regime training data collection to close the $\Delta_{\text{op-shift}}$ on the modulation-kind and packet-type tasks.
-	\item On-\FPGA{} four-task inference for a standalone embedded deployment.
+	\item Contended-regime training data collection to close the $\Delta_{\text{op-shift}}$ on the \texttt{sf} and \texttt{pkt} tasks.
+	\item On-\FPGA{} three-task inference for a standalone embedded deployment.
 	\item Support for additional modulation schemes (\mbox{FSK} data-whitening, \mbox{OOK}) on the same packed Modulation Code byte.
 	\item Adaptive scheduling: cooperative targets that switch SF based on link quality.
 	\item RSSI-table aging policy at the Threat to mitigate the F5 stale-target failure mode.

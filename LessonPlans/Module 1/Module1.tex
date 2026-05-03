@@ -355,7 +355,7 @@
 			\midrule
 			Mode & Full-Duplex Master & \MCU{} drives clock to \RF{} module \\
 			Clock Polarity (CPOL) & 0 & SX1276 default \\
-			Clock Phase (CPHA) & 0 & SX1276 default \\
+			Clock Phase (CPHA) & 1 Edge & Module~1 reference configuration (LH1-C bring-up) \\
 			Data Size & 8 bits & Register-level access \\
 			Baud Rate & $\leq 10$\,MHz & SX1276 \SPI{} max = 10\,MHz \\
 			NSS & Software (\GPIO{}) & Manual chip select control \\
@@ -615,7 +615,7 @@
 	\end{table}
 
 	\begin{tcolorbox}[infobox={Recommendation}]
-		Begin with \UART{} at 115200 baud for initial integration. At 32 bytes per radio packet wrapped into the 43-byte forwarding frame, \UART{} supports approximately 28 frames per second --- comfortably above the operating envelope of the two-target ping-pong configuration plus interleaved PAUSE captures. Transition to \SPI{} only when scaling beyond three concurrent stations or when latency requirements tighten in later modules.
+		Begin with \UART{} at 115200 baud for initial integration. With 8N1 framing, the theoretical byte rate is 11{,}520\,B/s, so a 43-byte forwarding frame yields approximately 268 frames per second before firmware overhead --- comfortably above the operating envelope of the two-target ping-pong configuration plus interleaved PAUSE captures. Transition to \SPI{} only when scaling beyond three concurrent stations or when latency requirements tighten in later modules.
 	\end{tcolorbox}
 
 	\subsubsection{Interceptor-to-FPGA Frame Format}
@@ -678,8 +678,8 @@
 		\begin{enumerate}
 			\item Verify that the \FPGA{} receives frames from both Beacon~IDs by displaying alternating Beacon~IDs on the seven-segment display (\texttt{01} and \texttt{02} interleaving).
 			\item Compare the interceptor-side \RSSI{} values displayed on the \FPGA{} with the values logged by the STM32 over USART2 debug to confirm data integrity across the interface.
-			\item Hold the user button on the interceptor and verify the seven-segment display occasionally shows \texttt{FF} (the Threat's own Beacon~ID), or alternatively that the \texttt{"I'm Jammed"} log appears on the targeted Target's USART2 within 100\,ms of button press.
-			\item Introduce a deliberate \CRC{} error (corrupt one byte in the interceptor firmware before forwarding) and confirm the \FPGA{}'s frame \CRC{} check rejects the corrupted frame.
+			\item Hold the user button on the interceptor and verify the targeted Target's USART2 prints \texttt{"I'm Jammed"} within 100\,ms; on the seven-segment display, expect the alternating \texttt{01}/\texttt{02} pattern to briefly fall silent and then resume after release.
+			\item For Module~1 bring-up, note that FPGA ingestion is a delimiter/length path without \CRC{} reject logic; perform the deliberate-corruption \CRC{} rejection test in Module~2 after \texttt{pkt\_parser} \CRC{} checks are implemented.
 		\end{enumerate}
 	\end{tcolorbox}
 

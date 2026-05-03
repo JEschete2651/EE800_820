@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-05-03T21:09:20.453062+00:00",
+  "run_stamp": "20260503T210917Z",
+  "log_archive": "d:\\judee\\Google Drive\\School\\Classes\\EE800_820\\Code\\AIML\\Logs\\svm_train_20260503T210917Z.log",
+  "svm_grid": [
+    {
+      "kernel": [
+        "linear"
+      ],
+      "C": [
+        0.1,
+        1,
+        10
+      ]
+    },
+    {
+      "kernel": [
+        "rbf"
+      ],
+      "C": [
+        0.1,
+        1,
+        10,
+        100
+      ],
+      "gamma": [
+        "scale",
+        0.01,
+        0.1,
+        1.0
+      ]
+    }
+  ],
+  "results": {
+    "sf": {
+      "kernel": "rbf",
+      "C": 10,
+      "gamma": 1.0,
+      "cv_acc": 0.9768672289366143,
+      "test_acc": 0.963302752293578,
+      "ci_lo": 0.9369613790904261,
+      "ci_hi": 0.9788851447402425,
+      "n_correct": 315,
+      "n_total": 327,
+      "elapsed_s": 1.853320598602295,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "inter_arrival_ms",
+        "beacon_id",
+        "pkt_type"
+      ],
+      "perm_importance": [
+        [
+          "snr_db",
+          0.26804281345565745,
+          0.018533094108976928
+        ],
+        [
+          "rssi_dbm",
+          0.1654434250764526,
+          0.011021909046446534
+        ],
+        [
+          "inter_arrival_ms",
+          0.02461773700305811,
+          0.004975883821184388
+        ],
+        [
+          "pkt_type",
+          0.022629969418960248,
+          0.0050620628003812985
+        ],
+        [
+          "beacon_id",
+          0.022629969418960248,
+          0.0050620628003812985
+        ]
+      ],
+      "rank_correlation_vs_rf": 0.8999999999999998
+    },
+    "mod": {
+      "skipped": true,
+      "reason": "single class in train"
+    },
+    "beacon": {
+      "kernel": "linear",
+      "C": 0.1,
+      "gamma": null,
+      "cv_acc": 1.0,
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 0.048143863677978516,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "pkt_type"
+      ],
+      "perm_importance": [
+        [
+          "pkt_type",
+          0.17370030581039755,
+          0.007339449541284402
+        ],
+        [
+          "spread_factor",
+          0.0,
+          0.0
+        ],
+        [
+          "inter_arrival_ms",
+          0.0,
+          0.0
+        ],
+        [
+          "freq_error_hz",
+          0.0,
+          0.0
+        ],
+        [
+          "snr_db",
+          0.0,
+          0.0
+        ],
+        [
+          "rssi_dbm",
+          0.0,
+          0.0
+        ]
+      ],
+      "rank_correlation_vs_rf": 0.5428571428571429
+    },
+    "pkt": {
+      "kernel": "linear",
+      "C": 0.1,
+      "gamma": null,
+      "cv_acc": 1.0,
+      "test_acc": 1.0,
+      "ci_lo": 0.9883888227479495,
+      "ci_hi": 1.0,
+      "n_correct": 327,
+      "n_total": 327,
+      "elapsed_s": 0.0375826358795166,
+      "feature_cols": [
+        "rssi_dbm",
+        "snr_db",
+        "freq_error_hz",
+        "inter_arrival_ms",
+        "spread_factor",
+        "beacon_id"
+      ],
+      "perm_importance": [
+        [
+          "beacon_id",
+          0.17370030581039755,
+          0.007339449541284402
+        ],
+        [
+          "spread_factor",
+          0.0,
+          0.0
+        ],
+        [
+          "inter_arrival_ms",
+          0.0,
+          0.0
+        ],
+        [
+          "freq_error_hz",
+          0.0,
+          0.0
+        ],
+        [
+          "snr_db",
+          0.0,
+          0.0
+        ],
+        [
+          "rssi_dbm",
+          0.0,
+          0.0
+        ]
+      ],
+      "rank_correlation_vs_rf": 0.5428571428571429
+    }
+  }
+}
