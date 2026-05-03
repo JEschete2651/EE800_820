@@ -63,7 +63,7 @@ def baselines(task):
     print(f"[{task}] Tree-5 acc = {acc_dt:.3f}")
     return dum, dt, acc_dum, acc_dt
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     baselines(t)
 \end{lstlisting}
 
@@ -98,7 +98,7 @@ def grid_search_rf(task):
     print(f"[{task}] RF CV acc = {gs.best_score_:.3f}, test acc = {acc_te:.3f}")
     return best, gs, acc_te
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     grid_search_rf(t)
 \end{lstlisting}
 
@@ -163,13 +163,13 @@ def plot_importance(model, feature_names, task):
 plot_importance(best, pre["feature_cols"], t)
 \end{lstlisting}
 
-For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. For the packet-type task, \texttt{inter\_arrival\_ms} and \texttt{rssi\_delta} should dominate (DATA, ACK, and PAUSE rows have very different temporal signatures). Any wildly different ordering is worth investigating.
+For the SF task, \texttt{rssi} and \texttt{snr} should dominate. For emitter \mbox{ID}, \texttt{rssi} and \texttt{inter\_arrival\_ms} typically dominate. For modulation, \texttt{snr} and \texttt{rssi\_delta} typically dominate. Any wildly different ordering is worth investigating.
 
 \subsection{Step 6 --- Save the winning forests}
 
 \begin{lstlisting}[language=Python]
 import joblib
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     best, gs, acc_te = grid_search_rf(task)
     joblib.dump({"model": best,
                  "test_acc": acc_te,

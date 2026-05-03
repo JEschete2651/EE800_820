@@ -4,20 +4,20 @@
 \input{LabHandout_Preamble}
 
 \begin{document}
-\labheader{4-G}{Stratified Accuracy by SNR, Distance, and Active-Station Count (with PAUSE)}
+\labheader{4-G}{Stratified Accuracy by SNR, Distance, and Active-Station Count}
 
 \section{Objective}
-Produce the three stratified-accuracy curves that describe how each classifier \emph{degrades} (or does not) as operating conditions worsen: accuracy vs.\ \mbox{SNR}, accuracy vs.\ distance, and accuracy vs.\ active-station count (with PAUSE bursts present in the C5d/C5e sub-configurations). These curves are the robustness evidence used in the LH4-H final model selection rubric and they reveal which classifier family scales best to realistic deployment conditions.
+Produce the three stratified-accuracy curves that describe how each classifier \emph{degrades} (or does not) as operating conditions worsen: accuracy vs.\ \mbox{SNR}, accuracy vs.\ distance, and accuracy vs.\ active-station count. These curves are the robustness evidence used in the LH4-H final model selection rubric and they reveal which classifier family scales best to realistic deployment conditions.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handouts~4-C through~4-F complete (RF, \mbox{SVM}, \mbox{MLP}, \mbox{CNN} all trained for each task).
-	\item Campaign metadata present in \texttt{merged\_dataset.csv} (\texttt{distance\_m} column filled for C4 rows, \texttt{campaign\_id} C5a--C5e indicating active-station count and PAUSE-burst presence).
+	\item Campaign metadata present in \texttt{merged\_dataset.csv} (\texttt{distance\_m} column filled for C4 rows, \texttt{campaign\_id} C5a, C5b indicating active-station count).
 	\item \texttt{run\_id} column is populated (Module~3 LH3-F schema). The stratified-condition filters below select on \texttt{campaign\_id} for readability, but the underlying train/val/test split was keyed on \texttt{run\_id} (LH4-A Check~9), so no same-run leakage can occur even when a campaign family contains multiple runs.
 \end{itemize}
 
 \begin{tcolorbox}[infobox={Expected campaign\_id Values}]
-This handout assumes the Module~3 canonical set \{C1, C2, C3, C4, C5a, C5b, C5c, C5d, C5e\}. If your \texttt{merged\_dataset.csv} uses different subcampaign labels, map them in \texttt{C5\_MAP} below \emph{and} update the C4 filter. The filters are cosmetic slicers, not leakage guards --- the leakage guard is the \texttt{run\_id}-keyed split from LH4-A.
+This handout assumes the Module~3 canonical set \{C1, C2, C3, C4, C5a, C5b\}. If your \texttt{merged\_dataset.csv} uses different subcampaign labels, map them in \texttt{C5\_MAP} below \emph{and} update the C4 filter. The filters are cosmetic slicers, not leakage guards --- the leakage guard is the \texttt{run\_id}-keyed split from LH4-A.
 \end{tcolorbox}
 
 \section{Background: Average Accuracy Lies}
@@ -50,7 +50,7 @@ def predict_rf(task, test_df):
         test_df[pre["feature_cols"]].to_numpy(dtype=np.float32))
     y = pre["encoder"].transform(test_df[{
         "sf": "label_sf", "mod": "label_mod",
-        "beacon": "label_beacon", "pkt": "label_pkt",
+        "beacon": "label_beacon",
     }[task]])
     return model.predict(X), y
 
@@ -90,7 +90,7 @@ Use Campaign~C4 (the distance sweep) exclusively for this plot. Distance is disc
 c4 = df[df["campaign_id"] == "C4"].reset_index(drop=True)
 distances = sorted(c4["distance_m"].unique())
 
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     plt.figure()
     for model_name in ["rf", "svm", "mlp", "cnn"]:
         y_pred, y_true = predict(model_name, task, c4)
@@ -108,37 +108,30 @@ for task in ["sf", "mod", "beacon", "pkt"]:
 \end{lstlisting}
 
 \subsection{Step 3 --- Accuracy vs.\ active-station count}
-Use Campaign~C5. Each sub-configuration (C5a through C5e) corresponds to a different active-station count and PAUSE-burst pattern (C5a: Target~A only; C5b: A+B fixed ping-pong; C5c: A+B ALOHA; C5d: A+B + held-button PAUSE bursts; C5e: A+B ALOHA + intermittent PAUSE bursts). Plot accuracy as a function of station count, differentiating fixed vs.\ \mbox{ALOHA} scheduling and PAUSE-active vs.\ PAUSE-quiescent runs.
+Use Campaign~C5. Each sub-configuration corresponds to a different active-station count (C5a: Target~A only; C5b: A+B fixed ping-pong). Plot accuracy as a function of station count.
 
 \begin{lstlisting}[language=Python]
-# Map: (active stations, scheduling mode, threat PAUSE active?)
+# Map: active stations
 C5_MAP = {
-    "C5a": (1, "fixed", False),
-    "C5b": (2, "fixed", False),
-    "C5c": (2, "aloha", False),
-    "C5d": (3, "fixed", True),   # ping-pong + held-button PAUSE bursts
-    "C5e": (3, "aloha", True),   # ALOHA + intermittent PAUSE bursts
+    "C5a": (1,),
+    "C5b": (2,),
 }
 c5 = df[df["campaign_id"].isin(C5_MAP)].reset_index(drop=True)
 
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     rows = []
-    for cid, (n, mode, pause) in C5_MAP.items():
+    for cid, (n,) in C5_MAP.items():
         sub = c5[c5["campaign_id"] == cid]
         if len(sub) == 0: continue
         for model_name in ["rf", "svm", "mlp", "cnn"]:
             y_pred, y_true = predict(model_name, task, sub)
             acc = (y_pred == y_true).mean()
-            rows.append({"stations": n, "mode": mode, "pause": pause,
-                         "model": model_name, "acc": acc})
+            rows.append({"stations": n, "model": model_name, "acc": acc})
     rdf = pd.DataFrame(rows)
     plt.figure()
-    for (mode, pause, model_name), grp in rdf.groupby(["mode", "pause", "model"]):
-        style  = "--" if mode == "aloha" else "-"
-        marker = "x"  if pause             else "o"
-        suffix = " +PAUSE" if pause else ""
-        plt.plot(grp["stations"], grp["acc"], style + marker,
-                 label=f"{model_name.upper()} ({mode}{suffix})")
+    for model_name, grp in rdf.groupby("model"):
+        plt.plot(grp["stations"], grp["acc"], "-o",
+                 label=model_name.upper())
     plt.xlabel("Active station count")
     plt.ylabel("Test accuracy")
     plt.title(f"Accuracy vs. active stations --- task: {task}")
@@ -146,10 +139,6 @@ for task in ["sf", "mod", "beacon", "pkt"]:
     plt.tight_layout()
     plt.savefig(f"figs/acc_vs_stations_{task}.png", dpi=150)
 \end{lstlisting}
-
-\begin{tcolorbox}[infobox={Note for the Packet-Type Task}]
-The packet-type accuracy curve will look different from the other three tasks: C5a contains only DATA rows (the classifier has only one class to predict, so accuracy is mechanically 1.0), C5b/C5c add ACK rows, and C5d/C5e add PAUSE rows. Compare absolute numbers across sub-configurations cautiously --- the classifier's task difficulty changes with the active class set, not just with station count.
-\end{tcolorbox}
 
 \subsection{Step 4 --- Robustness score}
 Define a simple, defensible robustness metric: the \emph{minimum} accuracy across all SNR buckets on the SF task. A model with high average accuracy but terrible worst-case accuracy is a worse deployment candidate than one with slightly lower average and higher worst-case.
@@ -173,7 +162,7 @@ Write 2--3 paragraphs addressing:
 
 \begin{enumerate}[leftmargin=2em]
 	\item Which model degrades most gracefully as \mbox{SNR} drops? Is this the same model that has the highest average accuracy?
-	\item Does the \mbox{CNN}'s temporal input give it an advantage in the multi-station regime (C5d, C5e), where DATA, ACK, and PAUSE packets from three different stations interleave unpredictably?
+	\item Does the \mbox{CNN}'s temporal input give it an advantage in the multi-station regime (C5b), where DATA and ACK packets from two different stations interleave?
 	\item Is there a model family whose accuracy curves become noticeably steeper (degrade faster) in the high-distance or high-contention regime? What does that suggest about how it would perform in a field deployment with obstructed line-of-sight?
 \end{enumerate}
 
@@ -183,16 +172,16 @@ Write 2--3 paragraphs addressing:
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] SNR-stratified accuracy plotted for all four tasks.
+	\item[$\square$] SNR-stratified accuracy plotted for all three tasks.
 	\item[$\square$] Distance-stratified accuracy plotted (C4 data only).
-	\item[$\square$] Active-station-count stratified accuracy plotted with fixed/\mbox{ALOHA} and PAUSE-active distinguished.
+	\item[$\square$] Active-station-count stratified accuracy plotted (C5a and C5b).
 	\item[$\square$] Worst-case-bucket robustness table computed for at least the SF task.
 	\item[$\square$] Narrative discussion (Step~5) written.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-G Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item Three stratified-accuracy figures per task (SNR, distance, station-count) = 12 figures total across the four classification tasks.
+		\item Three stratified-accuracy figures per task (SNR, distance, station-count) = 9 figures total across the three classification tasks.
 		\item Worst-case robustness table: min, mean, max bucket-accuracy per model on the SF task.
 		\item A ``robustness ranking'' per task: order the four models (RF, SVM, MLP, CNN) from most to least robust, with one sentence justifying each position.
 		\item 2--3 paragraph narrative discussion addressing the three questions in Step~5.

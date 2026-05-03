@@ -3,6 +3,9 @@ use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 entity ingest_top is
+    generic (
+        g_DEBUG : boolean := false                           -- LH3-B: gates the ILA core
+    );
     port (
         CLK100MHZ    : in  std_logic;
         CPU_RESETN   : in  std_logic;                       -- active-low pushbutton
@@ -13,6 +16,9 @@ entity ingest_top is
         DP           : out std_logic;
         AN           : out std_logic_vector(7 downto 0);
         LED          : out std_logic_vector(15 downto 0)
+        -- synthesis translate_off
+        ;host_rd_data_dbg : out std_logic_vector(255 downto 0)
+        -- synthesis translate_on
     );
 end ingest_top;
 
@@ -42,9 +48,27 @@ architecture rtl of ingest_top is
 
     -- Module 3 host readback path. SW(7:0) selects the BRAM row;
     -- SW(12:8) selects which of 32 bytes within that row goes to LED(15:8).
-    -- The LH2-G testbench reaches host_rd_data_int via VHDL-2008 external name.
     signal host_rd_data_int : std_logic_vector(255 downto 0);
     signal host_rd_byte     : std_logic_vector(7 downto 0);
+
+    -- LH3-B Step 3: ILA component declaration (widths from ila_0_stub.vhdl)
+    component ila_0 is
+        port (
+            clk     : in std_logic;
+            probe0  : in std_logic_vector(0 downto 0); -- uart_rxd_sync
+            probe1  : in std_logic_vector(7 downto 0); -- rx_data
+            probe2  : in std_logic_vector(0 downto 0); -- rx_strobe (rx_valid)
+            probe3  : in std_logic_vector(0 downto 0); -- fifo_full (rx_error proxy)
+            probe4  : in std_logic_vector(2 downto 0); -- parser_state
+            probe5  : in std_logic_vector(5 downto 0); -- byte_counter
+            probe6  : in std_logic_vector(0 downto 0); -- frame_valid
+            probe7  : in std_logic_vector(0 downto 0); -- frame_reject
+            probe8  : in std_logic_vector(7 downto 0); -- beacon_id
+            probe9  : in std_logic_vector(1 downto 0); -- pkt_type
+            probe10 : in std_logic_vector(7 downto 0); -- rssi_out
+            probe11 : in std_logic_vector(5 downto 0)  -- fifo_count
+        );
+    end component;
 begin
     rst_n <= CPU_RESETN;
 
@@ -110,4 +134,44 @@ begin
     -- (added in LH2-A so the host can capture .bin files via the same USB
     -- cable that programs the board). Both ends are 115200 8N1.
     UART_RXD_OUT <= uart_rx_pin;
+
+    -- Simulation-only debug readback of the BRAM port B 256-bit row.
+    -- synthesis translate_off
+    host_rd_data_dbg <= host_rd_data_int;
+    -- synthesis translate_on
+
+    -- LH3-B: ILA debug wrapper. Empty for now; Step 3 of LH3-B inserts an
+    -- ILA core inside this generate block. The g_DEBUG generic is evaluated
+    -- at elaboration time, so when set to false Vivado prunes the entire
+    -- block before synthesis (no resource cost in the production bitstream).
+    gen_debug : if g_DEBUG generate
+        u_ila : ila_0
+            port map (
+                clk     => CLK100MHZ,
+                -- Physical RX line (closest proxy for uart_rxd_sync at top level)
+                probe0  => (0 => uart_rx_pin),
+                -- Decoded byte from UART receiver
+                probe1  => rx_data,
+                -- Byte-valid strobe (rx_valid)
+                probe2  => (0 => rx_strobe),
+                -- FIFO full flag (proxy for rx_error / overflow indicator)
+                probe3  => (0 => fifo_full),
+                -- parser_state: internal to pkt_parser, not exported; stub zeros
+                probe4  => (others => '0'),
+                -- byte_counter: internal to pkt_parser, not exported; stub zeros
+                probe5  => (others => '0'),
+                -- Frame accepted pulse
+                probe6  => (0 => frame_valid),
+                -- Frame rejected pulse
+                probe7  => (0 => frame_reject),
+                -- beacon_id = payload byte 2 (pbyte(payload, 2) = payload[23:16])
+                probe8  => payload(23 downto 16),
+                -- pkt_type = low 2 bits of mod_code (payload byte 6 = payload[55:48])
+                probe9  => payload(49 downto 48),
+                -- rssi_out = metadata byte 4 (mbyte(meta, 4) = metadata[39:32])
+                probe10 => metadata(39 downto 32),
+                -- fifo_count: internal to byte_fifo, not exported; stub zeros
+                probe11 => (others => '0')
+            );
+    end generate gen_debug;
 end rtl;

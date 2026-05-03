@@ -29,11 +29,11 @@ Pick three test captures from Module~1 and place them in \texttt{data/}:
 
 Add a simulation source \texttt{tb\_ingest\_top}. Replace its contents with the listing below.
 
-\begin{tcolorbox}[infobox={Enable VHDL-2008 in Vivado before adding this file}]
-The testbench uses a VHDL-2008 \emph{external name} alias to read the internal \texttt{host\_rd\_data\_int} signal inside \texttt{ingest\_top}. Vivado defaults each new file to VHDL-93, which rejects external names. Right-click \texttt{tb\_ingest\_top.vhd} in the Sources panel $\to$ \textbf{Source File Properties} $\to$ \textbf{File Type} and set it to \textbf{VHDL 2008} \emph{before} the first compile. The DUT instance label in the testbench must remain \texttt{dut} (line \texttt{dut : entity work.ingest\_top}); the external name path \texttt{.tb\_ingest\_top.dut.host\_rd\_data\_int} resolves against that label.
+\begin{tcolorbox}[infobox={Why a debug port instead of a VHDL-2008 external name}]
+Earlier revisions of this testbench used a VHDL-2008 external-name alias to peek at \texttt{ingest\_top}'s internal \texttt{host\_rd\_data\_int}. Vivado xsim crashes during elaboration on that construct (\texttt{EXCEPTION\_ACCESS\_VIOLATION} in 2025.2 and earlier). The portable workaround used here is the dedicated \texttt{host\_rd\_data\_dbg} output port added to \texttt{ingest\_top} in LH2-F; the testbench reads it as a normal signal. No VHDL standard upgrade is required.
 \end{tcolorbox}
 
-\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_ingest\_top.vhd} --- file-driven end-to-end harness. Streams every byte of \texttt{CAPTURE\_FILE} at 115200~baud through \texttt{ingest\_top}, then walks the \BRAM{} read port over all 256 rows (using \texttt{SW(7:0)} as the row address) and dumps the full 256-bit row contents (read via VHDL-2008 external name) to \texttt{DUMP\_FILE}. Requires VHDL-2008 (set in Vivado's Project Settings $\to$ General).}]
+\begin{lstlisting}[language=VHDL, caption={\texttt{tb\_ingest\_top.vhd} --- file-driven end-to-end harness. Streams every byte of \texttt{CAPTURE\_FILE} at 115200~baud through \texttt{ingest\_top}, then walks the \BRAM{} read port over all 256 rows (using \texttt{SW(7:0)} as the row address) and dumps the full 256-bit row contents (read via the \texttt{host\_rd\_data\_dbg} debug port introduced in LH2-F) to \texttt{DUMP\_FILE}.}]
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
@@ -49,11 +49,12 @@ architecture sim of tb_ingest_top is
     constant DUMP_FILE    : string := "../../../../data/dump_mixed.txt";
     constant LOG_FILE     : string := "../../../../data/events_mixed.txt";
 
-    signal clk          : std_logic := '0';
-    signal cpu_resetn   : std_logic := '0';
-    signal uart_rx_pin  : std_logic := '1';
-    signal uart_rxd_out : std_logic;
-    signal sw           : std_logic_vector(15 downto 0) := (others => '0');
+    signal clk              : std_logic := '0';
+    signal cpu_resetn       : std_logic := '0';
+    signal uart_rx_pin      : std_logic := '1';
+    signal uart_rxd_out     : std_logic;
+    signal sw               : std_logic_vector(15 downto 0) := (others => '0');
+    signal host_rd_data_dbg : std_logic_vector(255 downto 0);
 
     signal ca, cb, cc, cd, ce, cf, cg : std_logic;
     signal dp                          : std_logic;
@@ -72,11 +73,6 @@ architecture sim of tb_ingest_top is
         s <= '1'; wait for BIT_PERIOD;
     end procedure;
 
-    -- VHDL-2008 external name reaches the internal 256-bit BRAM readback
-    -- signal inside ingest_top so the testbench can dump the full feature row.
-    alias host_rd_data_int is
-        << signal .tb_ingest_top.dut.host_rd_data_int :
-           std_logic_vector(255 downto 0) >>;
 begin
     clk <= not clk after CLK_PERIOD / 2;
 
@@ -87,7 +83,8 @@ begin
                   SW => sw,
                   CA => ca, CB => cb, CC => cc, CD => cd,
                   CE => ce, CF => cf, CG => cg,
-                  DP => dp, AN => an, LED => led);
+                  DP => dp, AN => an, LED => led,
+                  host_rd_data_dbg => host_rd_data_dbg);
 
     -- Event log: timestamped frame_valid / frame_reject pulses.
     -- led(1) = frame_valid, led(4) = frame_reject (per LH2-F ingest_top).
@@ -144,8 +141,8 @@ begin
         wait for 500 us;
 
         -- Walk every row of the BRAM and dump as hex strings. SW(7:0) drives
-        -- the row address inside ingest_top; SW(12:8) is unused for the dump
-        -- (the testbench reads the full 256-bit row via the external name).
+        -- the row address inside ingest_top; the full 256-bit row arrives
+        -- one cycle later on host_rd_data_dbg.
         for row in 0 to 255 loop
             sw(7 downto 0) <= std_logic_vector(to_unsigned(row, 8));
             wait until rising_edge(clk);
@@ -153,7 +150,7 @@ begin
             write(l, string'("ROW "));
             hwrite(l, std_logic_vector(to_unsigned(row, 8)));
             write(l, string'(" "));
-            hwrite(l, host_rd_data_int);
+            hwrite(l, host_rd_data_dbg);
             writeline(fh_d, l);
         end loop;
 

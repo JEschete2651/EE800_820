@@ -1,0 +1,197 @@
+\documentclass[11pt,letterpaper]{article}
+\newcommand{\labid}{3-B}
+\newcommand{\labtitleshort}{FPGA Deployment and ILA}
+\input{LabHandout_Preamble}
+
+\begin{document}
+\labheader{3-B}{\FPGA{} Deployment and \ILA{} Debug Configuration}
+
+\section{Objective}
+Instrument the Module~2 \texttt{ingest\_top} design with Vivado \ILA{} probes, generate a debug bitstream, and verify that the \ILA{} dashboard is ready to capture integration failures before any inter-board connections are made. The \ILA{} is the primary diagnostic tool for Module~3; spending 30 minutes configuring it correctly here avoids hours of blind debugging later.
+
+\section{Prerequisites}
+\begin{itemize}[leftmargin=2em]
+	\item Lab Handout~3-A complete (all 9 pre-integration checklist items passed).
+	\item Module~2 Vivado project open and \texttt{ingest\_top.bit} compiling cleanly.
+\end{itemize}
+
+\begin{tcolorbox}[infobox={Forward References}]
+This handout mentions LH3-E (production bitstream flow) and occasionally LH3-F through LH3-H (collection, campaigns, dataset handoff). Those later handouts are part of the Module~3 arc and are published alongside this one; if you are reading a draft where they are not yet available, treat the references as pointers to the next milestones rather than prerequisites.
+\end{tcolorbox}
+
+\section{Architecture}
+The debug configuration adds a single \ILA{} core inside a generate-conditional wrapper controlled by a top-level generic. This allows the same \RTL{} source to produce either a debug bitstream (with \ILA{} and block-\mbox{RAM} overhead) or a production bitstream (clean, used in LH3-E onwards) without editing the design files.
+
+\labfigure{LH3B_debug_architecture.png}{0.85\textwidth}{\texttt{ingest\_top} debug wrapper. The \ILA{} core is instantiated only when \texttt{g\_DEBUG = true}. All probe signals are tapped after their source registers to avoid combinational path lengthening.}{fig:lh3b-arch}
+
+\section{Procedure}
+
+\subsection{Step 1 --- Add the debug generic}
+\begin{enumerate}[leftmargin=2em]
+	\item Open \texttt{ingest\_top.vhd}. Add a top-level generic:
+	\begin{verbatim}
+generic (
+    g_DEBUG : boolean := true
+);
+	\end{verbatim}
+	\item Wrap the \ILA{} instantiation (added in Step~3) in a generate statement:
+	\begin{verbatim}
+gen_debug : if g_DEBUG generate
+    -- ILA core instantiation goes here
+end generate gen_debug;
+	\end{verbatim}
+	\item Leave all existing datapath logic outside the generate block. The generic only gates the \ILA{}, not the pipeline.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={Why a generic, not a \texttt{define}?}]
+	A \VHDL{} generic is evaluated at elaboration time and has no runtime cost. Vivado prunes the generate-false branch entirely before synthesis, so the debug and production builds share identical \RTL{} source and differ only in the top-level instantiation. This is preferable to commenting out \ILA{} lines by hand, which creates version-control noise and is error-prone.
+\end{tcolorbox}
+
+\subsection{Step 2 --- Probe points}
+The following table lists the 12 \ILA{} probes as wired in \texttt{ingest\_top.vhd}. Probe numbers correspond directly to the port map in Step~3.
+
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{c l c X}
+		\toprule
+		\textbf{Probe} & \textbf{Signal / Source} & \textbf{Width} & \textbf{Purpose} \\
+		\midrule
+		0 & \texttt{uart\_rx\_pin} & 1 & Raw \UART{} input pin; verify serial transitions are reaching \FPGA{} fabric \\
+		1 & \texttt{rx\_data} & 8 & Decoded bytes from \UART{} receiver; validate correct decoding \\
+		2 & \texttt{rx\_strobe} & 1 & Byte-level strobe from \texttt{uart\_rx}; one pulse per valid byte \\
+		3 & \texttt{fifo\_full} & 1 & \FIFO{} overflow flag; asserts when back-pressure from parser exceeds buffer \\
+		4 & \texttt{frame\_valid} & 1 & Successful double-\CRC{} frame; primary integration milestone trigger \\
+		5 & \texttt{frame\_reject} & 1 & \CRC{} failure; indicates firmware/\RTL{} \CRC{} mismatch \\
+		6 & \texttt{payload(23:16)} & 8 & Beacon~\mbox{ID} (frame byte~2); compare to STM32 log (\texttt{0x01}=Target~A, \texttt{0x02}=Target~B) \\
+		7 & \texttt{payload(49:48)} & 2 & Packet type from low 2 bits of Modulation Code (\texttt{00}=DATA, \texttt{01}=ACK, \texttt{10}=PAUSE) \\
+		8 & \texttt{metadata(39:32)} & 8 & Parsed \RSSI{} byte; compare to interceptor debug log within $\pm$2~dB \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\begin{tcolorbox}[infobox={Probe count}]
+	The \ILA{} core is configured with 12 probe ports. Probes~9--11 are tied to \texttt{(others => '0')} in the current build; they appear in the dashboard as static zero channels and can be ignored.
+\end{tcolorbox}
+
+\newpage
+\subsection{Step 3 --- Verify the ILA core and port map}
+\begin{enumerate}[leftmargin=2em]
+
+	\item \textbf{Confirm the IP core exists.}
+	In the Sources panel, expand \textbf{IP Sources} and verify \texttt{ila\_0} is listed. If it is missing, open the IP Catalog, search for \texttt{ILA}, and regenerate with 12 probes at 1024-sample depth.
+
+	\item \textbf{Confirm the component declaration} in the architecture declaration section of \texttt{ingest\_top.vhd}:
+	\begin{verbatim}
+component ila_0 is
+port (
+    clk     : in std_logic;
+    probe0  : in std_logic_vector(0 downto 0);
+    probe1  : in std_logic_vector(7 downto 0);
+    probe2  : in std_logic_vector(0 downto 0);
+    probe3  : in std_logic_vector(0 downto 0);
+    probe4  : in std_logic_vector(2 downto 0);
+    probe5  : in std_logic_vector(5 downto 0);
+    probe6  : in std_logic_vector(0 downto 0);
+    probe7  : in std_logic_vector(0 downto 0);
+    probe8  : in std_logic_vector(7 downto 0);
+    probe9  : in std_logic_vector(1 downto 0);
+    probe10 : in std_logic_vector(7 downto 0);
+    probe11 : in std_logic_vector(5 downto 0)
+);
+end component;
+	\end{verbatim}
+
+	\item \textbf{Confirm the port map} inside the \texttt{gen\_debug} generate block:
+	\begin{verbatim}
+u_ila : ila_0
+port map (
+    clk     => CLK100MHZ,
+    probe0  => (0 => uart_rx_pin),
+    probe1  => rx_data,
+    probe2  => (0 => rx_strobe),
+    probe3  => (0 => fifo_full),
+    probe4  => (others => '0'),
+    probe5  => (others => '0'),
+    probe6  => (0 => frame_valid),
+    probe7  => (0 => frame_reject),
+    probe8  => payload(23 downto 16),
+    probe9  => payload(49 downto 48),
+    probe10 => metadata(39 downto 32),
+    probe11 => (others => '0')
+);
+	\end{verbatim}
+
+	\item \textbf{Verify the generate block boundary.}
+	Confirm only \texttt{u\_ila} is inside the generate block. All datapath instances (\texttt{u\_uart}, \texttt{u\_fifo}, \texttt{u\_parser}, \texttt{u\_feat}, \texttt{u\_bram}) must remain outside.
+
+\end{enumerate}
+
+\begin{tcolorbox}[warning={\ILA{} Block RAM Cost}]
+	This configuration (12 probes, 1024-sample depth) uses approximately 4 \BRAM{} tiles. The Module~2 pipeline uses 2 \BRAM{} tiles for the feature \BRAM{}. Total with the \ILA{}: 6 of 135 available \BRAM{} tiles on the Artix-7 100T. This is well within budget. The \ILA{} overhead is the primary reason to generate a separate production bitstream in LH3-E once debugging is complete.
+\end{tcolorbox}
+
+\subsection{Step 4 --- Re-synthesize and implement with debug}
+\begin{enumerate}[leftmargin=2em]
+	\item Confirm that \texttt{g\_DEBUG} is set to \texttt{true} in the top-level instantiation or testbench. In Vivado's \textbf{Sources} panel, right-click the top-level and set the generic value.
+	\item Flow Navigator $\to$ \textbf{Run Synthesis}. Confirm zero errors. Warnings about \ILA{} probe widths being 1-bit are expected and harmless.
+	\item Flow Navigator $\to$ \textbf{Run Implementation}. Confirm positive \mbox{WNS} --- the \ILA{} should not introduce timing violations on a 100\,MHz design of this size.
+	\item Flow Navigator $\to$ \textbf{Generate Bitstream}. The output is \texttt{ingest\_top.bit} in \texttt{impl\_1/}; an \texttt{.ltx} probes file is generated alongside it.
+\end{enumerate}
+
+\labfigure{LH3B_vivado_synthesis_ila.png}{0.85\textwidth}{Vivado synthesis report showing the \ILA{} core resource usage. The 4 \BRAM{} tiles for the capture buffer should be visible in the utilization section.}{fig:lh3b-synth}
+
+\subsection{Step 5 --- Program the bitstream}
+\begin{enumerate}[leftmargin=2em]
+	\item Connect the Nexys A7 via USB. In Vivado Hardware Manager, program \texttt{ingest\_top.bit} from \texttt{impl\_1/}.
+	\item Vivado will prompt to associate the debug probes file (\texttt{ingest\_top.ltx}). Click \textbf{OK}.
+	\item The \mbox{ILA} dashboard should open automatically. If it does not, go to \textbf{Tools $\to$ Open Debug Probes} and navigate to \texttt{impl\_1/ingest\_top.ltx}.
+	\item Confirm that all 12 probe channels are visible in the dashboard.
+\end{enumerate}
+
+\labfigure{LH3B_ila_dashboard.png}{0.85\textwidth}{Vivado \ILA{} dashboard showing all 12 probe channels listed and idle (no \UART{} input connected yet). Confirm the channel names match the signal table before proceeding.}{fig:lh3b-ila-dashboard}
+
+\subsection{Step 6 --- Baseline ILA verification (no STM32 connected)}
+\begin{enumerate}[leftmargin=2em]
+	\item With no signal connected to the \mbox{PMOD} \UART{} input pin, arm the \mbox{ILA} with a trigger on \texttt{probe2} (\texttt{rx\_strobe}) rising edge.
+	\item Confirm the trigger \emph{never} fires. If \texttt{rx\_strobe} pulses with no input, \texttt{uart\_rx\_pin} is floating and picking up noise. Add a pull-up in the \texttt{.xdc} constraint file:
+	\begin{verbatim}
+set_property PULLUP true [get_ports uart_rx_pin]
+	\end{verbatim}
+	\item Change the trigger to \texttt{probe6} (\texttt{frame\_valid}) rising edge. Arm again. Confirm no spurious triggers.
+	\item Set a trigger on \texttt{probe0} (\texttt{uart\_rx\_pin}) = \texttt{1}. The captured waveform should show the pin held at logic~1 (\UART{} idle state) when undriven.
+\end{enumerate}
+
+\begin{tcolorbox}[infobox={ILA Trigger Strategy for Integration Debugging}]
+	Use different trigger signals at each debugging layer in LH3-C:
+	\begin{itemize}[leftmargin=1.2em]
+		\item \textbf{No byte activity?} Trigger on \texttt{probe0} (\texttt{uart\_rx\_pin}) falling edge (start bit). If it never fires, the physical layer is broken.
+		\item \textbf{Bytes arrive but no valid frame?} Trigger on \texttt{probe2} (\texttt{rx\_strobe}) rising edge and watch \texttt{probe1} (\texttt{rx\_data}). Confirm the first byte captured is \texttt{0x7E}; if not, the \texttt{0x7E} start delimiter is missing or corrupted.
+		\item \textbf{CRC rejects?} Trigger on \texttt{probe7} (\texttt{frame\_reject}) rising edge and capture the full \texttt{rx\_data} sequence for manual \CRC{} computation.
+		\item \textbf{Integration success?} Trigger on \texttt{probe6} (\texttt{frame\_valid}) rising edge. Compare \texttt{probe8} (Beacon~ID), \texttt{probe9} (packet type), and \texttt{probe10} (\RSSI{}) to the STM32 debug log.
+	\end{itemize}
+\end{tcolorbox}
+
+\newpage
+\section{Verification Checklist}
+\begin{itemize}[leftmargin=2em]
+	\item[$\square$] \texttt{g\_DEBUG} generic and \texttt{gen\_debug} generate block confirmed in \texttt{ingest\_top.vhd}.
+	\item[$\square$] Bitstream synthesizes and implements with zero errors and positive \mbox{WNS}.
+	\item[$\square$] All 12 \mbox{ILA} probe channels visible in the Vivado dashboard after programming.
+	\item[$\square$] Baseline test: \texttt{probe2} (\texttt{rx\_strobe}) does not assert spuriously with no \UART{} input connected.
+	\item[$\square$] \texttt{probe0} (\texttt{uart\_rx\_pin}) idles at logic~1 when \mbox{PMOD} pin is undriven or pulled up.
+\end{itemize}
+
+\begin{tcolorbox}[deliverable={Lab Handout 3-B Deliverable}]
+	\begin{enumerate}[leftmargin=1.2em]
+		\item \texttt{ingest\_top.vhd} with \texttt{g\_DEBUG} generic and \mbox{ILA} generate block confirmed.
+		\item \texttt{ingest\_top.bit} and \texttt{ingest\_top.ltx} from \texttt{impl\_1/}.
+		\item Post-synthesis utilization screenshot showing \mbox{ILA} \mbox{BRAM} tiles listed.
+		\item \mbox{ILA} dashboard screenshot with all 12 channels visible and the baseline idle state captured.
+		\item Note whether a \texttt{PULLUP} constraint was added to \texttt{uart\_rx\_pin} in the \texttt{.xdc} file.
+	\end{enumerate}
+\end{tcolorbox}
+
+\printhandoutglossary
+
+\end{document}

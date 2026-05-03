@@ -1,0 +1,16 @@
+{
+    "campaign_id":         "C5",
+    "run_id":              "C5b_2026-05-03T12:00:00Z",
+    "sweep_variable":      "num_active_stations",
+    "sweep_value":         2,
+    "fixed_sf":            7,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
+    "num_active_stations": 2,
+    "expected_pkt_types":  [0, 1],
+    "target_packets":      300,
+    "collection_duration_s": 300,
+    "notes":               "Active-station scaling: Target A + Target B ping-pong. Fixed 1s DATA interval + event-driven ACK. Run for 5 minutes regardless of packet count; record actual count. Watch for FIFO overflow (led[15] on Nexys A7).",
+    "description":         "C5b Active-Station Scaling -- 2 stations ping-pong, SF7, +14 dBm, 5-min run, Target A + Target B"
+}

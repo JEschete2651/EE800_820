@@ -1,0 +1,15 @@
+{
+    "campaign_id":         "C5",
+    "run_id":              "C5a_2026-05-03T12:00:00Z",
+    "sweep_variable":      "num_active_stations",
+    "sweep_value":         1,
+    "fixed_sf":            7,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
+    "num_active_stations": 1,
+    "expected_pkt_types":  [0],
+    "target_packets":      300,
+    "notes":               "Active-station scaling baseline: Target A only, fixed 2s interval, DATA-only. No responder.",
+    "description":         "C5a Active-Station Scaling -- 1 station, SF7, +14 dBm, 300 packets, Target A"
+}

@@ -7,11 +7,11 @@
 \labheader{3-H}{Dataset Merging, Exploratory Data Analysis, and Module~4 Handoff}
 
 \section{Objective}
-Merge all campaign \mbox{CSV} files into a single, clean, labeled dataset; perform the five required exploratory data analysis (\mbox{EDA}) visualizations; document the operating-condition shift between the clean regime (C1--C4 single-station DATA-only) and the contended regime (C5 multi-station ping-pong + PAUSE bursts), entirely on hardware data; and produce the data dictionary that serves as the Module~4 data contract. The merged dataset is the primary deliverable of Module~3.
+Merge all campaign \mbox{CSV} files into a single, clean, labeled dataset; perform the five required exploratory data analysis (\mbox{EDA}) visualizations; document the operating-condition shift between the clean regime (C1, C2, and C4 single-station DATA-only) and the contended regime (C5 multi-station ping-pong), entirely on hardware data; and produce the data dictionary that serves as the Module~4 data contract. The merged dataset is the primary deliverable of Module~3.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~3-G complete (all five campaigns C1--C5 executed and validated).
+	\item Lab Handout~3-G complete (campaigns C1, C2, C4, and C5 executed and validated).
 	\item Python with \texttt{pandas}, \texttt{matplotlib}, \texttt{seaborn}, and \texttt{scipy} installed.
 \end{itemize}
 
@@ -28,11 +28,9 @@ import hashlib
 
 CAMPAIGN_FILES = [
     "c1_pwr02.csv", "c1_pwr08.csv", "c1_pwr14.csv", "c1_pwr20.csv",
-    "c2_sf07.csv", "c2_sf08.csv", "c2_sf09.csv",
-    "c2_sf10.csv", "c2_sf11.csv", "c2_sf12.csv",
-    "c3_lora.csv", "c3_fsk.csv",
+    "c2_sf07.csv", "c2_sf08.csv", "c2_sf09.csv", "c2_sf10.csv",
     "c4_1m.csv", "c4_3m.csv", "c4_5m.csv", "c4_8m.csv",
-    "c5a.csv", "c5b.csv", "c5c.csv", "c5d.csv", "c5e.csv",
+    "c5a.csv", "c5b.csv",
 ]
 
 EXPECTED_COLS = [
@@ -40,16 +38,15 @@ EXPECTED_COLS = [
     "beacon_id", "mod_kind", "spread_factor", "pkt_type",
     "rssi", "snr", "obs_count", "rx_timestamp",
     "inter_arrival_ms", "rssi_delta", "priority_score",
-    "target_id_if_pause", "pause_duration_units",
     "distance_m", "label_sf", "label_mod", "mod_kind_label",
-    "label_beacon", "label_pkt",
+    "label_beacon",
 ]
 
 # Canonical modulation kinds (Module 1/2 spec): 1=LoRa, 2=FSK, 3=OOK.
 MOD_LABEL_TO_KIND = {"lora": 1, "fsk": 2, "ook": 3}
 
-# Canonical packet types (Module 1/2 spec): 0=DATA, 1=ACK, 2=PAUSE.
-PKT_TYPE_DATA, PKT_TYPE_ACK, PKT_TYPE_PAUSE = 0, 1, 2
+# Canonical packet types in this dataset: 0=DATA, 1=ACK.
+PKT_TYPE_DATA, PKT_TYPE_ACK = 0, 1
 
 def stratified_split(df, label_col, fracs=(0.70, 0.15, 0.15), seed=42):
     """Assign split at the run_id level, stratified by label_col.
@@ -95,7 +92,7 @@ print(f"Total rows before dedup: {len(merged)}")
 
 # Dedup at (run_id, beacon_id, obs_count, pkt_type) granularity. run_id
 # is required; pkt_type is required because a Beacon~ID can produce both
-# DATA and ACK rows in the same run (Target~B in C5b/C5c) so dedup at
+# DATA and ACK rows in the same run (Target~B in C5b) so dedup at
 # (run_id, beacon_id, obs_count) alone would collapse legitimate distinct
 # rows.
 merged = merged.drop_duplicates(
@@ -119,7 +116,7 @@ n_mismatch = merged["label_mismatch"].sum()
 print(f"Label mismatches (DATA only): {n_mismatch} "
       f"({100*n_mismatch/data_mask.sum():.1f}% of DATA rows)")
 
-# Tag operating regime: clean (C1-C4 single-station) vs. contended (C5)
+# Tag operating regime: clean (C1, C2, C4 single-station) vs. contended (C5)
 merged["regime"] = merged["campaign_id"].apply(
     lambda c: "contended" if c.startswith("C5") else "clean")
 print(merged["regime"].value_counts())
@@ -146,10 +143,10 @@ Packet type is \textbf{0=DATA, 1=ACK, 2=PAUSE}. \texttt{pkt\_type} is extracted 
 \subsection{Step 2 --- Verify merged dataset statistics}
 After running \texttt{merge\_dataset.py}, confirm:
 \begin{itemize}[leftmargin=2em]
-	\item Total rows $\geq$ 2{,}500 (C1: 800, C2: 1200, C3: 600, C4: 800, C5: $\sim$1500 = 4900 theoretical; expect some \PER{}-driven shortfall).
+	\item Total rows $\geq$ 2{,}100 (C1: 800, C2: 800, C4: 800, C5: $\sim$600 = 3000 theoretical; expect some \PER{}-driven shortfall and C4 may be partial depending on execution).
 	\item Rows per campaign ID roughly as expected from the target packet counts.
-	\item \texttt{regime} column shows roughly 70\% \texttt{clean} (C1--C4) and 30\% \texttt{contended} (C5); the LH4-F operating-condition shift experiment relies on having both regimes well-represented.
-	\item \texttt{pkt\_type} value counts: \texttt{0} (DATA) dominates due to C1--C4; \texttt{1} (ACK) appears only in C5b--C5e; \texttt{2} (PAUSE) appears only in C5d/C5e.
+	\item \texttt{regime} column shows roughly 75\% \texttt{clean} (C1, C2, C4) and 25\% \texttt{contended} (C5); the LH4-F operating-condition shift experiment relies on having both regimes well-represented.
+	\item \texttt{pkt\_type} value counts: \texttt{0} (DATA) dominates due to C1--C4; \texttt{1} (ACK) appears only in C5b.
 	\item \texttt{split} column contains ``train'', ``val'', and ``test'' at approximately 70/15/15\%.
 	\item \texttt{label\_mismatch} rate $<$ 2\% across DATA rows. A higher rate indicates a firmware configuration error.
 \end{itemize}
@@ -210,28 +207,27 @@ plt.savefig("eda3_correlation_matrix.png", dpi=150)
 Identify and discuss in your report: which feature pairs are strongly correlated ($|r| > 0.7$), and whether any correlations might cause problems for a linear classifier.
 
 \newpage
-\subsection{Step 6 --- EDA Visualization 4: Inter-arrival time by scheduling mode (C5b vs.\ C5c)}
+\subsection{Step 6 --- EDA Visualization 4: Inter-arrival time by station count (C5a vs.\ C5b)}
 \begin{lstlisting}[language=Python]
+c5a = df[df["campaign_id"] == "C5a"]["inter_arrival_ms"]
 c5b = df[df["campaign_id"] == "C5b"]["inter_arrival_ms"]
-c5c = df[df["campaign_id"] == "C5c"]["inter_arrival_ms"]
 plt.figure()
-plt.hist(c5b, bins=40, alpha=0.6, label="C5b Fixed Interval")
-plt.hist(c5c, bins=40, alpha=0.6, label="C5c ALOHA")
+plt.hist(c5a, bins=40, alpha=0.6, label="C5a Single station (DATA-only)")
+plt.hist(c5b, bins=40, alpha=0.6, label="C5b Ping-pong (DATA + ACK)")
 plt.xlabel("Inter-arrival Time (ms)")
 plt.ylabel("Count")
-plt.title("Inter-arrival Time: Fixed vs. ALOHA Scheduling")
+plt.title("Inter-arrival Time: Single Station vs. Ping-pong")
 plt.legend()
 plt.savefig("eda4_interarrival_scheduling.png", dpi=150)
 \end{lstlisting}
-Expected: C5b produces a tight peak at the configured interval; C5c produces a broader distribution spanning [1000, 3000]\,ms. This distributional difference is a learnable feature for scheduling-mode classification in Module~4.
+Expected: C5a produces a tight peak near 2\,s (fixed initiator interval); C5b produces a bimodal distribution --- a DATA peak near 1\,s and a tighter ACK peak near the round-trip latency. The ACK cluster is a learnable temporal signature for emitter identification in Module~4.
 
 \subsection{Step 7 --- EDA Visualization 5: Class balance (4 tasks)}
 \begin{lstlisting}[language=Python]
-fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 for ax, col, title in zip(axes,
-    ["label_sf", "label_mod", "label_beacon", "label_pkt"],
-    ["SF Label", "Modulation Label", "Beacon ID Label",
-     "Packet Type Label (0=DATA,1=ACK,2=PAUSE)"]):
+    ["label_sf", "label_mod", "label_beacon"],
+    ["SF Label", "Modulation Label", "Beacon ID Label"]):
     df[col].value_counts().sort_index().plot(kind="bar", ax=ax)
     ax.set_title(title)
     ax.set_xlabel(col)
@@ -239,15 +235,15 @@ for ax, col, title in zip(axes,
 plt.tight_layout()
 plt.savefig("eda5_class_balance.png", dpi=150)
 \end{lstlisting}
-Flag any class with fewer than 150 samples; the 70/15/15 split will produce fewer than 30 test samples for that class, which is insufficient for reliable evaluation. The PAUSE class is the most likely to be underrepresented (only sourced from C5d/C5e button-hold windows, with most PAUSEs half-duplex shadowed by the Threat's own RX path); if its row count is too low, extend the C5d/C5e button-hold duration in a follow-up collection run.
+Flag any class with fewer than 150 samples; the 70/15/15 split will produce fewer than 30 test samples for that class, which is insufficient for reliable evaluation.
 
 \subsection{Step 8 --- Operating-condition shift analysis}
-Compare at least two features between the clean regime (C1--C4 single-station, DATA-only) and the contended regime (C5 cooperative-target ping-pong + PAUSE bursts), entirely within the hardware dataset. The \texttt{regime} column added by the merge script identifies the source for each row.
+Compare at least two features between the clean regime (C1, C2, and C4 single-station, DATA-only) and the contended regime (C5 cooperative-target ping-pong), entirely within the hardware dataset. The \texttt{regime} column added by the merge script identifies the source for each row.
 
 \begin{enumerate}[leftmargin=2em]
-	\item \textbf{\mbox{RSSI} shift:} Compute mean and standard deviation of \mbox{RSSI} for equivalent baseline conditions (SF7, +14~dBm, $\sim$3\,m), comparing C1's +14~dBm rows against the DATA rows of C5b. Half-duplex shadowing during ACK exchanges and Threat PAUSE bursts produces correlated dropouts that change \mbox{RSSI} variance even though the channel is physically the same.
-	\item \textbf{Inter-arrival time shift:} Compare inter-arrival time histograms between the clean regime (tightly clustered $\sim$2\,s) and the contended regime (multi-modal: $\sim$1\,s DATA cadence, ACK round-trip, $\sim$100\,ms PAUSE-burst spacing).
-	\item For each comparison, state: the direction of the shift (e.g., ``contended-regime \mbox{RSSI} std is 1.5$\times$ the clean-regime value''), the likely physical cause (half-duplex shadowing, ACK collisions, PAUSE-induced TX hold-offs), and the implication for Module~4 (\emph{``a classifier trained only on the clean regime may misclassify ACK rows as DATA when deployed on contended traffic, leading to lower packet-type accuracy than the clean-only test set suggests''}).
+	\item \textbf{\mbox{RSSI} shift:} Compute mean and standard deviation of \mbox{RSSI} for equivalent baseline conditions (SF7, +14~dBm, $\sim$3\,m), comparing C1's +14~dBm rows against the DATA rows of C5b. Half-duplex shadowing during ACK exchanges produces correlated dropouts that change \mbox{RSSI} variance even though the channel is physically the same.
+	\item \textbf{Inter-arrival time shift:} Compare inter-arrival time histograms between the clean regime (tightly clustered $\sim$2\,s) and the contended regime (multi-modal: $\sim$1\,s DATA cadence plus ACK round-trip).
+	\item For each comparison, state: the direction of the shift (e.g., ``contended-regime \mbox{RSSI} std is 1.5$\times$ the clean-regime value''), the likely physical cause (half-duplex shadowing, ACK collisions), and the implication for Module~4 (\emph{``a classifier trained only on the clean regime may misclassify ACK rows as DATA when deployed on contended traffic, leading to lower packet-type accuracy than the clean-only test set suggests''}).
 \end{enumerate}
 
 \begin{tcolorbox}[infobox={Why Operating-Condition Shift Matters for Module~4}]
@@ -264,15 +260,15 @@ Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{me
 		\toprule
 		\textbf{Column} & \textbf{Type} & \textbf{Units / Valid Range} & \textbf{Description} \\
 		\midrule
-		\texttt{campaign\_id} & string & C1--C5e & Experiment family identifier \\
+		\texttt{campaign\_id} & string & C1--C5d & Experiment family identifier \\
 		\texttt{run\_id} & string & unique per run & One \texttt{collect.py} invocation (ISO-timestamped) --- split-leakage key \\
-		\texttt{regime} & string & ``clean''/``contended'' & Operating regime (clean = C1--C4 single-station; contended = C5 multi-station + PAUSE) \\
+		\texttt{regime} & string & ``clean''/``contended'' & Operating regime (clean = C1, C2, and C4 single-station; contended = C5 multi-station ping-pong) \\
 		\texttt{timestamp\_host} & ISO 8601 & UTC & Host reception time \\
 		\texttt{beacon\_id} & uint8 & 1--255 & FPGA-parsed sender Beacon~ID (\texttt{0x01}=Target~A, \texttt{0x02}=Target~B, \texttt{0xFF}=Threat) \\
 		\texttt{mod\_kind} & uint8 & 1=LoRa, 2=FSK, 3=OOK; low 2 bits cleared & Self-reported modulation kind (upper 6 bits of radio packet's \texttt{Modulation Code} byte) \\
 		\texttt{mod\_kind\_label} & uint8 & 1=LoRa, 2=FSK, 3=OOK & Ground-truth modulation kind (canonical) \\
 		\texttt{spread\_factor} & uint8 & 7--12 (LoRa); 0 (non-LoRa) & Self-reported SF \\
-		\texttt{pkt\_type} & uint8 & 0=DATA, 1=ACK, 2=PAUSE & Packet type from low 2 bits of \texttt{Modulation Code} byte \\
+		\texttt{pkt\_type} & uint8 & 0=DATA, 1=ACK & Packet type from low 2 bits of \texttt{Modulation Code} byte \\
 		\texttt{rssi} & int16 & $-120$ to $0$~dBm & Received signal strength \\
 		\texttt{snr} & int16 & $-20$ to $+15$~dB & Signal-to-noise ratio \\
 		\texttt{obs\_count} & uint32 & $\geq 1$ & FPGA per-station frame count \\
@@ -280,13 +276,10 @@ Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{me
 		\texttt{inter\_arrival\_ms} & uint32 & ms & FPGA-computed inter-arrival time \\
 		\texttt{rssi\_delta} & int32 & dBm & FPGA-computed RSSI change \\
 		\texttt{priority\_score} & uint32 & --- & FPGA-computed priority \\
-		\texttt{target\_id\_if\_pause} & uint8 & 0--255; non-zero only when \texttt{pkt\_type}=2 & Beacon~ID being paused (radio payload byte~0) \\
-		\texttt{pause\_duration\_units} & uint8 & 0--255; non-zero only when \texttt{pkt\_type}=2 & Hold-off in 100\,ms units \\
 		\texttt{distance\_m} & float & 0.5--10~m & Measured Target--interceptor separation \\
 		\texttt{label\_sf} & uint8 & 7--12 & Ground-truth spreading factor \\
 		\texttt{label\_mod} & string & ``lora''/``fsk''/``ook'' & Human-readable modulation label (alias of \texttt{mod\_kind\_label}) \\
 		\texttt{label\_beacon} & uint8 & 1, 2, or 255 (\texttt{0xFF}) & Ground-truth Beacon~ID (sender identity) \\
-		\texttt{label\_pkt} & uint8 & 0=DATA, 1=ACK, 2=PAUSE & Ground-truth packet type \\
 		\texttt{label\_mismatch} & uint8 & 0 / 1 & 1 if DATA-row self-reported $\neq$ config label \\
 		\texttt{split} & string & ``train'' / ``val'' / ``test'' & Dataset partition (stratified by \texttt{label\_sf}, keyed on \texttt{run\_id}) \\
 		\bottomrule
@@ -302,7 +295,7 @@ Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{me
 	\item[$\square$] Train/val/test split is approximately 70/15/15\%.
 	\item[$\square$] All five \mbox{EDA} plots generated and saved as \texttt{.png} files (Visualization 5 now covers all four classification tasks).
 	\item[$\square$] Operating-condition shift analysis includes at least two quantitative comparisons (clean vs.\ contended mean/std or histogram divergence) entirely on hardware data.
-	\item[$\square$] Data dictionary covers all columns with units and valid ranges, including the new \texttt{pkt\_type}, \texttt{target\_id\_if\_pause}, \texttt{pause\_duration\_units}, \texttt{label\_pkt}, and \texttt{regime} columns.
+	\item[$\square$] Data dictionary covers all columns with units and valid ranges, including the \texttt{pkt\_type} and \texttt{regime} columns.
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 3-H Deliverable --- and Module 3 Final Deliverable}]
@@ -313,7 +306,7 @@ Write a \texttt{data\_dictionary.md} file documenting every column in \texttt{me
 		\item All five \mbox{EDA} plots (\texttt{eda1\_} through \texttt{eda5\_}), each with a 2--3 sentence interpretive caption.
 		\item Operating-condition shift analysis: at least two quantitative comparisons between the clean regime (C1--C4) and the contended regime (C5) with physical interpretation.
 		\item \texttt{data\_dictionary.md}: complete column documentation.
-		\item Known limitations section: indoor multipath effects, distance measurement uncertainty, half-duplex shadowing of Threat PAUSE TX, any collection anomalies (power interruptions, firmware crashes, station desynchronization), and any campaigns that fell short of their target packet count.
+		\item Known limitations section: indoor multipath effects, distance measurement uncertainty, half-duplex shadowing during Threat RX, any collection anomalies (power interruptions, firmware crashes, station desynchronization), and any campaigns that fell short of their target packet count.
 		\item One-page Module~3 retrospective: what worked, what integration failures were most instructive, and what you would change before a second data collection campaign.
 	\end{enumerate}
 \end{tcolorbox}

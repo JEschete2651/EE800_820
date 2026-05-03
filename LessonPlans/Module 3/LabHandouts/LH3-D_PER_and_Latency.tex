@@ -51,34 +51,33 @@ A single \PER{} number does not reveal where packets are lost. Decompose it by s
 	\renewcommand{\arraystretch}{1.3}
 	\begin{tabularx}{\textwidth}{l l X}
 		\toprule
-		\textbf{Loss Source} & \textbf{Counter} & \textbf{How to Measure} \\
+		\textbf{Loss Source} & \textbf{How to Measure} & \textbf{Notes} \\
 		\midrule
-		\RF{} loss & $N_{\text{tx}} - N_{\text{rx\_log}}$ & Packets transmitted by Target~A but not printed in Threat USART2 debug log \\
-		\UART{} loss & \texttt{rx\_error} counter & Framing errors counted in the \FPGA{} \UART{} receiver; route to \mbox{ILA} or \mbox{LED} \\
-		\mbox{CRC} loss & \texttt{frame\_reject} counter & Frames the \FPGA{} received but rejected; route to \mbox{ILA} \\
-		\FIFO{} overflow loss & \texttt{fifo\_ovf} flag & Assert and latch if \texttt{wr\_en} fires while \texttt{full = 1}; route to \mbox{LED} \\
+		\RF{} loss & $N_{\text{tx}} - N_{\text{rx\_log}}$ & Compare Target~A sequence numbers to Threat USART2 log; no \RTL{} changes needed \\
+		\mbox{CRC} loss & \texttt{frame\_reject} counter & Add a 16-bit saturating counter in \RTL{} (see below); read via \mbox{ILA} after the run \\
+		\FIFO{} overflow & \texttt{fifo\_full} on \mbox{LED3} / \mbox{ILA} & Already routed; note whether it ever asserted during the run \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
 
 \begin{enumerate}[leftmargin=2em]
-	\item \textbf{If not already instrumented:} 16-bit saturating counters for \texttt{rx\_error}, \texttt{frame\_reject}, and \FIFO{} overflow may need to be added to the \RTL{}. Most reference builds already expose these. Use the minimal snippet below as a drop-in; the goal of this handout is \emph{characterization}, not redesign --- keep \RTL{} edits strictly to exposing counters that are missing.
+	\item \textbf{Add a saturating counter for \texttt{frame\_reject}.} RF loss is measured from sequence numbers and \texttt{fifo\_full} is already observable on LED3 and the ILA --- neither requires new \RTL{}. Only \texttt{frame\_reject} needs a counter to produce a number at the end of a run. Add the following to \texttt{ingest\_top.vhd}, with \texttt{flag} wired to \texttt{frame\_reject}, and route \texttt{cnt} to an \mbox{ILA} probe:
 
 \begin{verbatim}
--- Minimal saturating counter (drop-in)
-process(sysclk)
+-- Saturating counter for frame_reject
+process(CLK100MHZ)
 begin
-  if rising_edge(sysclk) then
-    if rst = '1' then
+  if rising_edge(CLK100MHZ) then
+    if rst_n = '0' then
       cnt <= (others => '0');
-    elsif flag = '1' and cnt /= x"FFFF" then
+    elsif frame_reject = '1' and cnt /= x"FFFF" then
       cnt <= cnt + 1;
     end if;
   end if;
 end process;
 \end{verbatim}
 
-	\item After the 5-minute run, read all four counters via the \mbox{ILA}.
+	\item After the 5-minute run, read the \texttt{frame\_reject} counter via the \mbox{ILA} and note whether \texttt{fifo\_full} (LED3) ever asserted.
 	\item Compute the per-stage loss as a fraction of $N_{\text{tx}}$. Enter in the table:
 	\begin{center}
 		\begin{tabular}{l c c}
@@ -86,9 +85,8 @@ end process;
 			\textbf{Stage} & \textbf{Packets Lost} & \textbf{Fraction of $N_{\text{tx}}$} \\
 			\midrule
 			\RF{} (not received by Threat) & & \\
-			\UART{} framing errors & & \\
-			\mbox{CRC} rejects & & \\
-			\FIFO{} overflow & & \\
+			\mbox{CRC} rejects (\texttt{frame\_reject} counter) & & \\
+			\FIFO{} overflow (\texttt{fifo\_full} asserted?) & Y / N & \\
 			\midrule
 			\textbf{Total (aggregate PER)} & & \\
 			\bottomrule
@@ -100,7 +98,7 @@ end process;
 	The decomposition reveals which domain ``owns'' the packet loss:
 	\begin{itemize}[leftmargin=1.2em]
 		\item \textbf{\RF{}-dominated:} link budget or environment issue (Module~1 domain). Increasing TX power or reducing distance will help.
-		\item \textbf{\UART{}-dominated:} baud rate drift or noise on the signal wire. Check the STM32 clock configuration.
+		\item \textbf{\FIFO{}-overflow-dominated:} baud rate drift causing runaway byte generation, or parser back-pressure under burst traffic. Check the STM32 clock configuration and the \VHDL{} \texttt{uart\_rx} baud divisor.
 		\item \textbf{\mbox{CRC}-dominated:} firmware/\RTL{} mismatch not fully resolved in LH3-C. A persistent non-zero \mbox{CRC} reject rate after LH3-C should be investigated further before data collection.
 		\item \textbf{\FIFO{}-dominated:} the pipeline cannot drain fast enough under burst traffic. This is unlikely with a single station but may appear in the cooperative-target ping-pong + PAUSE-burst stress test (LH3-E).
 	\end{itemize}
@@ -112,7 +110,7 @@ The \GPIO{} toggle method provides a true end-to-end latency measurement without
 
 \begin{enumerate}[leftmargin=2em]
 	\item In Target~A's firmware (LH1-F), confirm the existing TX-trigger \GPIO{} pulse on \texttt{TX\_TRIG} (\texttt{PB10}) added in LH1-F Step~6 fires immediately before each DATA TX. If you removed it, re-add the line: \texttt{HAL\_GPIO\_WritePin(TX\_TRIG\_GPIO\_Port, TX\_TRIG\_Pin, GPIO\_PIN\_SET)} just before commanding TX mode.
-	\item In \texttt{ingest\_top.vhd}, route \texttt{frame\_valid} to a Nexys A7 \mbox{PMOD} output pin (e.g., \texttt{JA[2]}, ball \texttt{E17}). Add the pin to \texttt{ingest\_top.xdc} and re-generate the debug bitstream.
+	\item In \texttt{ingest\_top.vhd}, route \texttt{frame\_valid} to a Nexys A7 \mbox{PMOD} output pin (e.g., \texttt{JA[2]}, ball \texttt{E17}). Add the pin to \texttt{ingest\_top.xdc}, re-synthesize, and re-program \texttt{ingest\_top.bit}.
 	\item Connect both output signals to a two-channel oscilloscope or logic analyzer. Channel~1: Target~A \texttt{TX\_TRIG} pulse. Channel~2: \FPGA{} \texttt{frame\_valid} output.
 	\item The time between the rising edge of Ch.~1 and the rising edge of Ch.~2 is $L_{\text{e2e}}$.
 \end{enumerate}

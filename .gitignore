@@ -36,6 +36,7 @@ Code/EngagementSim/logs/
 
 # Serial monitor runtime logs
 Code/SerialMonitorLogger/logs/
+Code/Tools/SerialMonitorLogger/logs/
 
 # Personal working notes (not part of the deliverable package)
 FinalReportNeeds.txt
@@ -78,3 +79,31 @@ Code/LoRa_FPGA_FeaturePipeline/LoRa_FPGA_FeaturePipeline.sim/
 Code/LoRa_FPGA_FeaturePipeline/.Xil/
 Code/LoRa_FPGA_FeaturePipeline/**/*.jou
 Code/LoRa_FPGA_FeaturePipeline/**/*.str
+
+# Vivado generated state (active projects)
+Code/ingest_top/ingest_top.cache/
+Code/ingest_top/ingest_top.gen/
+Code/ingest_top/ingest_top.hw/
+Code/ingest_top/ingest_top.ip_user_files/
+Code/ingest_top/ingest_top.runs/
+Code/ingest_top/ingest_top.sim/
+Code/ingest_top/.Xil/
+Code/ingest_top/**/*.wdb
+Code/ingest_top/**/*.jou
+Code/ingest_top/**/*.str
+
+Code/ila_0_ex/ila_0_ex.cache/
+Code/ila_0_ex/ila_0_ex.gen/
+Code/ila_0_ex/ila_0_ex.hw/
+Code/ila_0_ex/ila_0_ex.ip_user_files/
+Code/ila_0_ex/ila_0_ex.runs/
+Code/ila_0_ex/ila_0_ex.sim/
+Code/ila_0_ex/.Xil/
+Code/ila_0_ex/**/*.wdb
+Code/ila_0_ex/**/*.jou
+Code/ila_0_ex/**/*.str
+
+# STM32 build outputs
+Code/Nucleo_RFM95_TargetA/build/
+Code/Nucleo_RFM95_TargetB/build/
+Code/Nucleo_RFM95_Threat/build/

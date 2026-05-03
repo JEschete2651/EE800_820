@@ -1,6 +1,8 @@
 #include "lh1f_defs.h"
 #include "main.h"
 
+extern uint8_t g_lora_sf;
+
 extern volatile uint32_t ms_count;
 
 /* CRC-16/CCITT-FALSE: poly=0x1021, init=0xFFFF, no reflect, xorout=0x0000.
@@ -30,7 +32,7 @@ void build_packet(uint8_t out[32], uint8_t my_id, uint16_t seq,
     out[4] = (uint8_t)((seq >> 8) & 0xFFu);
     out[5] = 14u;
     out[6] = (uint8_t)((mod_kind << 2) | (pkt_type & 0x03u));
-    out[7] = (mod_kind == MOD_KIND_LORA) ? 7u : 0u;
+    out[7] = (mod_kind == MOD_KIND_LORA) ? g_lora_sf : 0u;
     out[8] = 0u;
 
     uint32_t t = ms_count;

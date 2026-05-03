@@ -274,7 +274,11 @@ entity ingest_top is
         CA, CB, CC, CD, CE, CF, CG : out std_logic;
         DP           : out std_logic;
         AN           : out std_logic_vector(7 downto 0);
-        LED          : out std_logic_vector(15 downto 0)
+        LED          : out std_logic_vector(15 downto 0);
+        -- Simulation-only readback used by the LH2-G end-to-end testbench.
+        -- Not constrained in the XDC; Vivado emits a benign DRC info note
+        -- for unconstrained ports during synthesis.
+        host_rd_data_dbg : out std_logic_vector(255 downto 0)
     );
 end ingest_top;
 
@@ -372,6 +376,9 @@ begin
     -- (added in LH2-A so the host can capture .bin files via the same USB
     -- cable that programs the board). Both ends are 115200 8N1.
     UART_RXD_OUT <= uart_rx_pin;
+
+    -- Simulation-only debug readback of the BRAM port B 256-bit row.
+    host_rd_data_dbg <= host_rd_data_int;
 end rtl;
 \end{lstlisting}
 
@@ -379,8 +386,8 @@ end rtl;
 
 The new \texttt{SW} input port requires constraints. Open the project's \texttt{Nexys-A7-100T-Master.xdc} and uncomment \emph{all sixteen} \texttt{SW[0]} through \texttt{SW[15]} lines (search for pin \texttt{J15} for \texttt{SW[0]}). The seven-segment, anode, LED, clock, reset, and \texttt{uart\_rx\_pin} constraints from LH1-H Step~3 remain unchanged. Save the XDC and re-run synthesis; the previously-failing DRC error about unconstrained ports should clear.
 
-\begin{tcolorbox}[infobox={Why \texttt{host\_rd\_data} is no longer a top-level port}]
-The 256-bit feature-vector readback path is too wide for the Nexys A7's available I/O, and exposing it as a top-level output would force the student to constrain 256 unused pins. Instead, the design routes one selectable byte to \texttt{LED(15:8)} for hardware visibility, and the Module~3 host interface (Module~3 Session~9) replaces this stub with a real \mbox{AXI}-Lite read port to the soft-core processor. The LH2-G end-to-end testbench reaches the full internal 256-bit signal through a VHDL-2008 external name, so simulation coverage of all 256 bits is preserved.
+\begin{tcolorbox}[infobox={Why \texttt{host\_rd\_data\_dbg} exists}]
+The 256-bit feature-vector readback path is too wide for the Nexys A7's available I/O. For hardware visibility, the design routes one selectable byte to \texttt{LED(15:8)} via the \texttt{SW(12:8)} byte selector. For simulation coverage of all 256 bits, the same internal signal is also wired out through the unconstrained \texttt{host\_rd\_data\_dbg} port; the LH2-G testbench reads it as a normal port. Vivado xsim does not reliably support VHDL-2008 external names (it crashes during elaboration on inline external references), so a real port is the portable solution. The unconstrained port produces a benign DRC info note during synthesis and consumes no I/O resources because Vivado optimises it out of the bitstream when nothing drives it externally. Module~3 Session~9 replaces this stub with a real \mbox{AXI}-Lite read port to the soft-core processor.
 \end{tcolorbox}
 
 \labfigure{LH2F_feature_datapath.png}{0.85\textwidth}{Feature extraction datapath. The \BRAM{} read port feeds the compute block; the write port commits the updated vector on the following cycle.}{fig:lh2f-datapath}

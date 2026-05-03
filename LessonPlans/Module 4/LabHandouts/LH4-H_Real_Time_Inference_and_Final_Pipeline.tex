@@ -7,11 +7,11 @@
 \labheader{4-H}{Multi-Task Real-Time Inference, Latency Budget, and Final Model Selection}
 
 \section{Objective}
-Assemble the end-to-end inference pipeline: load all four trained classifiers (SF, modulation, emitter \mbox{ID}, packet type), stream feature vectors from the \mbox{FPGA} over \UART{} (as established in LH3-F), run all four classifications in parallel, and display live predictions. Verify the total inference latency fits inside the budget established in LH3-D/E. Produce the final model-selection rubric that picks the deployed model per task, consuming every result from LH4-C through LH4-G.
+Assemble the end-to-end inference pipeline: load all three trained classifiers (SF, modulation, emitter \mbox{ID}), stream feature vectors from the \mbox{FPGA} over \UART{} (as established in LH3-F), run all three classifications in parallel, and display live predictions. Verify the total inference latency fits inside the budget established in LH3-D/E. Produce the final model-selection rubric that picks the deployed model per task, consuming every result from LH4-C through LH4-G.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handouts~4-C through~4-G complete (all four model families trained for all four tasks; stratified-accuracy plots in hand).
+	\item Lab Handouts~4-C through~4-G complete (all four model families trained for all three tasks; stratified-accuracy plots in hand).
 	\item LH3-F \texttt{collect.py} still functional; hardware producing feature vectors on demand.
 	\item \texttt{validation\_manifest.json} from LH4-A present.
 \end{itemize}
@@ -28,12 +28,12 @@ Assemble the end-to-end inference pipeline: load all four trained classifiers (S
 		Receiver firmware                    & $<$0.5     & LH3-D latency budget \\
 		\UART{} transport (43 B @ 115200)    & 3.73       & LH3-D fixed calculation \\
 		\mbox{FPGA} pipeline                 & $<$0.1     & Module~2 feature export loop \\
-		Python inference (this handout, 4 tasks) & \textbf{$<$8} & \textbf{target} \\
+		Python inference (this handout, 3 tasks) & \textbf{$<$8} & \textbf{target} \\
 		\midrule
 		\textbf{Total (end-to-end)}          & \textbf{$<$62} & well inside inter-packet interval \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Latency budget. The classifier has $\sim$996\,ms of headroom between consecutive 1\,s-interval ping-pong cycles, so an 8\,ms inference ceiling is extremely conservative; hitting it leaves room for all four tasks to run in parallel without queueing.}
+	\caption{Latency budget. The classifier has $\sim$996\,ms of headroom between consecutive 1\,s-interval ping-pong cycles, so an 8\,ms inference ceiling is extremely conservative; hitting it leaves room for all three tasks to run in parallel without queueing.}
 \end{table}
 
 \section{Procedure}
@@ -48,9 +48,7 @@ MODEL_CHOICE = {  # Filled in after the rubric in Step 4
     "sf":     "rf",
     "mod":    "mlp",
     "beacon": "cnn",
-    "pkt":    "cnn",   # Packet-type discrimination benefits most from
-                       # the windowed sequence (DATA/ACK/PAUSE differ
-                       # primarily in inter-arrival pattern across packets).
+
 }
 
 class InferenceEngine:
@@ -180,7 +178,6 @@ def live_inference(port="COM3", baud=115200):
                   f"(p={preds['sf']['prob']:.2f}) | "
                   f"MOD={preds['mod']['label']} | "
                   f"BEACON={preds['beacon']['label']} | "
-                  f"PKT={preds['pkt']['label']} | "
                   f"lat={dt:.1f} ms")
 
 if __name__ == "__main__":
@@ -238,11 +235,11 @@ assert expected == actual_live_columns, "Schema drift!"
 Any drift is a deployment blocker: it means the \mbox{FPGA} parser or the merging script has changed since LH3-H, and the models were trained on an outdated contract.
 
 \subsection{Step 6 --- End-to-end demonstration}
-Run \texttt{live\_inference.py} against the physical hardware for 5 minutes with the cooperative-target ping-pong (Target~A + Target~B) running and the Threat connected to the FPGA. Hold the Threat's user button for at least one 5-second window during the run to populate PAUSE rows in the live stream. Record:
+Run \texttt{live\_inference.py} against the physical hardware for 5 minutes with the cooperative-target ping-pong (Target~A + Target~B) running and the Threat connected to the FPGA. Record:
 \begin{itemize}[leftmargin=2em]
 	\item Live prediction log (captured to \texttt{demo\_log.txt}).
 	\item Median and p99 per-frame inference latency during the run.
-	\item Accuracy of the live predictions on the known ground-truth SF / modulation / Beacon~ID / packet-type configuration. The packet-type accuracy is the most diagnostic because it is the only task that exercises all three classes (DATA / ACK / PAUSE) in a single demonstration.
+	\item Accuracy of the live predictions on the known ground-truth SF / modulation / Beacon~ID configuration.
 	\item Any frames where the classifier's probability fell below 0.6 (low-confidence flags).
 \end{itemize}
 
@@ -251,17 +248,17 @@ Run \texttt{live\_inference.py} against the physical hardware for 5 minutes with
 		\item \texttt{inference.py}: the \texttt{InferenceEngine} class wired to the chosen models per task.
 		\item \texttt{live\_inference.py}: the serial-streaming demo script.
 		\item Latency microbenchmark: median, p95, p99 of 1000 inference calls, with a 1--2 sentence comparison to the 8\,ms target.
-		\item Final model selection rubric: a filled $4 \times 4$ table (four models, four tasks) showing the weighted scores, with a short paragraph per task explaining the winning choice.
-		\item \texttt{demo\_log.txt}: at least 5 minutes of live predictions from hardware (including a button-hold window), with ground-truth accuracy computed after the fact for all four tasks.
+		\item Final model selection rubric: a filled $4 \times 3$ table (four models, three tasks) showing the weighted scores, with a short paragraph per task explaining the winning choice.
+		\item \texttt{demo\_log.txt}: at least 5 minutes of live predictions from hardware, with ground-truth accuracy computed after the fact for all three tasks.
 		\item One-page Module~4 retrospective: what the operating-condition shift revealed (LH4-F clean$\to$contended), which feature additions would most likely improve the weakest task, and what the next campaign would look like.
 	\end{enumerate}
 \end{tcolorbox}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
-	\item[$\square$] \texttt{InferenceEngine} loads all four chosen models and returns predictions for a single feature row.
+	\item[$\square$] \texttt{InferenceEngine} loads all three chosen models and returns predictions for a single feature row.
 	\item[$\square$] Microbenchmark: p99 latency $<$ 8\,ms (or a written justification if exceeded).
-	\item[$\square$] Live inference runs uninterrupted for 5 minutes against hardware, including at least one button-hold window producing PAUSE rows.
+	\item[$\square$] Live inference runs uninterrupted for 5 minutes against hardware.
 	\item[$\square$] Validation-manifest schema matches live \mbox{FPGA} feature-vector schema (no drift).
 	\item[$\square$] Final model-selection rubric complete and signed off.
 	\item[$\square$] Demo log captured and post-hoc accuracy computed.

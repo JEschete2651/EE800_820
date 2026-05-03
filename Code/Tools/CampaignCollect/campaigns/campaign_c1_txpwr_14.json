@@ -1,0 +1,15 @@
+{
+    "campaign_id":         "C1",
+    "run_id":              "C1_pwr14_2026-05-03T12:00:00Z",
+    "sweep_variable":      "tx_power",
+    "sweep_value":         14,
+    "fixed_sf":            7,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
+    "num_active_stations": 1,
+    "expected_pkt_types":  [0],
+    "target_packets":      200,
+    "notes":               "TX power sweep, Target A only (DATA only)",
+    "description":         "C1 TX Power Sweep -- +14 dBm, SF7, 200 packets, Target A"
+}

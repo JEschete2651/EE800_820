@@ -7,7 +7,7 @@
 \labheader{4-E}{Multi-Layer Perceptron with Early Stopping and Calibration}
 
 \section{Objective}
-Implement, train, and evaluate a small fully-connected neural network (8$\to$64$\to$32$\to$C) in \texttt{PyTorch} for each of the four classification tasks (SF, modulation, emitter ID, packet type). Use early stopping on the validation loss, apply dropout for regularisation, and compare the \mbox{MLP}'s test accuracy against the random-forest and \mbox{SVM} benchmarks from LH4-C/D. The \mbox{MLP} represents the first ``deep'' model in the project and its job is to demonstrate whether added representational capacity helps on this tabular feature set.
+Implement, train, and evaluate a small fully-connected neural network (8$\to$64$\to$32$\to$C) in \texttt{PyTorch} for each of the three classification tasks (SF, modulation, emitter ID). Use early stopping on the validation loss, apply dropout for regularisation, and compare the \mbox{MLP}'s test accuracy against the random-forest and \mbox{SVM} benchmarks from LH4-C/D. The \mbox{MLP} represents the first ``deep'' model in the project and its job is to demonstrate whether added representational capacity helps on this tabular feature set.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
@@ -131,7 +131,7 @@ def train_one(task, epochs=200, patience=15, lr=1e-3, batch_size=32):
     print(f"[{task}] MLP test acc = {acc_te:.3f}")
     return model, history, acc_te
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     train_one(t)
 \end{lstlisting}
 
@@ -140,7 +140,7 @@ Plot training and validation loss as functions of epoch. The two should track ea
 
 \begin{lstlisting}[language=Python]
 import matplotlib.pyplot as plt
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     h = torch.load(f"artifacts/{task}/mlp.pt")["history"]
     fig, ax = plt.subplots(1, 2, figsize=(10, 3.5))
     ax[0].plot(h["train_loss"], label="train")
@@ -209,7 +209,7 @@ Train the \mbox{MLP} four times for \emph{each} task (SF, modulation, emitter ID
 
 \begin{lstlisting}[language=Python]
 robustness = {}
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     accs = []
     for seed in range(4):
         torch.manual_seed(seed); np.random.seed(seed)

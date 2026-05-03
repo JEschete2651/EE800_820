@@ -1,0 +1,6 @@
+=== diff dump_clean.txt vs ref_clean.txt ===
+
+=== diff dump_mixed.txt vs ref_mixed.txt ===
+
+=== diff dump_corrupt.txt vs ref_corrupt.txt ===
+

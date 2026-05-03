@@ -43,6 +43,20 @@
 #define ROLE_INITIATOR
 #endif
 
+/* --- Campaign-configurable radio parameters --------------------------------
+ * Edit these two defines between campaign runs; do not change register
+ * addresses or any other values in lora_init().
+ *
+ * LORA_SF:         Spreading factor 7-12
+ * LORA_TX_PWR_DBM: TX output power in dBm (+2, +8, +14, or +20)
+ * -------------------------------------------------------------------------- */
+#define LORA_SF          7
+#define LORA_TX_PWR_DBM  14
+
+/* Derived register values -- do not edit below this line */
+#define REG_MODEM_CONFIG2_VAL  ((LORA_SF << 4) | 0x04)
+#define REG_PA_CONFIG_VAL      (0x80 | ((LORA_TX_PWR_DBM - 2) & 0x0F))
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +75,7 @@ DMA_HandleTypeDef hdma_usart3_tx;
 
 /* USER CODE BEGIN PV */
 volatile uint32_t ms_count = 0;
+uint8_t g_lora_sf = LORA_SF;
 
 typedef struct {
   uint8_t  raw[32];
@@ -736,14 +751,14 @@ void lora_init(void)
   rfm_write_reg(0x08, 0x00);
 
   rfm_write_reg(0x1D, 0x72);
-  rfm_write_reg(0x1E, 0x74);
+  rfm_write_reg(0x1E, REG_MODEM_CONFIG2_VAL);
 
   rfm_write_reg(0x20, 0x00);
   rfm_write_reg(0x21, 0x08);
 
   rfm_write_reg(0x39, 0x34);
 
-  rfm_write_reg(0x09, 0x8C);
+  rfm_write_reg(0x09, REG_PA_CONFIG_VAL);
 
   rfm_write_reg(0x0E, 0x80);
   rfm_write_reg(0x0F, 0x00);
@@ -751,7 +766,7 @@ void lora_init(void)
   rfm_write_reg(0x01, 0x81);
   HAL_Delay(10);
 
-  printf("lora_init done\r\n");
+  printf("lora_init done: SF=%d TxPwr=%d dBm\r\n", LORA_SF, LORA_TX_PWR_DBM);
 }
 
 void rfm_set_mode_standby(void)

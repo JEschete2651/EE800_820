@@ -7,16 +7,16 @@
 \labheader{4-F}{1-D CNN over Feature Sequences and the Clean$\to$Contended Operating-Condition Shift Experiment}
 
 \section{Objective}
-Build and train a 1-D convolutional network that consumes short \emph{sequences} of feature vectors (rather than single vectors like the \mbox{MLP} in LH4-E), then run the defining operating-condition shift experiment: train on the clean regime (Module~3 campaigns C1--C4: single-station Target~A only, DATA-only) and evaluate on the contended regime (C5: cooperative-target ping-pong with collisions and interleaved Threat PAUSE bursts). Both regimes come from the same hardware --- this is a within-hardware distribution-shift study, the most honest test of generalisation the framework can produce. The accuracy gap is the framework's capstone machine-learning result.
+Build and train a 1-D convolutional network that consumes short \emph{sequences} of feature vectors (rather than single vectors like the \mbox{MLP} in LH4-E), then run the defining operating-condition shift experiment: train on the clean regime (Module~3 campaigns C1--C4: single-station Target~A only, DATA-only) and evaluate on the contended regime (C5: cooperative-target ping-pong with collisions). Both regimes come from the same hardware --- this is a within-hardware distribution-shift study, the most honest test of generalisation the framework can produce. The accuracy gap is the framework's capstone machine-learning result.
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
-	\item Lab Handout~4-E complete (\mbox{MLP} numbers available for comparison on all four tasks).
+	\item Lab Handout~4-E complete (\mbox{MLP} numbers available for comparison on all three tasks).
 	\item Module~3 dataset (\texttt{merged\_dataset.csv}) contains the \texttt{regime} column tagging each row as \texttt{clean} (C1--C4) or \texttt{contended} (C5).
 \end{itemize}
 
 \section{Background: Why a 1-D CNN on Tabular Features?}
-A single feature vector captures one instant. A short window of consecutive vectors --- say the last eight packets from the same station --- captures the \emph{temporal texture} of the transmission: burstiness, inter-arrival regularity, \mbox{RSSI} drift, \mbox{SNR} stability, the cadence difference between DATA / ACK / PAUSE rows. A 1-D \mbox{CNN} over that sequence axis can learn filters that respond to this temporal structure. The \mbox{MLP} cannot, because it sees one vector at a time. The packet-type task is expected to benefit most from the windowed view, because DATA / ACK / PAUSE have very different inter-arrival signatures.
+A single feature vector captures one instant. A short window of consecutive vectors --- say the last eight packets from the same station --- captures the \emph{temporal texture} of the transmission: burstiness, inter-arrival regularity, \mbox{RSSI} drift, \mbox{SNR} stability, the cadence difference between DATA and ACK rows. A 1-D \mbox{CNN} over that sequence axis can learn filters that respond to this temporal structure. The \mbox{MLP} cannot, because it sees one vector at a time.
 
 \begin{tcolorbox}[infobox={Sequence Construction}]
 	For each row $r$ in the dataset, build an $8 \times F$ input by taking the eight most recent packets with the same \texttt{beacon\_id} (or fewer if eight are not yet available; left-pad with zeros). This produces one sequence per row while preserving the label on $r$. The sequences are \emph{within-run} only --- do not straddle \texttt{run\_id} boundaries, because that would force the model to learn transitions between very different channel conditions.
@@ -41,7 +41,7 @@ def build_sequences(task):
     X_all = pre["scaler"].transform(df[feats].to_numpy(dtype=np.float32))
     label_col = {
         "sf": "label_sf", "mod": "label_mod",
-        "beacon": "label_beacon", "pkt": "label_pkt",
+        "beacon": "label_beacon",
     }[task]
     y_all = pre["encoder"].transform(df[label_col])
 
@@ -78,7 +78,7 @@ def build_sequences(task):
               f"clean={(regimes[mask]=='clean').sum()}, "
               f"contended={(regimes[mask]=='contended').sum()}")
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     build_sequences(t)
 \end{lstlisting}
 
@@ -157,7 +157,7 @@ def train_cnn(task, epochs=200, patience=15, lr=1e-3, batch_size=32):
     print(f"[{task}] CNN test acc = {acc:.3f}")
     return model, acc
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     train_cnn(t)
 \end{lstlisting}
 
@@ -169,7 +169,7 @@ Define:
 	\item The operating-condition gap: $\Delta_{\text{op-shift}} = \text{Acc}(\text{clean}\!\to\!\text{clean}) - \text{Acc}(\text{clean}\!\to\!\text{contended})$.
 \end{itemize}
 
-A larger $\Delta_{\text{op-shift}}$ means the contended regime introduces feature-distribution changes the clean-trained model cannot handle (most likely from half-duplex shadowing, ACK exchanges, and Threat PAUSE bursts). Report $\Delta_{\text{op-shift}}$ for each of the four tasks; the packet-type task is expected to show the largest gap because the contended regime is the only one containing ACK and PAUSE rows.
+A larger $\Delta_{\text{op-shift}}$ means the contended regime introduces feature-distribution changes the clean-trained model cannot handle (most likely from half-duplex shadowing and ACK exchanges). Report $\Delta_{\text{op-shift}}$ for each of the three tasks.
 
 \begin{lstlisting}[language=Python, caption={Operating-condition shift evaluation --- full reference implementation.}]
 import numpy as np
@@ -242,7 +242,7 @@ def op_shift(task):
     return model, acc_clean, acc_contend, delta
 
 results = []
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     _, acc_clean, acc_contend, delta = op_shift(task)
     results.append((task, acc_clean, acc_contend, delta))
     print(f"[{task}] clean->clean = {acc_clean:.3f}, "
@@ -251,7 +251,7 @@ for task in ["sf", "mod", "beacon", "pkt"]:
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={Why On-Hardware Operating-Condition Shift, Not Sim-to-Real?}]
-	The framework deliberately measures distribution shift within hardware data because that is a more honest test of generalisation than synthetic-vs-real. The C5 regime introduces real RF-domain effects --- half-duplex shadowing during ACK exchanges, multi-station collisions under ALOHA, and Threat PAUSE bursts that produce non-stationary inter-arrival timing --- that no simulator could reproduce faithfully. The gap measured here is therefore directly attributable to physical operating-condition changes, not to simulator-vs-hardware modelling artefacts. This positioning is also consistent with the final report's framing (Section~IV.J): the operating-condition shift is the framework's capstone observation, and it is performed entirely on hardware data.
+	The framework deliberately measures distribution shift within hardware data because that is a more honest test of generalisation than synthetic-vs-real. The C5 regime introduces real RF-domain effects --- half-duplex shadowing during ACK exchanges and multi-station collisions --- that no simulator could reproduce faithfully. The gap measured here is therefore directly attributable to physical operating-condition changes, not to simulator-vs-hardware modelling artefacts. This positioning is also consistent with the final report's framing (Section~IV.J): the operating-condition shift is the framework's capstone observation, and it is performed entirely on hardware data.
 \end{tcolorbox}
 
 \subsection{Step 4 --- Tabulate the gap}
@@ -266,10 +266,9 @@ for task in ["sf", "mod", "beacon", "pkt"]:
 		SF Detection     & & & & \\
 		Modulation       & & & & \\
 		Emitter ID       & & & & \\
-		Packet Type      & & & & \\
 		\bottomrule
 	\end{tabularx}
-	\caption{Operating-condition shift table. Each row's ``likely cause'' column should cite the specific distributional difference from LH3-H's Step~8 that explains the observed drop --- typically half-duplex shadowing, ACK-row insertion, or Threat PAUSE-burst timing.}
+	\caption{Operating-condition shift table. Each row's ``likely cause'' column should cite the specific distributional difference from LH3-H's Step~8 that explains the observed drop --- typically half-duplex shadowing or ACK-row insertion.}
 \end{table}
 
 \subsection{Step 5 --- Mitigation: fine-tuning the final layer on contended data}
@@ -311,7 +310,7 @@ def finetune_last_layer(task, clean_model, fraction=0.10,
     return _accuracy(clean_model, X_ev, y_ev)
 
 # Run for each task, reusing the clean-trained model from op_shift above
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     clean_model, acc_clean, acc_contend, delta = op_shift(task)
     acc_finetune = finetune_last_layer(task, clean_model)
     print(f"[{task}] clean+contended-finetune test acc = "
@@ -322,7 +321,7 @@ for task in ["sf", "mod", "beacon", "pkt"]:
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Sliding-window sequences built; no cross-run contamination (\texttt{run\_id} grouping, not \texttt{campaign\_id}).
-	\item[$\square$] CNN-1D trained to completion on all four tasks.
+	\item[$\square$] CNN-1D trained to completion on all three tasks.
 	\item[$\square$] clean$\to$clean and clean$\to$contended accuracies recorded for each task.
 	\item[$\square$] Operating-condition shift $\Delta_{\text{op-shift}}$ tabulated and linked back to LH3-H operating-condition shift findings.
 	\item[$\square$] Fine-tuning experiment run for at least the SF task and recovers $\geq$ half of $\Delta_{\text{op-shift}}$.
@@ -331,10 +330,10 @@ for task in ["sf", "mod", "beacon", "pkt"]:
 
 \begin{tcolorbox}[deliverable={Lab Handout 4-F Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
-		\item \texttt{artifacts/\{sf,mod,beacon,pkt\}/cnn.pt}: CNN state dicts and test accuracies for all four tasks.
+		\item \texttt{artifacts/\{sf,mod,beacon\}/cnn.pt}: CNN state dicts and test accuracies for all three tasks.
 		\item Operating-condition shift table with likely-cause column citing LH3-H's Step~8 operating-condition shift analysis.
 		\item Fine-tuning result: clean$\to$clean, clean$\to$contended, and clean+contended-finetune accuracies on the same plot per task.
-		\item One-page discussion: which task shows the largest $\Delta_{\text{op-shift}}$, why, and what additional contended-regime collection (longer button-hold windows, more diverse PAUSE patterns, or extended C5e ALOHA runs) would most efficiently close it.
+		\item One-page discussion: which task shows the largest $\Delta_{\text{op-shift}}$, why, and what additional contended-regime collection (longer C5b runs or more diverse station configurations) would most efficiently close it.
 	\end{enumerate}
 \end{tcolorbox}
 

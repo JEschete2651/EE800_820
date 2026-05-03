@@ -9,20 +9,21 @@ end tb_ingest_top;
 architecture sim of tb_ingest_top is
     constant CLK_PERIOD   : time   := 10 ns;
     constant BIT_PERIOD   : time   := 8680 ns;
-    constant CAPTURE_FILE : string := "../../../../data/capture_mixed.bin";
-    constant DUMP_FILE    : string := "../../../../data/dump_mixed.txt";
-    constant LOG_FILE     : string := "../../../../data/events_mixed.txt";
+    constant CAPTURE_FILE : string := "../../../../data/capture_corrupt.bin";
+    constant DUMP_FILE    : string := "../../../../data/dump_corrupt.txt";
+    constant LOG_FILE     : string := "../../../../data/events_corrupt.txt";
 
-    signal clk         : std_logic := '0';
-    signal cpu_resetn  : std_logic := '0';
-    signal uart_rx_pin : std_logic := '1';
+    signal clk          : std_logic := '0';
+    signal cpu_resetn   : std_logic := '0';
+    signal uart_rx_pin  : std_logic := '1';
     signal uart_rxd_out : std_logic;
-    signal sw          : std_logic_vector(15 downto 0) := (others => '0');
+    signal sw           : std_logic_vector(15 downto 0) := (others => '0');
 
     signal ca, cb, cc, cd, ce, cf, cg : std_logic;
     signal dp                          : std_logic;
     signal an                          : std_logic_vector(7 downto 0);
     signal led                         : std_logic_vector(15 downto 0);
+    signal host_rd_data_dbg            : std_logic_vector(255 downto 0);
 
     type charfile is file of character;
 
@@ -36,11 +37,6 @@ architecture sim of tb_ingest_top is
         s <= '1'; wait for BIT_PERIOD;
     end procedure;
 
-    -- VHDL-2008 external name reaches the internal 256-bit BRAM readback
-    -- signal inside ingest_top so the testbench can dump the full feature row.
-    alias host_rd_data_int is
-        << signal .tb_ingest_top.dut.host_rd_data_int :
-           std_logic_vector(255 downto 0) >>;
 begin
     clk <= not clk after CLK_PERIOD / 2;
 
@@ -51,7 +47,8 @@ begin
                   SW => sw,
                   CA => ca, CB => cb, CC => cc, CD => cd,
                   CE => ce, CF => cf, CG => cg,
-                  DP => dp, AN => an, LED => led);
+                  DP => dp, AN => an, LED => led,
+                  host_rd_data_dbg => host_rd_data_dbg);
 
     -- Event log: timestamped frame_valid / frame_reject pulses.
     -- led(1) = frame_valid, led(4) = frame_reject (per LH2-F ingest_top).
@@ -117,7 +114,7 @@ begin
             write(l, string'("ROW "));
             hwrite(l, std_logic_vector(to_unsigned(row, 8)));
             write(l, string'(" "));
-            hwrite(l, host_rd_data_int);
+            hwrite(l, host_rd_data_dbg);
             writeline(fh_d, l);
         end loop;
 

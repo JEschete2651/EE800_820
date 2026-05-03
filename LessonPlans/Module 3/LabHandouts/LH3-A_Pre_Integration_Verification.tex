@@ -19,7 +19,7 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 \section{Materials}
 \begin{table}[h!]
 	\centering
-	\begin{tabular}{l c l}
+	\begin{tabularx}{\textwidth}{l c X}
 		\toprule
 		\textbf{Item} & \textbf{Qty} & \textbf{Notes} \\
 		\midrule
@@ -30,7 +30,7 @@ Verify that every subsystem produced in Modules~1 and~2 operates correctly \emph
 		Host PC & 1 & With Vivado, STM32CubeIDE, terminal emulator \\
 		Breadboard + jumper wires & --- & For inter-board connections \\
 		\bottomrule
-	\end{tabular}
+	\end{tabularx}
 \end{table}
 
 \newpage
@@ -81,7 +81,6 @@ RX sender=02 type=1 rssi=-31 snr=10
 \begin{enumerate}[leftmargin=2em]
 	\item Connect the Nexys A7 to the host PC via USB. Vivado Hardware Manager should detect \texttt{xc7a100t\_0}.
 	\item Program the \texttt{ingest\_top.bit} bitstream from LH2-H. The \mbox{DONE} \mbox{LED} should illuminate immediately after programming.
-	\item Verify basic I/O: press the center pushbutton (reset). \texttt{led(0)} through \texttt{led(7)} should assert for one clock cycle after reset release (the Module~2 initialization pattern), then settle.
 	\item Open a terminal at the Nexys A7 USB-\UART{} port (115200\,8N1). With no signal on the \mbox{PMOD} input, the pipeline should be idle --- no output lines should appear.
 	\item Confirm the Vivado Hardware Manager can also run the \mbox{ILA} dashboard without errors (even if no triggers fire). This validates the \mbox{JTAG} path for Lab Handout~3-B.
 \end{enumerate}
@@ -121,7 +120,7 @@ Work through every row and mark Pass or Fail. Do not proceed to Lab Handout~3-B 
 		\textbf{\#} & \textbf{Check} & \textbf{Pass?} \\
 		\midrule
 		1 & Nexys A7 powers on via USB; Vivado Hardware Manager detects \texttt{xc7a100t\_0}. & $\square$ \\
-		2 & Module~2 bitstream programs; \mbox{DONE} \mbox{LED} illuminates; \mbox{LEDs} show init pattern after reset. & $\square$ \\
+		2 & Module~2 bitstream programs; \mbox{DONE} \mbox{LED} illuminates. & $\square$ \\
 		3 & (Optional) \FPGA{} USB-\UART{} loopback echoes at 115200 baud --- skip if not implemented in current bitstream. & $\square$ \\
 		4 & Target~A: USART2 prints CSV ping-pong lines with incrementing sequence numbers. & $\square$ \\
 		5 & Target~B: USART2 prints \texttt{ACK seq=...} lines matching Target~A's sequence numbers one-for-one. & $\square$ \\

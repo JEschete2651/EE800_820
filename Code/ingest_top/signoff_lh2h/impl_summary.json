@@ -1,0 +1,16 @@
+{
+  "module": "Module2_ingest_top",
+  "util_source": "impl",
+  "lut": 19151,
+  "ff": 53034,
+  "bram": 0,
+  "dsp": 0,
+  "wns_ns": 1.191,
+  "tns_ns": 0.0,
+  "whs_ns": 0.03,
+  "ths_ns": 0.0,
+  "total_power_w": 0.236,
+  "dynamic_power_w": 0.139,
+  "static_power_w": 0.098,
+  "junction_temp_c": 26.1
+}

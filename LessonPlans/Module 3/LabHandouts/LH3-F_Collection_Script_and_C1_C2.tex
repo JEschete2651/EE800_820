@@ -7,17 +7,17 @@
 \labheader{3-F}{Python Collection Script and Campaigns C1 and C2}
 
 \section{Objective}
-Implement the host-side Python data collection script that receives feature vectors from the \FPGA{} over \mbox{USB-UART}, attaches ground-truth labels from a campaign configuration file, and writes labeled records to a \mbox{CSV} file. Then execute the first two single-variable campaigns: a \mbox{TX} power sweep (C1) and a spreading factor sweep (C2).
+Implement the host-side Python data collection script that receives the Threat's 43-byte forwarding frames passed through the \FPGA{}'s \mbox{USB-UART} bridge, parses the embedded radio packet fields, attaches ground-truth labels from a campaign configuration file, and writes labeled records to a \mbox{CSV} file. Then execute the first two single-variable campaigns: a \mbox{TX} power sweep (C1) and a spreading factor sweep (C2).
 
 \section{Prerequisites}
 \begin{itemize}[leftmargin=2em]
 	\item Lab Handout~3-E complete (production bitstream ready, performance envelope documented).
 	\item Python~3.10+ on the host PC with \texttt{pyserial $\geq$ 3.5}, \texttt{pandas $\geq$ 2.0}, and \texttt{matplotlib} installed.
-	\item Module~2 LH2-F feature export \mbox{UART} TX path verified: the \FPGA{} transmits 35-byte export frames on the \mbox{USB-UART} bridge when \texttt{frame\_valid} fires.
+	\item \FPGA{} \mbox{USB-UART} passthrough verified: \texttt{ingest\_top.vhd} routes \texttt{uart\_rx\_pin} directly to \texttt{UART\_RXD\_OUT}, so the host PC sees the raw Threat forwarding frames on the Nexys A7's onboard \mbox{USB-UART} bridge at 115200\,8N1.
 \end{itemize}
 
-\section{Feature Export Frame Format}
-The \FPGA{} exports each validated feature vector over the Nexys A7's \mbox{USB-UART} (115200\,8N1) using the 35-byte frame defined in Session~7:
+\section{Forwarding Frame Format}
+The Threat emits a 43-byte forwarding frame over \mbox{USART3} TX for every intercepted radio packet. The \FPGA{} passes this through unchanged to the host \mbox{USB-UART}. The collection script parses these frames directly --- there is no separate feature-export path on the \FPGA{}.
 
 \begin{table}[h!]
 	\centering
@@ -26,10 +26,32 @@ The \FPGA{} exports each validated feature vector over the Nexys A7's \mbox{USB-
 		\toprule
 		\textbf{Field} & \textbf{Offset} & \textbf{Size} & \textbf{Description} \\
 		\midrule
-		Start Marker & 0 & 1\,B & \texttt{0xFE} (distinct from \texttt{0x7E} interceptor forwarding-frame delimiter) \\
-		Feature Vector & 1 & 32\,B & Complete 32-byte feature vector (Module~2 \texttt{tab:feature\_vector} format, including \texttt{pkt\_type} at offset~3 and PAUSE-only fields at offsets~28--29) \\
-		\mbox{CRC}-8 & 33 & 1\,B & \mbox{CRC}-8 over bytes 1--32 (transport integrity) \\
-		End Marker & 34 & 1\,B & \texttt{0xFF} \\
+		Start Delimiter & 0 & 1\,B & \texttt{0x7E} \\
+		Length & 1 & 1\,B & \texttt{0x29} (41 decimal; bytes covered by \mbox{CRC}) \\
+		\texttt{rx\_timestamp\_ms} & 2--5 & 4\,B & Threat \texttt{HAL\_GetTick()} at \texttt{RxDone}, little-endian uint32 \\
+		\texttt{rssi\_dbm} & 6 & 1\,B & Signed int8, raw negative dBm (e.g.\ \texttt{0xCE} = $-50$\,dBm) \\
+		\texttt{snr\_q025} & 7 & 1\,B & Signed int8, 0.25\,dB units (divide by 4 for dB) \\
+		\texttt{freq\_error\_hz} & 8--9 & 2\,B & Signed int16, little-endian, Hz \\
+		Radio Payload & 10--41 & 32\,B & Raw intercepted LoRa packet (see embedded fields below) \\
+		\mbox{CRC}-8/ITU & 42 & 1\,B & Polynomial \texttt{0x07}, init \texttt{0x00}, covers bytes 1--41 \\
+		\bottomrule
+	\end{tabularx}
+\end{table}
+
+\subsection*{Embedded fields inside the 32-byte radio payload (offsets relative to byte~10)}
+\begin{table}[h!]
+	\centering
+	\renewcommand{\arraystretch}{1.3}
+	\begin{tabularx}{\textwidth}{l c c X}
+		\toprule
+		\textbf{Field} & \textbf{Frame Offset} & \textbf{Size} & \textbf{Description} \\
+		\midrule
+		\texttt{beacon\_id}        & 12     & 1\,B & Sender \mbox{ID} (\texttt{0x01}=Target~A, \texttt{0x02}=Target~B) \\
+		\texttt{seq\_num}          & 13--14 & 2\,B & Little-endian uint16 sequence counter \\
+		\texttt{payload\_len}      & 15     & 1\,B & Inner radio payload length \\
+		\texttt{mod\_code}         & 16     & 1\,B & Bits[1:0] = packet type (\texttt{00}=DATA, \texttt{01}=ACK); bits[7:2] = modulation kind \\
+		\texttt{spread\_factor}    & 17     & 1\,B & SF7--SF10 \\
+		\texttt{tx\_timestamp\_ms} & 19--22 & 4\,B & Originator \texttt{HAL\_GetTick()} at \mbox{TX}, little-endian uint32 \\
 		\bottomrule
 	\end{tabularx}
 \end{table}
@@ -41,18 +63,19 @@ Each campaign run is described by a JSON configuration file that the collection 
 
 \begin{lstlisting}[language=Python, caption={Example campaign configuration file \texttt{campaign\_c1\_txpwr\_2.json}.}]
 {
-    "campaign_id":    "C1",
-    "run_id":         "C1_pwr02_2026-04-20T14:00:00Z",
-    "sweep_variable": "tx_power",
-    "sweep_value":    2,
-    "fixed_sf":       7,
-    "fixed_mod":      "lora",
-    "fixed_mod_kind": 1,
-    "fixed_distance_m": 3.0,
+    "campaign_id":         "C1",
+    "run_id":              "C1_pwr02_2026-04-20T14:00:00Z",
+    "sweep_variable":      "tx_power",
+    "sweep_value":         2,
+    "fixed_sf":            7,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
     "num_active_stations": 1,
-    "expected_pkt_types": [0],
-    "target_packets": 200,
-    "notes":          "TX power sweep, Target~A only (DATA only)"
+    "expected_pkt_types":  [0],
+    "target_packets":      200,
+    "notes":               "TX power sweep, Target A only (DATA only)",
+    "description":         "C1 TX Power Sweep -- +2 dBm, SF7, 200 packets, Target A"
 }
 \end{lstlisting}
 
@@ -63,29 +86,60 @@ Each campaign run is described by a JSON configuration file that the collection 
 \begin{tcolorbox}[infobox={Modulation-Kind and Packet-Type Canonical Mappings}]
 \texttt{fixed\_mod\_kind} uses the Module~1/Module~2 canonical integer codes: \textbf{1=LoRa, 2=FSK, 3=OOK}. Store this integer directly in the \mbox{CSV} as \texttt{mod\_kind\_label} so that Module~4 ingest does not need a string-to-int conversion table. The feature vector's \texttt{mod\_kind} field at offset~1 uses the same mapping with the low 2 bits cleared (the LH2-F extractor already does this). Do \emph{not} introduce a 0/1 alias.
 
-The packet-type field uses \textbf{0=DATA, 1=ACK, 2=PAUSE}. The \texttt{expected\_pkt\_types} list in the JSON tells the script which \texttt{pkt\_type} values are valid for this run; rows with a \texttt{pkt\_type} outside the list are flagged as cross-domain anomalies (e.g.\ a stray PAUSE captured during a clean Target~A-only sweep) but still recorded.
+The packet-type field uses \textbf{0=DATA, 1=ACK}. The \texttt{expected\_pkt\_types} list in the JSON tells the script which \texttt{pkt\_type} values are valid for this run; rows with a \texttt{pkt\_type} outside the list are flagged as cross-domain anomalies but still recorded. (PAUSE frames originate at the Threat and are transmitted over-the-air to silence Targets; they are not received back through the Threat's intercept path, so they never appear in the dataset.)
 \end{tcolorbox}
 
-Create one JSON file per sweep step. For Campaign~C1 (four TX power levels) you will have four files: \texttt{campaign\_c1\_txpwr\_2.json}, \texttt{campaign\_c1\_txpwr\_8.json}, \texttt{campaign\_c1\_txpwr\_14.json}, and \texttt{campaign\_c1\_txpwr\_20.json}.
+One JSON file exists per sweep step. The \texttt{Code/Tools/CampaignCollect/campaigns/} directory already contains all 11 files: \texttt{dry\_run.json}, four C1 TX-power files (\texttt{campaign\_c1\_txpwr\_2.json} through \texttt{campaign\_c1\_txpwr\_20.json}), and six C2 spreading-factor files (\texttt{campaign\_c2\_sf7.json} through \texttt{campaign\_c2\_sf12.json}). Each file includes a \texttt{description} field that \texttt{collect.py} displays in the selection menu. Output CSVs are written under \texttt{Code/Tools/CampaignCollect/logs/<config\_stem>/}.
 
 \newpage
-\subsection{Step 2 --- Implement the collection script}
-Create \texttt{collect.py}. The script must: open the serial port, synchronize on the \texttt{0xFE} start marker, parse each 35-byte export frame, verify the transport \mbox{CRC}-8, extract all feature vector fields, attach labels from the configuration JSON, and append one row to a \mbox{CSV} file.
+\subsection{Step 2 --- Refactor Target firmware for campaign sweeps}
+In Lab~2 you wrote \texttt{lora\_init()} with the spreading factor and TX power baked in as raw register bytes. Before running any campaign sweep those values need to change repeatedly, so refactor both Target projects now to expose them as named defines at the top of the file. This is a one-time change; all subsequent steps only require editing two lines.
+
+\begin{enumerate}[leftmargin=2em]
+    \item In VS Code, open the \texttt{Nucleo\_RFM95\_TargetA} folder and navigate to \texttt{Core/Src/main.c}. In the \texttt{/* USER CODE BEGIN PD */} block, add the following define block after your existing beacon/role defines:
+\begin{lstlisting}[language=C]
+/* Campaign-configurable radio parameters.
+ * Change LORA_SF and LORA_TX_PWR_DBM between runs.
+ * Do not edit the derived macros or any register addresses. */
+#define LORA_SF          7
+#define LORA_TX_PWR_DBM  14
+
+#define REG_MODEM_CONFIG2_VAL  ((LORA_SF << 4) | 0x04)
+#define REG_PA_CONFIG_VAL      (0x80 | ((LORA_TX_PWR_DBM - 2) & 0x0F))
+\end{lstlisting}
+
+    \item In \texttt{lora\_init()}, find the two lines where you wrote the spreading factor and TX power registers and replace the raw byte literals with the new macros:
+\begin{lstlisting}[language=C]
+rfm_write_reg(0x1E, REG_MODEM_CONFIG2_VAL);  /* was 0x74 (SF7) */
+rfm_write_reg(0x09, REG_PA_CONFIG_VAL);       /* was 0x8C (+14 dBm) */
+\end{lstlisting}
+
+    \item Update the \texttt{printf} at the end of \texttt{lora\_init()} to confirm the active configuration on the debug terminal:
+\begin{lstlisting}[language=C]
+printf("lora_init done: SF=%d TxPwr=%d dBm\r\n",
+       LORA_SF, LORA_TX_PWR_DBM);
+\end{lstlisting}
+
+    \item Repeat the identical changes in \texttt{Nucleo\_RFM95\_TargetB/Core/Src/main.c}.
+    \item Press \textbf{F7} in each VS Code window to build, then click \textbf{Start Debugging} (or press \textbf{F5}) to flash and run both boards. Confirm both debug terminals print \texttt{lora\_init done: SF=7 TxPwr=14 dBm} before continuing.
+\end{enumerate}
+
+\subsection{Step 3 --- Implement the collection script}
+Create \texttt{collect.py}. The script must: open the serial port, synchronize on the \texttt{0x7E} start delimiter, read each 43-byte forwarding frame, verify the \mbox{CRC-8/ITU} over bytes~1--41, extract the radio-packet fields from the embedded payload, attach labels from the configuration JSON, and append one row to a \mbox{CSV} file.
 
 \begin{lstlisting}[language=Python, caption={Collection script skeleton (\texttt{collect.py}).}]
 import serial
 import csv
 import json
 import sys
-import time
 from datetime import datetime
 
 BAUD = 115200
-FRAME_LEN = 35
-START = 0xFE
-END   = 0xFF
+FRAME_LEN = 43
+START = 0x7E
+LENGTH = 0x29  # bytes 1..41 covered by CRC
 
-def crc8(data, poly=0x07, init=0x00):
+def crc8_itu(data, poly=0x07, init=0x00):
     crc = init
     for b in data:
         crc ^= b
@@ -94,23 +148,35 @@ def crc8(data, poly=0x07, init=0x00):
                   else (crc << 1) & 0xFF
     return crc
 
-def parse_feature_vector(raw32):
-    """Unpack the 32-byte feature vector into a dict (Module 2 tab:feature_vector)."""
+def parse_forwarding_frame(buf43):
+    """Unpack a 43-byte Threat forwarding frame into a dict."""
+    rx_ts_ms      = int.from_bytes(buf43[2:6],  "little")
+    rssi_dbm      = int.from_bytes(buf43[6:7],  "little", signed=True)
+    snr_q025      = int.from_bytes(buf43[7:8],  "little", signed=True)
+    freq_err_hz   = int.from_bytes(buf43[8:10], "little", signed=True)
+    payload       = buf43[10:42]   # 32-byte raw radio packet
+
+    beacon_id     = payload[2]
+    seq_num       = int.from_bytes(payload[3:5], "little")
+    payload_len   = payload[5]
+    mod_code      = payload[6]
+    pkt_type      = mod_code & 0x03           # 0=DATA, 1=ACK
+    mod_kind      = (mod_code >> 2) & 0x3F    # upper 6 bits
+    spread_factor = payload[7]
+    tx_ts_ms      = int.from_bytes(payload[9:13], "little")
+
     return {
-        "beacon_id":             raw32[0],
-        "mod_kind":              raw32[1],   # upper 6 bits of Mod Code, low 2 cleared
-        "spread_factor":         raw32[2],
-        "pkt_type":              raw32[3],   # 0=DATA, 1=ACK, 2=PAUSE
-        "rssi":                  int.from_bytes(raw32[4:6], "big", signed=True),
-        "snr":                   int.from_bytes(raw32[6:8], "big", signed=True),
-        "obs_count":             int.from_bytes(raw32[8:12], "big"),
-        "rx_timestamp":          int.from_bytes(raw32[12:16], "big"),
-        "inter_arrival_ms":      int.from_bytes(raw32[16:20], "big"),
-        "rssi_delta":            int.from_bytes(raw32[20:24], "big", signed=True),
-        "priority_score":        int.from_bytes(raw32[24:28], "big"),
-        "target_id_if_pause":    raw32[28],  # valid only when pkt_type == 2
-        "pause_duration_units":  raw32[29],  # valid only when pkt_type == 2
-        # bytes 30-31 reserved
+        "rx_timestamp_ms":   rx_ts_ms,
+        "rssi_dbm":          rssi_dbm,
+        "snr_db":            snr_q025 / 4.0,
+        "freq_error_hz":     freq_err_hz,
+        "beacon_id":         beacon_id,
+        "seq_num":           seq_num,
+        "payload_len":       payload_len,
+        "mod_kind":          mod_kind,
+        "spread_factor":     spread_factor,
+        "pkt_type":          pkt_type,
+        "tx_timestamp_ms":   tx_ts_ms,
     }
 
 def collect(port, config_path, out_csv):
@@ -118,6 +184,7 @@ def collect(port, config_path, out_csv):
         cfg = json.load(f)
     target = cfg["target_packets"]
     received = 0
+    last_rx_ts = None
     with serial.Serial(port, BAUD, timeout=2.0) as ser, \
          open(out_csv, "a", newline="") as csvf:
         writer = csv.DictWriter(csvf, fieldnames=CSV_COLUMNS)
@@ -129,27 +196,31 @@ def collect(port, config_path, out_csv):
             b = ser.read(1)
             if not b or b[0] != START:
                 continue
-            frame = ser.read(FRAME_LEN - 1)
-            if len(frame) < FRAME_LEN - 1:
+            length = ser.read(1)
+            if not length or length[0] != LENGTH:
+                continue   # bad length, resync
+            rest = ser.read(FRAME_LEN - 2)
+            if len(rest) < FRAME_LEN - 2:
                 continue
-            if frame[-1] != END:
-                continue
-            raw32 = frame[:32]
-            expected_crc = crc8(raw32)
-            if expected_crc != frame[32]:
-                print(f"  [WARN] CRC mismatch: got {frame[32]:#04x}, "
+            buf = bytes([START, LENGTH]) + rest
+            expected_crc = crc8_itu(buf[1:42])
+            if expected_crc != buf[42]:
+                print(f"  [WARN] CRC mismatch: got {buf[42]:#04x}, "
                       f"expected {expected_crc:#04x}")
                 continue
-            fv = parse_feature_vector(raw32)
+            fv = parse_forwarding_frame(buf)
+            inter_arrival_ms = (fv["rx_timestamp_ms"] - last_rx_ts) \
+                               if last_rx_ts is not None else 0
+            last_rx_ts = fv["rx_timestamp_ms"]
             # Mismatch check between self-reported and config labels
             if fv["spread_factor"] != cfg["fixed_sf"]:
                 print(f"  [WARN] SF mismatch: reported {fv['spread_factor']}, "
                       f"config {cfg['fixed_sf']}")
-            # Packet-type sanity: did we get a pkt_type the campaign expected?
             if fv["pkt_type"] not in cfg.get("expected_pkt_types", [0,1,2]):
                 print(f"  [WARN] unexpected pkt_type={fv['pkt_type']} "
                       f"(campaign expected {cfg.get('expected_pkt_types')})")
             row = {**fv,
+                   "inter_arrival_ms":  inter_arrival_ms,
                    "campaign_id":       cfg["campaign_id"],
                    "run_id":            cfg["run_id"],
                    "timestamp_host":    datetime.utcnow().isoformat(),
@@ -168,96 +239,187 @@ def collect(port, config_path, out_csv):
 
 CSV_COLUMNS = [
     "campaign_id", "run_id", "timestamp_host",
-    "beacon_id", "mod_kind", "spread_factor", "pkt_type",
-    "rssi", "snr", "obs_count", "rx_timestamp",
-    "inter_arrival_ms", "rssi_delta", "priority_score",
-    "target_id_if_pause", "pause_duration_units",
+    "rx_timestamp_ms", "tx_timestamp_ms", "inter_arrival_ms",
+    "beacon_id", "seq_num", "pkt_type", "mod_kind", "spread_factor",
+    "rssi_dbm", "snr_db", "freq_error_hz", "payload_len",
     "distance_m", "label_sf", "label_mod", "mod_kind_label",
     "label_beacon", "label_pkt",
 ]
 
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python collect.py <COM_PORT> <config.json> <output.csv>")
+def _discover_configs():
+    from pathlib import Path
+    campaigns_dir = Path(__file__).parent / "campaigns"
+    entries = []
+    for p in sorted(campaigns_dir.glob("*.json")):
+        try:
+            with open(p) as f:
+                cfg = json.load(f)
+            entries.append((p, cfg.get("description",
+                                       cfg.get("notes", p.stem))))
+        except Exception:
+            pass
+    return entries
+
+def _menu():
+    configs = _discover_configs()
+    if not configs:
+        print("No JSON config files found in script directory.")
         sys.exit(1)
-    collect(sys.argv[1], sys.argv[2], sys.argv[3])
+    print("\n=== Campaign Collect ===")
+    print("Available configurations:\n")
+    for i, (path, desc) in enumerate(configs, 1):
+        print(f"  {i:2d}.  {desc}")
+        print(f"       ({path.name})")
+    print()
+    while True:
+        try:
+            idx = int(input("Select config number: ").strip()) - 1
+            if 0 <= idx < len(configs):
+                config_path = configs[idx][0]
+                break
+            print(f"  Enter a number between 1 and {len(configs)}.")
+        except (ValueError, EOFError):
+            print("  Invalid input.")
+    port = input("COM port (e.g. COM3): ").strip()
+    if not port:
+        print("No port entered.")
+        sys.exit(1)
+    default_csv = f"results_{config_path.stem}.csv"
+    out_csv = input(f"Output CSV [{default_csv}]: ").strip() \
+              or default_csv
+    print()
+    collect(port, str(config_path), out_csv)
+
+if __name__ == "__main__":
+    _menu()
 \end{lstlisting}
 
 \begin{tcolorbox}[warning={Label Integrity}]
-	The \texttt{label\_*} columns are derived from the campaign configuration (what you set the originating station to), \emph{not} from the feature vector fields (what the station self-reports). The self-reported fields (\texttt{spread\_factor}, \texttt{mod\_kind}, \texttt{pkt\_type}) are also recorded for cross-checking. When they disagree, the script logs a warning but keeps the record --- a disagreement indicates a firmware configuration error that is itself informative. Never discard mismatched records silently. Note that \texttt{label\_pkt} is set from the feature vector's \texttt{pkt\_type} (the canonical authority for this label) rather than from the campaign config, because a single C5 run can produce DATA, ACK, and PAUSE rows whose ground-truth packet type can only be known after the row is captured.
+	The \texttt{label\_*} columns are derived from the campaign configuration (what you set the originating station to), \emph{not} from the on-air fields (what the station self-reports). The self-reported fields (\texttt{spread\_factor}, \texttt{mod\_kind}, \texttt{pkt\_type}) are also recorded for cross-checking. When they disagree, the script logs a warning but keeps the record --- a disagreement indicates a firmware configuration error that is itself informative. Never discard mismatched records silently. \texttt{label\_pkt} is set from the parsed \texttt{pkt\_type} (the canonical authority for this label) rather than from the campaign config, because a single C5 run can produce DATA, ACK, and PAUSE rows whose ground-truth packet type can only be known after the row is captured.
 \end{tcolorbox}
 
-\subsection{Step 3 --- Dry run (10-packet validation)}
+\subsection{Step 4 --- Dry run (10-packet validation)}
 \begin{enumerate}[leftmargin=2em]
-	\item Configure Target~A to SF7, +14~dBm, 2-second initiator interval. Target~B off (no ACK responder), Threat button not held.
-	\item Create a test config \texttt{dry\_run.json} with \texttt{target\_packets: 10} and \texttt{expected\_pkt\_types: [0]} (DATA only).
-	\item Run: \texttt{python collect.py COM3 dry\_run.json dry\_run.csv} (substitute your actual COM port).
-	\item Open \texttt{dry\_run.csv} and verify: 10 rows, correct column names, \texttt{beacon\_id = 0x01}, \texttt{spread\_factor = 7}, \texttt{pkt\_type = 0} on every row, \texttt{target\_id\_if\_pause = 0} and \texttt{pause\_duration\_units = 0} on every row, no \mbox{CRC} warnings in the terminal output.
-	\item If the script hangs at startup, the \FPGA{} export path is not running. Program the production bitstream and confirm the Nexys A7 \mbox{USB-UART} port is enumerating on the host PC.
+	\item Verify Target~A firmware has \texttt{LORA\_SF~7} and \texttt{LORA\_TX\_PWR\_DBM~14} (the defaults). Power on the Threat board and place it within radio range of Target~A --- the Threat forwards every intercepted packet automatically, no button press required. Target~B off (no ACK responder).
+	\item \textbf{Identify the FPGA's USB-UART COM port.} The Nexys A7's onboard USB-UART bridge enumerates as a \texttt{USB Serial Device} (or \texttt{USB-Serial Port}) when the FPGA is powered and the bitstream is loaded. In Windows Device Manager (Ports section) or the Serial Monitor Logger's port list, identify the COM port that appears \emph{only} when the Nexys is plugged in (unplug/replug to confirm). Note this port number --- this is the port \texttt{collect.py} will read.
+	\item Run \texttt{python collect.py} from the \texttt{Code/Tools/CampaignCollect} directory. The script scans \texttt{campaigns/} for \texttt{*.json} files and displays a numbered menu with each config's \texttt{description} field.
+	\item Select the entry for \texttt{dry\_run.json} (\emph{DRY RUN --- 10 packets, SF7, Target~A}), enter the FPGA's USB-UART COM port when prompted, and confirm at the ``Press Enter to begin collection'' prompt. The output CSV is written automatically to \\ \texttt{Code/Tools/CampaignCollect/logs/dry\_run/results\_dry\_run.csv}; each subsequent run with this config overwrites that file.
+	\item Open \texttt{results\_dry\_run.csv} and verify: 10 rows, correct column names, \texttt{beacon\_id = 1}, \texttt{spread\_factor = 7}, \texttt{pkt\_type = 0} (DATA) on every row, no \mbox{CRC} warnings in the terminal output.
+	\item If the script hangs at startup, no frames are reaching the host. Confirm the production bitstream is programmed (\texttt{UART\_RXD\_OUT} passthrough is part of \texttt{ingest\_top.vhd}) and that the Nexys A7 \mbox{USB-UART} port is enumerating on the host PC. The Threat must be powered on with at least one Target transmitting.
 \end{enumerate}
 
 \newpage
-\subsection{Step 4 --- Campaign C1: TX power sweep}
+\subsection{Step 5 --- Campaign C1: TX power sweep}
 \begin{enumerate}[leftmargin=2em]
-	\item Configure Target~A: SF7, LoRa, 3~m from the interceptor (Threat) antenna, 2-second fixed initiator interval. Target~B off, Threat button not held. C1 produces DATA-only rows from Beacon~ID \texttt{0x01}.
-	\item Iterate through the four TX power levels: +2, +8, +14, +20~dBm. For each level:
+	\item Position Target~A 3~m from the Threat antenna. Threat powered on and in range --- no button press needed, it forwards all intercepted packets automatically. Target~B off. C1 produces DATA-only rows from Beacon~ID \texttt{0x01}.
+	\item TX power is controlled by \texttt{LORA\_TX\_PWR\_DBM} at the top of the \texttt{/* USER CODE BEGIN PD */} block in \texttt{Core/Src/main.c} of the \texttt{Nucleo\_RFM95\_TargetA} project. Change only this one define for each sweep step:
+
+	\begin{center}
+	\renewcommand{\arraystretch}{1.2}
+	\begin{tabular}{cl}
+		\toprule
+		\textbf{Target TX power} & \textbf{Define to set} \\
+		\midrule
+		+2~dBm  & \texttt{\#define LORA\_TX\_PWR\_DBM  2} \\
+		+8~dBm  & \texttt{\#define LORA\_TX\_PWR\_DBM  8} \\
+		+14~dBm & \texttt{\#define LORA\_TX\_PWR\_DBM  14} \\
+		+20~dBm & \texttt{\#define LORA\_TX\_PWR\_DBM  20} \\
+		\bottomrule
+	\end{tabular}
+	\end{center}
+
+	\item For each power level:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Update the TX power in Target~A's firmware and reflash. Confirm the USART2 debug shows the new power level.
-		\item Run \texttt{collect.py} with the appropriate config JSON. Collect 200 packets.
+		\item Update \texttt{LORA\_TX\_PWR\_DBM} in \texttt{main.c}, press \textbf{F7} to build, then \textbf{F5} to flash and run.
+		\item Confirm on the USART2 debug terminal that the board prints \texttt{lora\_init done: SF=7 TxPwr=\textit{N} dBm} with the expected power level before collecting.
+		\item Run \texttt{python collect.py}, select the matching C1 entry from the menu (e.g.\ \emph{C1 TX Power Sweep --- +2 dBm}), and enter the FPGA's USB-UART COM port. Collect 200 packets.
 		\item Wait for the script to report ``Done.'' Do not interrupt mid-run.
 	\end{itemize}
-	\item The four runs produce four separate CSV files. Name them \texttt{c1\_pwr02.csv}, \texttt{c1\_pwr08.csv}, \texttt{c1\_pwr14.csv}, \texttt{c1\_pwr20.csv}.
+	\item The four runs produce four separate CSV files in \texttt{Code/Tools/CampaignCollect/logs/}, one subfolder per config: \texttt{logs/campaign\_c1\_txpwr\_2/results\_campaign\_c1\_txpwr\_2.csv}, \texttt{logs/campaign\_c1\_txpwr\_8/results\_campaign\_c1\_txpwr\_8.csv}, and so on for +14 and +20~dBm.
 \end{enumerate}
 
-\subsection{Step 5 --- Validate Campaign C1}
+\subsection{Step 6 --- Validate Campaign C1}
 \begin{enumerate}[leftmargin=2em]
 	\item Concatenate the four CSV files and compute summary statistics (in Python with \texttt{pandas}):
 	\begin{lstlisting}[language=Python, caption={Campaign C1 validation.}]
 import pandas as pd
-df = pd.concat([pd.read_csv(f) for f in
-    ["c1_pwr02.csv","c1_pwr08.csv","c1_pwr14.csv","c1_pwr20.csv"]])
+from pathlib import Path
+
+logs = Path("logs")
+files = [logs / f"campaign_c1_txpwr_{p}" /
+         f"results_campaign_c1_txpwr_{p}.csv"
+         for p in (2, 8, 14, 20)]
+df = pd.concat([pd.read_csv(f) for f in files])
 print(f"Total rows: {len(df)}")  # expect 800
-print(df.groupby("campaign_id")["rssi"].agg(["mean","std","min","max"]))
+print(df.groupby("run_id")["rssi_dbm"].agg(["mean","std","min","max"]))
 	\end{lstlisting}
 	\item Verify: 800 total rows; mean \mbox{RSSI} increases (becomes less negative) as \mbox{TX} power increases; \mbox{SNR} positive at all power levels at 3~m distance.
 	\item Plot mean \mbox{RSSI} vs.\ \mbox{TX} power (scatter with error bars of $\pm 1 \sigma$). The relationship should be monotonically increasing.
 \end{enumerate}
 
-\subsection{Step 6 --- Campaign C2: Spreading factor sweep}
+\subsection{Step 7 --- Campaign C2: Spreading factor sweep}
 \begin{enumerate}[leftmargin=2em]
-	\item Keep Target~A at +14~dBm, LoRa, 3~m. Fix the initiator interval at 2 seconds (independent of SF --- Target~A will miss some interval ticks at high SF due to long on-air time, which is expected). Target~B and Threat button remain inactive.
-	\item Iterate through SF7, SF8, SF9, SF10, SF11, SF12. For each SF:
+	\item Keep Target~A at +14~dBm (\texttt{LORA\_TX\_PWR\_DBM 14}), 3~m from the Threat antenna. Threat powered on, no button press needed. Target~B off.
+	\item The spreading factor must be updated in \textbf{both} \texttt{Nucleo\_RFM95\_TargetA} and \texttt{Nucleo\_RFM95\_Threat} for each sweep step. The SX1276 receiver configures \texttt{RegModemConfig2} with a fixed SF and cannot auto-detect across different spreading factors in explicit-header mode --- if Target~A transmits at SF8 but the Threat is still configured for SF7, the Threat will not demodulate any packets. Set \texttt{LORA\_SF} in \texttt{Core/Src/main.c} of \emph{each} project to the same value before building:
+
+	\begin{center}
+	\renewcommand{\arraystretch}{1.2}
+	\begin{tabular}{cll}
+		\toprule
+		\textbf{Spreading factor} & \textbf{Target A define} & \textbf{Threat define} \\
+		\midrule
+		SF7  & \texttt{\#define LORA\_SF  7}  & \texttt{\#define LORA\_SF  7} \\
+		SF8  & \texttt{\#define LORA\_SF  8}  & \texttt{\#define LORA\_SF  8} \\
+		SF9  & \texttt{\#define LORA\_SF  9}  & \texttt{\#define LORA\_SF  9} \\
+		SF10 & \texttt{\#define LORA\_SF  10} & \texttt{\#define LORA\_SF  10} \\
+		\bottomrule
+	\end{tabular}
+	\end{center}
+
+	\item For each SF:
 	\begin{itemize}[leftmargin=1.2em]
-		\item Reflash Target~A's firmware with the new spreading factor.
-		\item Run \texttt{collect.py} with the corresponding config JSON. Collect 200 packets.
+		\item Update \texttt{LORA\_SF} in \texttt{main.c} of \textbf{both} the Target~A and Threat projects.
+		\item Press \textbf{F7} then \textbf{F5} in each VS~Code window to build and flash both boards.
+		\item Confirm both debug terminals print \texttt{lora\_init done: SF=\textit{N} TxPwr=\textit{X} dBm} with the matching SF before collecting.
+		\item Run \texttt{python collect.py}, select the matching C2 entry from the menu (e.g.\ \emph{C2 SF Sweep --- SF7}), and enter the FPGA's USB-UART COM port. Collect 200 packets.
 	\end{itemize}
-	\item At SF12, each packet takes $\approx$1.5 seconds on-air. The 2-second interval will produce packets at roughly 0.5--0.67~fps. Collecting 200 packets at SF12 takes approximately 5--7 minutes.
 \end{enumerate}
 
-\subsection{Step 7 --- Validate Campaign C2}
+\subsection{Step 8 --- Validate Campaign C2}
 \begin{enumerate}[leftmargin=2em]
-	\item Concatenate all six SF CSV files.
-	\item Verify 1200 total rows and that \texttt{label\_sf} cycles through values 7--12.
-	\item Compute \texttt{inter\_arrival\_ms} statistics per SF. The median inter-arrival time should increase with SF (each additional spreading factor roughly doubles the on-air time). Generate a box plot of \texttt{inter\_arrival\_ms} by \texttt{label\_sf}.
+	\item Concatenate all six SF CSV files from their \texttt{logs/} subfolders:
+	\begin{lstlisting}[language=Python, caption={Campaign C2 validation.}]
+import pandas as pd
+from pathlib import Path
+
+logs = Path("logs")
+files = [logs / f"campaign_c2_sf{sf}" /
+         f"results_campaign_c2_sf{sf}.csv"
+         for sf in range(7, 11)]
+df = pd.concat([pd.read_csv(f) for f in files])
+print(f"Total rows: {len(df)}")  # expect 800
+	\end{lstlisting}
+	\item Verify 800 total rows and that \texttt{label\_sf} cycles through values 7--10.
+	\item Compute \texttt{inter\_arrival\_ms} statistics per SF. At SF7--SF10 the on-air time (7--28\,ms) is well under the 1-second TX interval, so the \emph{median} inter-arrival time will be flat at $\approx$1001\,ms across all four SFs. The discriminative signal is the \textbf{mean and IQR}, which increase with SF as occasional packet misses (caused by longer on-air collision windows) inject 2$\times$ or 3$\times$ outliers. Generate a box plot of \texttt{inter\_arrival\_ms} by \texttt{label\_sf} and confirm the IQR widens with SF.
 \end{enumerate}
 
-\labfigure{LH3F_c2_interarrival_boxplot.png}{0.85\textwidth}{Box plot of inter-arrival time (ms) by spreading factor from Campaign~C2. Median inter-arrival time should approximately double with each SF increment, reflecting the increasing \RF{} on-air time.}{fig:lh3f-boxplot}
+\labfigure{LH3F_c2_interarrival_boxplot.png}{0.85\textwidth}{Box plot of inter-arrival time (ms) by spreading factor from Campaign~C2. At SF7--SF10 the median stays flat at $\approx$1001\,ms (on-air time is shorter than the TX interval), but the IQR and mean increase with SF as higher spreading factors produce more frequent packet misses.}{fig:lh3f-boxplot}
 
 \section{Verification Checklist}
 \begin{itemize}[leftmargin=2em]
 	\item[$\square$] Collection script handles \mbox{CRC} mismatches gracefully (logs warning, skips row, continues).
 	\item[$\square$] Dry run: 10 rows, correct schema, no errors.
 	\item[$\square$] C1: 800 total rows; mean \mbox{RSSI} monotonically increases with \mbox{TX} power.
-	\item[$\square$] C2: 1200 total rows; inter-arrival time increases with spreading factor.
+	\item[$\square$] C2: 800 total rows; inter-arrival time increases with spreading factor across SF7--SF10.
 	\item[$\square$] No sequence number gaps larger than 3 within a single campaign run (isolated gaps are acceptable; a run of gaps indicates a collection script crash or FPGA reset).
 \end{itemize}
 
 \begin{tcolorbox}[deliverable={Lab Handout 3-F Deliverable}]
 	\begin{enumerate}[leftmargin=1.2em]
 		\item \texttt{collect.py} source code with inline documentation.
-		\item All campaign configuration JSON files: 10 total, one per sweep step (4 for C1 TX-power levels + 6 for C2 spreading-factor levels).
+		\item All campaign configuration JSON files: 9 total (1 dry-run + 4 for C1 TX-power levels + 4 for C2 spreading-factor levels).
 		\item Campaign C1 CSV files (4 files) and concatenated C1 summary: mean/std \mbox{RSSI} per power level, scatter plot of \mbox{RSSI} vs.\ \mbox{TX} power.
-		\item Campaign C2 CSV files (6 files) and box plot of inter-arrival time by spreading factor.
+		\item Campaign C2 CSV files (4 files) and box plot of inter-arrival time by spreading factor.
 		\item Preliminary data quality assessment: label mismatch count, \mbox{CRC} failure count, any anomalous runs.
 	\end{enumerate}
 \end{tcolorbox}

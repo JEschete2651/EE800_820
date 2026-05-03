@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -35,6 +36,39 @@ MAX_VISIBLE_LINES = 5000
 PORT_REFRESH_MS = 1500
 DEFAULT_BAUD = 115200
 QT_USER_ROLE = 32
+HEX_BYTES_PER_LINE = 16
+FRAME_START_BYTE = 0x7E
+FRAME_LENGTH_FIELD = 0x29
+FRAME_TOTAL_BYTES = 43
+
+
+def format_hex_ascii_line(offset: int, data: bytes) -> str:
+    hex_part = " ".join(f"{b:02X}" for b in data)
+    hex_part = hex_part.ljust(HEX_BYTES_PER_LINE * 3 - 1)
+    ascii_part = "".join(chr(b) if 32 <= b <= 126 else "." for b in data)
+    return f"{offset:08X}  {hex_part}  |{ascii_part}|"
+
+
+def packet_type_name(pkt_type: int) -> str:
+    if pkt_type == 0:
+        return "DATA"
+    if pkt_type == 1:
+        return "ACK"
+    if pkt_type == 2:
+        return "PAUSE"
+    return f"TYPE{pkt_type}"
+
+
+def format_frame_line(frame_index: int, offset: int, frame: bytes) -> str:
+    beacon_id = frame[12] if len(frame) > 12 else 0
+    mod_code = frame[16] if len(frame) > 16 else 0
+    pkt_type = mod_code & 0x03
+    hex_part = " ".join(f"{b:02X}" for b in frame)
+    return (
+        f"F{frame_index:06d} @0x{offset:08X} len=0x{frame[1]:02X} "
+        f"id=0x{beacon_id:02X} mod=0x{mod_code:02X} pkt={packet_type_name(pkt_type)} "
+        f"| {hex_part}"
+    )
 
 
 class SerialReaderWorker(QObject):
@@ -44,12 +78,20 @@ class SerialReaderWorker(QObject):
     error_occurred = pyqtSignal(str, str)
     finished = pyqtSignal(str)
 
-    def __init__(self, port_name: str, baud_rate: int, timeout_s: float, log_file_path: Optional[Path]):
+    def __init__(
+        self,
+        port_name: str,
+        baud_rate: int,
+        timeout_s: float,
+        log_file_path: Optional[Path],
+        format_mode: str,
+    ):
         super().__init__()
         self.port_name = port_name
         self.baud_rate = baud_rate
         self.timeout_s = timeout_s
         self.log_file_path = log_file_path
+        self.format_mode = format_mode
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -66,11 +108,20 @@ class SerialReaderWorker(QObject):
         log_file = None
         writer = None
         line_buffer = bytearray()
+        raw_buffer = bytearray()
+        raw_offset = 0
+        frame_counter = 0
 
         try:
             self.status_changed.emit(self.port_name, "Opening serial port...")
             ser = serial.Serial(self.port_name, self.baud_rate, timeout=self.timeout_s)
-            self.status_changed.emit(self.port_name, f"Monitoring at {self.baud_rate} baud")
+            if self.format_mode == "Hex + ASCII":
+                mode_label = "HEX"
+            elif self.format_mode == "Frame (43-byte)":
+                mode_label = "FRAME"
+            else:
+                mode_label = "TEXT"
+            self.status_changed.emit(self.port_name, f"Monitoring at {self.baud_rate} baud [{mode_label}]")
 
             if self.log_file_path is not None:
                 self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,22 +136,74 @@ class SerialReaderWorker(QObject):
                     continue
 
                 self.bytes_received.emit(self.port_name, len(chunk))
-                line_buffer.extend(chunk)
 
-                while True:
-                    newline_idx = line_buffer.find(b"\n")
-                    if newline_idx < 0:
-                        break
+                if self.format_mode == "Hex + ASCII":
+                    raw_buffer.extend(chunk)
+                    while len(raw_buffer) >= HEX_BYTES_PER_LINE:
+                        row = bytes(raw_buffer[:HEX_BYTES_PER_LINE])
+                        del raw_buffer[:HEX_BYTES_PER_LINE]
+                        self._emit_line(format_hex_ascii_line(raw_offset, row), writer, log_file)
+                        raw_offset += len(row)
+                elif self.format_mode == "Frame (43-byte)":
+                    raw_buffer.extend(chunk)
+                    while True:
+                        start_idx = raw_buffer.find(bytes([FRAME_START_BYTE]))
+                        if start_idx < 0:
+                            if len(raw_buffer) > 1024:
+                                raw_offset += len(raw_buffer)
+                                raw_buffer.clear()
+                            break
 
-                    raw_line = line_buffer[:newline_idx]
-                    del line_buffer[: newline_idx + 1]
-                    text = raw_line.rstrip(b"\r").decode("utf-8", errors="replace")
-                    self._emit_line(text, writer, log_file)
+                        if start_idx > 0:
+                            raw_offset += start_idx
+                            del raw_buffer[:start_idx]
 
-            if line_buffer:
-                text = bytes(line_buffer).rstrip(b"\r\n").decode("utf-8", errors="replace")
-                if text:
-                    self._emit_line(text, writer, log_file)
+                        if len(raw_buffer) < 2:
+                            break
+
+                        if raw_buffer[1] != FRAME_LENGTH_FIELD:
+                            raw_offset += 1
+                            del raw_buffer[0]
+                            continue
+
+                        if len(raw_buffer) < FRAME_TOTAL_BYTES:
+                            break
+
+                        frame = bytes(raw_buffer[:FRAME_TOTAL_BYTES])
+                        del raw_buffer[:FRAME_TOTAL_BYTES]
+                        frame_counter += 1
+                        self._emit_line(format_frame_line(frame_counter, raw_offset, frame), writer, log_file)
+                        raw_offset += FRAME_TOTAL_BYTES
+                else:
+                    line_buffer.extend(chunk)
+
+                    while True:
+                        newline_idx = line_buffer.find(b"\n")
+                        if newline_idx < 0:
+                            break
+
+                        raw_line = line_buffer[:newline_idx]
+                        del line_buffer[: newline_idx + 1]
+                        text = raw_line.rstrip(b"\r").decode("utf-8", errors="replace")
+                        self._emit_line(text, writer, log_file)
+
+            if self.format_mode == "Hex + ASCII":
+                if raw_buffer:
+                    self._emit_line(format_hex_ascii_line(raw_offset, bytes(raw_buffer)), writer, log_file)
+            elif self.format_mode == "Frame (43-byte)":
+                if raw_buffer:
+                    preview = bytes(raw_buffer[:32])
+                    preview_hex = " ".join(f"{b:02X}" for b in preview)
+                    self._emit_line(
+                        f"[tail] {len(raw_buffer)} bytes buffered (waiting for full frame): {preview_hex}",
+                        writer,
+                        log_file,
+                    )
+            else:
+                if line_buffer:
+                    text = bytes(line_buffer).rstrip(b"\r\n").decode("utf-8", errors="replace")
+                    if text:
+                        self._emit_line(text, writer, log_file)
 
             self.status_changed.emit(self.port_name, "Stopped")
         except Exception as exc:
@@ -125,6 +228,7 @@ class SerialReaderWorker(QObject):
 @dataclass
 class PortPanel:
     container: QWidget
+    format_combo: QComboBox
     output: QPlainTextEdit
     status_label: QLabel
     bytes_label: QLabel
@@ -149,6 +253,8 @@ class MainWindow(QMainWindow):
         self.panels_by_port: dict[str, PortPanel] = {}
         self.active_sessions: dict[str, ActiveSession] = {}
         self.total_bytes_by_port: dict[str, int] = {}
+        self.port_formats_by_port: dict[str, str] = {}
+        self.pending_restarts: set[str] = set()
 
         self._build_ui()
         self.refresh_ports()
@@ -218,6 +324,12 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         self.monitor_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.monitor_splitter.setChildrenCollapsible(False)
+        self.monitor_splitter.setHandleWidth(10)
+        self.monitor_splitter.setOpaqueResize(True)
+        self.monitor_splitter.setStyleSheet(
+            "QSplitter::handle { background-color: #b8b8b8; }"
+            "QSplitter::handle:horizontal { width: 10px; }"
+        )
         right_layout.addWidget(self.monitor_splitter)
 
         main_splitter.addWidget(left_panel)
@@ -261,15 +373,35 @@ class MainWindow(QMainWindow):
             return existing
 
         container = QWidget()
+        container.setMinimumWidth(0)
         layout = QVBoxLayout(container)
 
         title_label = QLabel(f"Port: {port_name}")
+        title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        title_label.setMinimumWidth(0)
         layout.addWidget(title_label)
+
+        format_row = QHBoxLayout()
+        format_row.addWidget(QLabel("Format:"))
+        format_combo = QComboBox()
+        format_combo.addItems(["Text", "Hex + ASCII", "Frame (43-byte)"])
+        format_combo.setCurrentText(self.port_formats_by_port.get(port_name, "Text"))
+        format_combo.currentTextChanged.connect(
+            lambda value, p=port_name: self.on_port_format_changed(p, value)
+        )
+        format_row.addWidget(format_combo)
+        format_row.addStretch(1)
 
         status_row = QHBoxLayout()
         status_label = QLabel("Status: Idle")
+        status_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        status_label.setMinimumWidth(0)
         bytes_label = QLabel("Bytes: 0")
+        bytes_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        bytes_label.setMinimumWidth(0)
         log_label = QLabel("Log: not active")
+        log_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        log_label.setMinimumWidth(0)
         status_row.addWidget(status_label)
         status_row.addWidget(bytes_label)
         status_row.addWidget(log_label)
@@ -278,7 +410,9 @@ class MainWindow(QMainWindow):
         output = QPlainTextEdit()
         output.setReadOnly(True)
         output.setLineWrapMode(QPlainTextEdit.NoWrap)
+        output.setMinimumWidth(0)
 
+        layout.addLayout(format_row)
         layout.addLayout(status_row)
         layout.addWidget(output)
 
@@ -286,6 +420,7 @@ class MainWindow(QMainWindow):
 
         panel = PortPanel(
             container=container,
+            format_combo=format_combo,
             output=output,
             status_label=status_label,
             bytes_label=bytes_label,
@@ -346,6 +481,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No Port Selected", "Select one or more COM ports first.")
             return
 
+        self.start_ports(ports)
+
+    def start_ports(self, ports: list[str]) -> None:
+        if not ports:
+            return
+
         baud = self._current_baud()
         enable_logging = self.logging_checkbox.isChecked()
 
@@ -357,6 +498,9 @@ class MainWindow(QMainWindow):
             self.total_bytes_by_port.setdefault(port_name, 0)
             panel.status_label.setText("Status: Starting...")
 
+            selected_format = panel.format_combo.currentText()
+            self.port_formats_by_port[port_name] = selected_format
+
             log_path = None
             if enable_logging:
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -367,7 +511,7 @@ class MainWindow(QMainWindow):
                 panel.log_label.setText("Log: disabled")
 
             thread = QThread(self)
-            worker = SerialReaderWorker(port_name, baud, 0.2, log_path)
+            worker = SerialReaderWorker(port_name, baud, 0.2, log_path, selected_format)
             worker.moveToThread(thread)
 
             thread.started.connect(worker.run)
@@ -396,6 +540,19 @@ class MainWindow(QMainWindow):
             panel.status_label.setText("Status: Stopping...")
 
         session.worker.stop()
+
+    def on_port_format_changed(self, port_name: str, selected_format: str) -> None:
+        self.port_formats_by_port[port_name] = selected_format
+
+        if port_name not in self.active_sessions:
+            return
+
+        panel = self.panels_by_port.get(port_name)
+        if panel is not None:
+            panel.status_label.setText("Status: Restarting for format change...")
+
+        self.pending_restarts.add(port_name)
+        self.stop_port(port_name)
 
     def stop_all_ports(self) -> None:
         for port_name in list(self.active_sessions.keys()):
@@ -445,6 +602,10 @@ class MainWindow(QMainWindow):
             panel.status_label.setText("Status: Error")
 
     def on_worker_finished(self, port_name: str) -> None:
+        restart_requested = port_name in self.pending_restarts
+        if restart_requested:
+            self.pending_restarts.discard(port_name)
+
         session = self.active_sessions.pop(port_name, None)
         if session is not None:
             session.thread.quit()
@@ -454,6 +615,9 @@ class MainWindow(QMainWindow):
 
         self._remove_port_panel(port_name)
         self.refresh_ports()
+
+        if restart_requested:
+            self.start_ports([port_name])
 
     def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         if a0 is None:

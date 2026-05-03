@@ -1,0 +1,15 @@
+{
+    "campaign_id":         "DRY",
+    "run_id":              "DRY_2026-05-03T12:00:00Z",
+    "sweep_variable":      "none",
+    "sweep_value":         0,
+    "fixed_sf":            7,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
+    "num_active_stations": 1,
+    "expected_pkt_types":  [0],
+    "target_packets":      10,
+    "notes":               "10-packet dry run validation, Target A only",
+    "description":         "DRY RUN -- 10 packets, SF7, Target A (connection/parser verification)"
+}

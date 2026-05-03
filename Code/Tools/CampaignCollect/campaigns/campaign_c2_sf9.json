@@ -1,0 +1,15 @@
+{
+    "campaign_id":         "C2",
+    "run_id":              "C2_sf09_2026-05-03T12:00:00Z",
+    "sweep_variable":      "spread_factor",
+    "sweep_value":         9,
+    "fixed_sf":            9,
+    "fixed_mod":           "lora",
+    "fixed_mod_kind":      1,
+    "fixed_distance_m":    3.0,
+    "num_active_stations": 1,
+    "expected_pkt_types":  [0],
+    "target_packets":      200,
+    "notes":               "Spreading factor sweep at +14 dBm, Target A only",
+    "description":         "C2 SF Sweep -- SF9, +14 dBm, 200 packets, Target A"
+}

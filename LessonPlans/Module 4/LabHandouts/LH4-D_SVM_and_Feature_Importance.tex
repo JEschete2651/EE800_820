@@ -66,7 +66,7 @@ def grid_search_svm(task):
                 f"artifacts/{task}/svm.pkl")
     return best, X_te, y_te, pre
 
-for t in ["sf", "mod", "beacon", "pkt"]:
+for t in ["sf", "mod", "beacon"]:
     grid_search_svm(t)
 \end{lstlisting}
 
@@ -80,7 +80,7 @@ for t in ["sf", "mod", "beacon", "pkt"]:
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     d = joblib.load(f"artifacts/{task}/svm.pkl")
     svm = d["model"]
     _, _, _, _, X_te, y_te, pre = load_task(task)
@@ -122,7 +122,7 @@ def perm_importance(model, X_te, y_te, feature_names, task, n_repeats=20):
               f"mean={r.importances_mean[i]:+.3f}  "
               f"std={r.importances_std[i]:.3f}")
 
-for task in ["sf", "mod", "beacon", "pkt"]:
+for task in ["sf", "mod", "beacon"]:
     d = joblib.load(f"artifacts/{task}/svm.pkl")
     _, _, _, _, X_te, y_te, pre = load_task(task)
     perm_importance(d["model"], X_te, y_te, pre["feature_cols"], task)
