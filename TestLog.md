@@ -1319,3 +1319,160 @@ This is what success looks like for the Module 4 deliverable, with the caveats t
 **Result:** PASS. The Module 4 pipeline is end-to-end validated on hardware with on-disk evidence. Inference latency, alternation correctness, and structural-alias behaviour all match the predictions made during training (LH4-C/D/E), robustness analysis (LH4-G), and rubric selection (LH4-H select_model.py).
 
 ---
+
+## Data Provenance Index
+
+This section maps every TestLog entry above to the input files it consumed and the output files it produced. Paths are relative to the project root unless otherwise noted. The intent is that anyone re-running the pipeline can identify both the upstream data dependency and the downstream artefact for each handout.
+
+### Module 1
+
+**LH1-H — End-to-end ingestion**
+- Input: live USART2 stream from Target A (no on-disk source); operator stopwatch for the live ingestion run
+- Output: stopwatch + LED observation only — no file artefact
+
+### Module 2
+
+**LH2-A — FPGA passthrough + capture set**
+- Input: live UART stream from Target A under three configured scenarios (clean / mixed / corrupt)
+- Output:
+  - `Code/ingest_top/data/capture_clean.bin`
+  - `Code/ingest_top/data/capture_mixed.bin`
+  - `Code/ingest_top/data/capture_corrupt.bin`
+  - These three files are the canonical Module 2 regression set used by every later RTL testbench.
+
+**LH2-B / LH2-C / LH2-D / LH2-E / LH2-F — Unit and regression testbenches**
+- Input: synthetic stimulus generated inline in the testbench (no on-disk dataset). LH2-E uses Semtech SX1276 datasheet golden vectors as ground truth (literal-value comparison; no file).
+- Output: simulation waveforms in the corresponding `tb_*` directory under the Vivado project; PASS/FAIL transcript captured in this TestLog.
+
+**LH2-G — Three-scenario byte-for-byte regression**
+- Input: the LH2-A captures (`capture_clean.bin`, `capture_mixed.bin`, `capture_corrupt.bin`) replayed into the integrated `ingest_top` testbench.
+- Output: simulation transcripts; this is the test that gates the bitstream build.
+
+**LH2-H — Synthesis / timing / power**
+- Input: `Code/ingest_top/ingest_top.runs/synth_1/` and `impl_1/` runs (Vivado-managed; no external data).
+- Output: utilization / timing / CDC / power reports under the same `runs/` tree; numbers transcribed into this TestLog.
+
+### Module 3
+
+**LH3-F — Campaign C1 (TX power sweep)**
+- Input: live UART stream from Target A via `Code/Tools/CampaignCollect/collect.py`, configured by the per-power campaign JSONs:
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c1_txpwr_2.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c1_txpwr_8.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c1_txpwr_14.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c1_txpwr_20.json`
+- Output (per-power):
+  - `Code/Tools/CampaignCollect/logs/campaign_c1_txpwr_2/results_campaign_c1_txpwr_2.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c1_txpwr_8/results_campaign_c1_txpwr_8.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c1_txpwr_14/results_campaign_c1_txpwr_14.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c1_txpwr_20/results_campaign_c1_txpwr_20.csv`
+- Concatenated: `Code/Tools/CampaignCollect/logs/C1_combined.csv` (via `concatenate.py`).
+
+**LH3-F — Campaign C2 (spreading factor sweep)**
+- Input campaign configs (SF7 through SF10; SF11/SF12 abandoned, see entry):
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c2_sf7.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c2_sf8.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c2_sf9.json`
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c2_sf10.json`
+  - (`campaign_c2_sf11.json`, `campaign_c2_sf12.json` exist but were not collected)
+- Output (per-SF):
+  - `Code/Tools/CampaignCollect/logs/campaign_c2_sf7/results_campaign_c2_sf7.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c2_sf8/results_campaign_c2_sf8.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c2_sf9/results_campaign_c2_sf9.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c2_sf10/results_campaign_c2_sf10.csv`
+
+**LH3-G — Campaign C3 dropped, C4 not collected** — no data files.
+
+**LH3-G — Campaign C5 (active-station scaling)**
+- Input campaign configs:
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c5a.json` (single-station baseline)
+  - `Code/Tools/CampaignCollect/campaigns/campaign_c5b.json` (two-station ping-pong; introduces the structural alias documented throughout LH4)
+- Output:
+  - `Code/Tools/CampaignCollect/logs/campaign_c5a/results_campaign_c5a.csv`
+  - `Code/Tools/CampaignCollect/logs/campaign_c5b/results_campaign_c5b.csv`
+
+**LH3-H — Dataset merge**
+- Input: every per-campaign CSV under `Code/Tools/CampaignCollect/logs/campaign_*/results_*.csv` (C1 ×4, C2 ×4, C5 ×2 = 10 files) consumed by `Code/Tools/CampaignCollect/merge_dataset.py`.
+- Output:
+  - `Code/Tools/CampaignCollect/merged_dataset.csv` — the canonical merged dataset that every Module 4 script reads.
+  - EDA figures written under `Code/AIML/figs/eda_*.png` (per the LH3-H step transcript).
+
+**LH3-H — Bridge check (LH4-A audit)**
+- Input: `Code/Tools/CampaignCollect/merged_dataset.csv`
+- Output: `Code/AIML/Logs/load_and_validate_20260503T204509Z.log` (+ `_latest.log` mirror); validation summary dumped to stdout.
+
+**LH3-H bis — Row-level split fallback**
+- Input: same `merged_dataset.csv` after the run-level split was found degenerate.
+- Output: re-merge with row-level split logic; same `merged_dataset.csv` path (overwritten); a WARN line in the merge log records the split fallback.
+
+### Module 4
+
+**LH4-B — Preprocessing**
+- Input: `Code/Tools/CampaignCollect/merged_dataset.csv`
+- Output:
+  - `Code/AIML/preprocess_manifest.json` — per-task feature columns, scaler params, encoder, drop list, split sizes
+  - `Code/AIML/artifacts/<task>/X_{train,val,test}.npy`, `y_{train,val,test}.npy`, `regs_{train,val,test}.npy`, `src_{train,val,test}.npy` for each of the four tasks (`sf`, `beacon`, `pkt`, `mod`); the `mod` task is single-class and is auto-skipped by all downstream training.
+  - Sequence-window arrays for the CNN: `Xs_{train,val,test}.npy`, `ys_{train,val,test}.npy`
+  - `Code/AIML/artifacts/<task>/preprocessor.pkl` (joblib bundle of scaler + encoder + feature_cols)
+  - `Code/AIML/Logs/preprocess_20260503T210505Z.log` (+ `_latest.log` mirror)
+  - `Code/AIML/validation_manifest.json` — schema snapshot used by the LH4-H schema-drift check
+
+**LH4-C — Dummy / Decision Tree / Random Forest baselines**
+- Input: per-task `X_*.npy`, `y_*.npy` from `Code/AIML/artifacts/<task>/`
+- Output:
+  - `Code/AIML/baselines_manifest.json` — dummy / DT / RF accuracy per task, classification reports, RF model paths
+  - `Code/AIML/artifacts/<task>/rf.pkl` per task (where applicable)
+  - `Code/AIML/Logs/baselines_20260503T210526Z.log` (+ `_latest.log`)
+
+**LH4-D — SVM grid search + permutation importance**
+- Input: per-task `X_*.npy`, `y_*.npy` from `Code/AIML/artifacts/<task>/`
+- Output:
+  - `Code/AIML/svm_manifest.json` — best params, test accuracy, classification report, permutation importance per task
+  - `Code/AIML/artifacts/<task>/svm.pkl` per task
+  - `Code/AIML/Logs/svm_train_20260503T210917Z.log` (+ `_latest.log`)
+
+**LH4-E — MLP with seed sweep**
+- Input: per-task `X_*.npy`, `y_*.npy` from `Code/AIML/artifacts/<task>/`
+- Output:
+  - `Code/AIML/mlp_manifest.json` — per-task test accuracy, classification report, calibration ECE, seed sweep std
+  - `Code/AIML/artifacts/<task>/mlp.pt` per task (state dict + config)
+  - `Code/AIML/Logs/mlp_train_20260503T211331Z.log` (+ `_latest.log`)
+
+**LH4-F — 1-D CNN + operating-condition shift**
+- Input: sequence-window arrays `Xs_*.npy`, `ys_*.npy` per task, plus regime/source-index arrays for the C1-vs-C5 op-shift split
+- Output:
+  - `Code/AIML/cnn_manifest.json` — per-task accuracy, op-shift Δ, fine-tune recovery
+  - `Code/AIML/artifacts/<task>/cnn.pt` per task
+  - `Code/AIML/Logs/cnn_train_20260503T213527Z.log` (+ `_latest.log`)
+
+**LH4-G — Stratified accuracy by SNR / distance / stations**
+- Input:
+  - `Code/AIML/artifacts/<task>/X_test.npy`, `y_test.npy`, `Xs_test.npy`, `ys_test.npy`, `regs_test.npy`, `src_test.npy`
+  - `Code/Tools/CampaignCollect/merged_dataset.csv` (for the original `snr_db`, `distance_m`, `regime` columns indexed by `src_test`)
+  - All four trained-model artefacts: `rf.pkl`, `svm.pkl`, `mlp.pt`, `cnn.pt` per task
+- Output:
+  - `Code/AIML/figs/stratified_sf.png`, `stratified_beacon.png`, `stratified_pkt.png`
+  - `Code/AIML/stratified_manifest.json` — per-task per-model bucket data with Wilson 95% CIs
+  - `Code/AIML/Logs/stratified_20260503T213617Z.log` (+ `_latest.log`)
+
+**LH4-H — Rubric driver (`select_model.py`)**
+- Input:
+  - `Code/AIML/baselines_manifest.json`
+  - `Code/AIML/svm_manifest.json`
+  - `Code/AIML/mlp_manifest.json`
+  - `Code/AIML/cnn_manifest.json`
+  - `Code/AIML/stratified_manifest.json`
+  - `Code/AIML/validation_manifest.json` (schema-drift check)
+  - All trained-model artefacts under `Code/AIML/artifacts/<task>/` (latency microbenchmark loads each candidate and times its per-frame predict)
+- Output:
+  - `Code/AIML/deployment_manifest.json` — full rubric scores + latency stats + `deployed_choice` + `needed_columns`
+  - `Code/AIML/Logs/select_model_20260503T215413Z.log` (+ `_latest.log`)
+
+**LH4-H — Live hardware demo (`live_inference.py`)**
+- Input:
+  - `Code/AIML/deployment_manifest.json` (deployed model choice per task)
+  - `Code/AIML/artifacts/<task>/preprocessor.pkl` per deployed task
+  - `Code/AIML/artifacts/<task>/<chosen-model>.{pkl,pt}` per deployed task (CNN for `sf`, SVM for `beacon` and `pkt`)
+  - Live UART stream from the FPGA on COM7 @ 115200 baud (no on-disk source); 43-byte LH3-F-format frames parsed via `Code/Tools/CampaignCollect/collect.py:parse_forwarding_frame`
+- Output:
+  - `Code/AIML/Logs/live_inference_20260503T221035Z.log` (362-row archive of the 3-minute timed run)
+  - `Code/AIML/Logs/live_inference_latest.log` mirror
