@@ -40,16 +40,20 @@ Modules 1–4 were executed end-to-end on physical hardware. Module 5 is fully s
 │   ├── Labs/                        # Lab-handout-specific working files
 │   └── NeededFiles/                 # Loose reference assets
 ├── LessonPlans/
-│   ├── Module 1/ ... Module 5/      # Lesson plans + 8 lab handouts per module (LH*-A..H)
+│   ├── Module 1/ ... Module 5/      # Per-module lesson plan + LabHandouts/LH*-A..H
+│   ├── Template/
+│   ├── glossary.tex
+│   └── Curriculum_Sequence.tex      # Top-level curriculum sequence document
+├── Proposal/                        # Original research proposal (Spring 2026)
 ├── Term_Paper/
-│   ├── Proposal/                    # Original research proposal (Spring 2026)
 │   ├── Midstage/                    # Mid-stage report (March 2026)
 │   ├── FinalReport/                 # Final IEEE-format report (May 2026)
-│   ├── PresentationScaffold.md      # 5-slide capstone presentation outline + Q&A bank
+│   ├── Sources/                     # Reference PDFs and source materials
+│   ├── conference-latex-template_10-17-19/  # IEEE conference template
 │   ├── FinalReportReqs.txt          # Course-level submission requirements
+│   ├── MidStageReportInstructions.txt
 │   └── How to prepare the final report.pdf
 ├── Notes/                           # Working notes, references, screenshots
-├── Weekly_Reports/                  # Per-week progress reports
 ├── Videos/                          # Demo / lab-walkthrough captures
 ├── TestLog.md                       # Running validation log across all lab handouts
 ├── ExplanationsLog.md               # Documented integration faults and resolutions
