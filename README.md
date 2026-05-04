@@ -2,10 +2,10 @@
 
 This repository contains the complete deliverable for an EE800/820 master's capstone project: a five-module progressive curriculum that integrates FPGA digital design, RF communications, embedded firmware, and machine learning into a single hardware-grounded learning sequence, paired with a benchtop reference implementation that instantiates each cross-domain interface as a directly observable design problem.
 
-Student: Jude Eschete
-Advisor: Dr. Bernard Yett
-Institution: Stevens Institute of Technology, Department of Electrical and Computer Engineering
-Semester: Spring 2026
+Student: Jude Eschete    
+Advisor: Dr. Bernard Yett    
+Institution: Stevens Institute of Technology, Department of Electrical and Computer Engineering    
+Semester: Spring 2026    
 
 ## Overview
 
