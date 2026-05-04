@@ -45,7 +45,6 @@ Modules 1–4 were executed end-to-end on physical hardware. Module 5 is fully s
 │   ├── Proposal/                    # Original research proposal (Spring 2026)
 │   ├── Midstage/                    # Mid-stage report (March 2026)
 │   ├── FinalReport/                 # Final IEEE-format report (May 2026)
-│   ├── PresentationScaffold.md      # 5-slide capstone presentation outline + Q&A bank
 │   ├── FinalReportReqs.txt          # Course-level submission requirements
 │   └── How to prepare the final report.pdf
 ├── Notes/                           # Working notes, references, screenshots
